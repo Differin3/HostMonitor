@@ -3,14 +3,9 @@
 
 set -euo pipefail # строгий режим bash
 
-REPO_URL="${1:-}" # URL репозитория (обязательный аргумент)
+REPO_URL="${1:-https://github.com/Differin3/HostMonitor}" # URL репозитория (по умолчанию HostMonitor)
 BRANCH="${2:-main}" # ветка по умолчанию
-INSTALL_DIR="${3:-/opt/monitoring}" # каталог установки
-
-if [[ -z "$REPO_URL" ]]; then
-  echo "[install_panel] Использование: $0 <GIT_REPO_URL> [BRANCH] [INSTALL_DIR]" # подсказка
-  exit 1
-fi
+INSTALL_DIR="${3:-/opt/hostmonitor}" # каталог установки
 
 echo "[install_panel] Обновление пакетов..." # apt update
 sudo apt update -y
@@ -56,8 +51,8 @@ fi
 echo "[install_panel] Развёртывание nginx-конфига (если есть nginx/monitoring.conf)..." # nginx config
 if [[ -f "nginx/monitoring.conf" ]]; then
   sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-  sudo cp nginx/monitoring.conf /etc/nginx/sites-available/monitoring
-  sudo ln -sf /etc/nginx/sites-available/monitoring /etc/nginx/sites-enabled/monitoring
+  sudo cp nginx/monitoring.conf /etc/nginx/sites-available/hostmonitor
+  sudo ln -sf /etc/nginx/sites-available/hostmonitor /etc/nginx/sites-enabled/hostmonitor
   sudo nginx -t
   sudo systemctl reload nginx
 fi
@@ -69,7 +64,7 @@ if compgen -G "systemd/*.service" > /dev/null; then
   done
   sudo systemctl daemon-reload
   [[ -f "systemd/monitoring-master.service" ]] && sudo systemctl enable --now monitoring-master || true
-  [[ -f "systemd/monitoring-agent.service" ]] && echo "[install_panel] Для агента задайте NODE_* и включите вручную: sudo systemctl enable --now monitoring-agent" # подсказка по агенту
+  [[ -f "systemd/monitoring-agent.service" ]] && echo "[install_panel] Для агента задайте NODE_* в /etc/systemd/system/monitoring-agent.service и включите: sudo systemctl enable --now monitoring-agent" # подсказка по агенту
   [[ -f "systemd/monitoring-web.service" ]] && sudo systemctl enable --now monitoring-web || true
 fi
 
