@@ -11,7 +11,7 @@
 
 - Debian 11/12 или Ubuntu 20.04+
 - Python 3.9+
-- MySQL/MariaDB 10.5+
+- MariaDB 10.5+ (или MySQL 8.0+)
 - PHP 8.0+ с расширениями: mysql, json
 - Nginx (для production)
 
@@ -36,7 +36,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
 **Что делает:**
 - Запрашивает выбор веб-сервера (nginx или Python)
 - Запрашивает порт для веб-интерфейса (по умолчанию: 80 для nginx, 8080 для Python)
-- Устанавливает все зависимости (Python, MySQL, PHP)
+- Устанавливает все зависимости (Python, MariaDB, PHP)
 - Клонирует репозиторий в `/opt/monitoring`
 - Настраивает базу данных
 - Устанавливает и настраивает выбранный веб-сервер

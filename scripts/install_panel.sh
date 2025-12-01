@@ -42,6 +42,13 @@ else
   sudo apt install -y git python3 python3-venv python3-pip php-cli php-cgi php-mysql mariadb-client postgresql-client
 fi
 
+# MariaDB будет установлен через install.sh, но можно установить заранее если нужно
+if ! command -v mariadb &> /dev/null && ! command -v mysql &> /dev/null; then
+  echo "[install_panel] Установка MariaDB..."
+  sudo apt install -y mariadb-server
+  sudo systemctl enable --now mariadb
+fi
+
 echo "[install_panel] Клонирование/обновление репозитория в ${INSTALL_DIR}..." # git clone/pull
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   sudo git -C "${INSTALL_DIR}" fetch --all --prune
