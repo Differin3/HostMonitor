@@ -1,16 +1,19 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15
+  mysql:
+    image: mysql:8.0
     environment:
-      POSTGRES_DB: monitoring
-      POSTGRES_USER: monitoring
-      POSTGRES_PASSWORD: password
+      MYSQL_DATABASE: monitoring
+      MYSQL_USER: monitoring
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: rootpassword
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
+      - ../schema_mysql.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
-      - "5432:5432"
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
 
   influxdb:
     image: influxdb:2.7
@@ -25,31 +28,23 @@ services:
     ports:
       - "8086:8086"
 
-  api:
-    build: ../master/api
-    ports:
-      - "8000:8000"
-    environment:
-      DB_HOST: postgres
-      DB_NAME: monitoring
-      DB_USER: monitoring
-      DB_PASSWORD: password
-    depends_on:
-      - postgres
-    volumes:
-      - ../master/api:/app
-
   web:
     image: php:8.2-apache
     ports:
       - "8080:80"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: monitoring
+      DB_USER: monitoring
+      DB_PASSWORD: password
     volumes:
-      - ../master/web:/var/www/html
-      - ../frontend:/var/www/html/../frontend
+      - ../monitoring:/var/www/html
+      - ../frontend:/var/www/html/frontend
     depends_on:
-      - api
+      - mysql
 
 volumes:
-  postgres_data:
+  mysql_data:
   influxdb_data:
 

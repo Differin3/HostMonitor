@@ -11,7 +11,7 @@ NGINX_CONF_DST="/etc/nginx/sites-available/monitoring"
 
 log "Установка nginx и PHP-FPM"
 sudo apt update
-sudo apt install -y nginx php-fpm php-pgsql php-mysql php-cli
+sudo apt install -y nginx php-fpm php-mysql php-cli
 
 log "Копирование PHP-приложения в ${WEB_ROOT}"
 sudo mkdir -p "${WEB_ROOT}"

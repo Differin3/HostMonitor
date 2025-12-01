@@ -2,16 +2,18 @@
 
 ## Архитектура
 
-- Backend-агент: Python (`agent/main.py`, `agent/config.py`) собирает метрики/процессы/порты и шлёт их на веб/API.
+- Backend-агент: Python (`agent/main.py`, `agent/config.py`) собирает метрики/процессы/порты/контейнеры и отправляет их на PHP API.
 - Веб-интерфейс и API: PHP (`monitoring/*.php`, `monitoring/api/*.php`) + JS (`frontend/js/*.js`) работают через `/monitoring` и `/api`.
-- База данных: MySQL/MariaDB (основной сценарий, схема в `schema_mysql.sql`), PostgreSQL-скрипт в `database/schema.sql` используется как референс.
-- Деплой: Linux (nginx + PHP-FPM + systemd для master/agent/web) или Windows dev (XAMPP, каталог `xampp_dev/*`).
+- База данных: MySQL/MariaDB (схема в `schema_mysql.sql`), PostgreSQL-скрипт в `database/schema.sql` используется как референс.
+- Деплой: Linux (nginx + PHP-FPM + systemd для agent/web) или Windows dev (XAMPP, каталог `xampp_dev/*`).
 
 ## Требования
 
 - Debian 11/12 или Ubuntu 20.04+
 - Python 3.9+
-- MySQL/MariaDB 10.5+ (или PostgreSQL 13+ при использовании `database/schema.sql`)
+- MySQL/MariaDB 10.5+
+- PHP 8.0+ с расширениями: mysql, json
+- Nginx или Apache (для production)
 - Docker (опционально)
 
 ## Установка на Debian
@@ -28,8 +30,8 @@ sudo ./install.sh
 1. Установить зависимости:
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv postgresql postgresql-contrib \
-    docker.io docker-compose nginx php-fpm php-pgsql
+sudo apt install -y python3 python3-pip python3-venv mysql-server \
+    docker.io docker-compose nginx php-fpm php-mysql php-cli
 ```
 
 2. Создать виртуальное окружение:
@@ -41,31 +43,23 @@ pip install -r requirements.txt
 
 3. Настроить базу данных:
 ```bash
-sudo -u postgres psql -c "CREATE USER monitoring WITH PASSWORD 'password';"
-sudo -u postgres psql -c "CREATE DATABASE monitoring OWNER monitoring;"
-sudo -u postgres psql -d monitoring -f database/schema.sql
+sudo mysql -e "CREATE DATABASE IF NOT EXISTS monitoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+sudo mysql -e "CREATE USER IF NOT EXISTS 'monitoring'@'localhost' IDENTIFIED BY 'password';"
+sudo mysql -e "GRANT ALL PRIVILEGES ON monitoring.* TO 'monitoring'@'localhost';"
+sudo mysql -e "FLUSH PRIVILEGES;"
+sudo mysql monitoring < schema_mysql.sql
 ```
 
 4. Настроить права:
 ```bash
-chmod +x run_master.sh run_agent.sh
+chmod +x run_agent.sh
 ```
 
 ## Запуск
 
-### Главный сервер
+### Веб-интерфейс
 
-```bash
-./run_master.sh
-```
-
-Или как systemd сервис:
-```bash
-sudo cp systemd/monitoring-master.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable monitoring-master
-sudo systemctl start monitoring-master
-```
+См. раздел "Веб-интерфейс" ниже для вариантов запуска (nginx + PHP-FPM или Python HTTP сервер).
 
 ### Агент на ноде
 
@@ -120,23 +114,38 @@ sudo systemctl enable --now monitoring-web
 ```
 
 ## Полный деплой (кратко)
-1. `sudo ./install.sh` — backend (Python-агент + PostgreSQL API слой), PostgreSQL, Docker, nginx, PHP.
+1. `sudo ./install.sh` — установка Python-агента, MySQL, Docker, nginx, PHP.
 2. Веб-интерфейс: либо `scripts/install_web_debian.sh` (nginx + PHP-FPM), либо `python_web_server.py` (dev).
 3. Настроить домен/SSL (см. скрипты выше).
-4. Запустить master/agent (скрипты или systemd units).
+4. Запустить агент: `./run_agent.sh` или через systemd unit.
 
 ## Конфигурация
 
-Настроить переменные окружения в:
-- `master/api/config.py` - главный сервер
-- `agent/config.py` - агент
+### Агент
 
-Или через переменные окружения:
+Настроить переменные окружения в `agent/config.py` или через переменные окружения:
 ```bash
-export DB_HOST=localhost
-export DB_NAME=monitoring
-export MASTER_URL=https://master-server:8000
+export MASTER_URL=https://master-server/monitoring
 export NODE_NAME=node-1
 export NODE_TOKEN=your-token-here
+export COLLECT_INTERVAL=60
+```
+
+Или создать файл `agent/node.conf`:
+```
+MASTER_URL="https://master-server/monitoring"
+NODE_NAME="node-1"
+NODE_TOKEN="your-token-here"
+```
+
+### База данных
+
+Настроить подключение к MySQL через переменные окружения или в `monitoring/includes/database.php`:
+```bash
+export DB_HOST=localhost
+export DB_PORT=3306
+export DB_NAME=monitoring
+export DB_USER=monitoring
+export DB_PASSWORD=password
 ```
 
