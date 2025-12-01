@@ -153,7 +153,8 @@ async function closePort(port, nodeId) {
             throw new Error(error.error || `Ошибка ${response.status}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (window.showToast) {
             window.showToast(data.message || `Порт ${port} закрыт`, 'success');
         }

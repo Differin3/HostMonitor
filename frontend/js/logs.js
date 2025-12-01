@@ -17,7 +17,8 @@ async function loadNodes() {
     try {
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
         if (!nodesRes.ok) throw new Error(`HTTP ${nodesRes.status}`);
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const nodes = nodesData.nodes || [];
         populateNodeFilter(nodes);
     } catch (error) {
@@ -154,7 +155,8 @@ async function exportLogs() {
         
         // Получаем имя ноды
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const node = (nodesData.nodes || []).find(n => n.id == selectedNodeId);
         const nodeName = node?.name || `node-${selectedNodeId}`;
         

@@ -16,7 +16,8 @@ async function loadNodes() {
     try {
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
         if (!nodesRes.ok) throw new Error(`HTTP ${nodesRes.status}`);
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const nodes = nodesData.nodes || [];
         populateNodeFilter(nodes);
     } catch (error) {
@@ -271,7 +272,8 @@ async function exportProcessLogs() {
         
         // Получаем имя ноды
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const node = (nodesData.nodes || []).find(n => n.id == selectedNodeId);
         const nodeName = node?.name || `node-${selectedNodeId}`;
         
@@ -365,7 +367,8 @@ async function killProcess(pid, nodeId) {
             throw new Error(error.error || `Ошибка ${response.status}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (window.showToast) {
             window.showToast(data.message || `Процесс ${pid} завершен`, 'success');
         }

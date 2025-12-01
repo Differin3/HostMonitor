@@ -10,7 +10,8 @@ const loadStats = async (silent = false) => { // загрузка агрегир
         if (!silent && window.toggleTableLoader) window.toggleTableLoader('stats-tbody', true); // показываем лоадер только при ручной загрузке
         const res = await fetch(API_URL, { credentials: 'include' }); // запрос к API
         if (!res.ok) throw new Error(`HTTP ${res.status}`); // проверка статуса
-        const data = await res.json(); // парсим JSON
+        const text = await res.text(); // получаем текст ответа
+        const data = text ? JSON.parse(text) : {}; // парсим JSON безопасно
         const nodes = data?.nodes ?? data?.data ?? []; // массив нод
         const total = nodes.length; // всего нод
         const online = nodes.filter(n => n.status === 'online').length; // онлайн ноды

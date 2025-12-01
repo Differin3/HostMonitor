@@ -20,7 +20,8 @@ async function loadNodes() {
     try {
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
         if (!nodesRes.ok) throw new Error(`HTTP ${nodesRes.status}`);
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const nodes = nodesData.nodes || [];
         populateNodeFilter(nodes);
     } catch (error) {
@@ -363,7 +364,8 @@ async function containerAction(containerId, action, nodeId) {
             throw new Error(error.error || `Ошибка ${response.status}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (window.showToast) {
             window.showToast(data.message || `Контейнер ${actionName} успешно`, 'success');
         }

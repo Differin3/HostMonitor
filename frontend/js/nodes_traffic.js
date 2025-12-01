@@ -9,7 +9,8 @@ const loadTraffic = async (silent = false) => {
         }
         const res = await fetch(API_URL, { credentials: 'include' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
         const nodes = data?.nodes ?? data?.data ?? [];
         
         let totalDownload = 0;

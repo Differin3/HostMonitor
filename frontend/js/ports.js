@@ -15,7 +15,8 @@ async function loadNodes() {
     try {
         const nodesRes = await fetch(`${API_BASE}/nodes.php`, { credentials: 'include' });
         if (!nodesRes.ok) throw new Error(`HTTP ${nodesRes.status}`);
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         allNodes = nodesData.nodes || [];
         populateNodeFilter(allNodes);
     } catch (error) {
@@ -142,7 +143,8 @@ async function scanPorts() {
             throw new Error(`HTTP ${response.status}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (window.showToast) {
             window.showToast(data.message || 'Сканирование портов запущено', 'success');
         }
@@ -205,7 +207,8 @@ async function togglePort(port, type, nodeId) {
             throw new Error(error.error || `Ошибка ${response.status}`);
         }
         
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         if (window.showToast) {
             window.showToast(data.message || `Порт ${actionName} успешно`, 'success');
         }
