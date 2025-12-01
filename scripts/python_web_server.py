@@ -130,11 +130,14 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
 
 
 def main():
+    # Читаем порт из переменной окружения или используем значение по умолчанию
+    default_port = int(os.environ.get("WEB_PORT", "8080"))
+    
     parser = argparse.ArgumentParser(
         description="Простой Python HTTP сервер для каталога monitoring/"
     )
-    parser.add_argument("--host", default="0.0.0.0", help="Адрес прослушивания (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8080, help="Порт (default: 8080)")
+    parser.add_argument("--host", default=os.environ.get("WEB_HOST", "0.0.0.0"), help="Адрес прослушивания (default: 0.0.0.0 или из WEB_HOST)")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Порт (default: {default_port} или из WEB_PORT)")
     args = parser.parse_args()
 
     os.chdir(WEB_ROOT)

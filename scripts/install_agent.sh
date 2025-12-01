@@ -6,12 +6,10 @@ set -euo pipefail # строгий режим bash
 REPO_URL="${1:-https://github.com/Differin3/HostMonitor}" # URL репозитория
 BRANCH="${2:-main}" # ветка
 INSTALL_DIR="${3:-/opt/monitoring}" # каталог установки
-MASTER_URL="${4:-}" # URL master-сервера (обязательно)
-NODE_NAME="${5:-}" # имя ноды (обязательно)
-NODE_TOKEN="${6:-}" # токен ноды (обязательно)
 
-if [[ -z "$MASTER_URL" || -z "$NODE_NAME" || -z "$NODE_TOKEN" ]]; then
-  echo "[install_agent] Использование: $0 [REPO_URL] [BRANCH] [INSTALL_DIR] <MASTER_URL> <NODE_NAME> <NODE_TOKEN>" # подсказка
+if [[ -z "$REPO_URL" ]]; then
+  echo "[install_agent] Использование: $0 <REPO_URL> [BRANCH] [INSTALL_DIR]"
+  echo "[install_agent] Пример: $0 https://github.com/Differin3/HostMonitor"
   exit 1
 fi
 
@@ -45,20 +43,14 @@ if [[ -f "requirements.txt" ]]; then
 fi
 deactivate
 
-echo "[install_agent] Настройка systemd-сервиса агента..." # systemd unit
-if [[ -f "systemd/monitoring-agent.service" ]]; then
-  sudo cp systemd/monitoring-agent.service /etc/systemd/system/
-  sudo sed -i "s|WorkingDirectory=/opt/monitoring|WorkingDirectory=${INSTALL_DIR}|g" /etc/systemd/system/monitoring-agent.service
-  sudo sed -i "s|Environment=\"PATH=/opt/monitoring/.venv/bin\"|Environment=\"PATH=${INSTALL_DIR}/.venv/bin\"|g" /etc/systemd/system/monitoring-agent.service
-  sudo sed -i "s|ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/agent/main.py|ExecStart=${INSTALL_DIR}/.venv/bin/python3 ${INSTALL_DIR}/agent/main.py|g" /etc/systemd/system/monitoring-agent.service
-  sudo sed -i "s|Environment=\"MASTER_URL=https://master-server:8000\"|Environment=\"MASTER_URL=${MASTER_URL}\"|g" /etc/systemd/system/monitoring-agent.service
-  sudo sed -i "s|Environment=\"NODE_NAME=node-1\"|Environment=\"NODE_NAME=${NODE_NAME}\"|g" /etc/systemd/system/monitoring-agent.service
-  sudo sed -i "s|Environment=\"NODE_TOKEN=your-token-here\"|Environment=\"NODE_TOKEN=${NODE_TOKEN}\"|g" /etc/systemd/system/monitoring-agent.service
-  sudo systemctl daemon-reload
-  echo "[install_agent] Агент установлен. Запуск: sudo systemctl enable --now monitoring-agent" # подсказка запуска
-else
-  echo "[install_agent] Ошибка: systemd/monitoring-agent.service не найден в репозитории" # нет юнита
-  exit 1
-fi
-
-установки агента  
+echo "[install_agent] Установка завершена!"
+echo ""
+echo "=========================================="
+echo "Следующие шаги:"
+echo "1. Получите конфиг из панели управления"
+echo "2. Сохраните конфиг в: ${INSTALL_DIR}/agent/node.conf"
+echo "3. Запустите агента:"
+echo "   sudo cp ${INSTALL_DIR}/systemd/monitoring-agent.service /etc/systemd/system/"
+echo "   sudo systemctl daemon-reload"
+echo "   sudo systemctl enable --now monitoring-agent"
+echo "=========================================="  
