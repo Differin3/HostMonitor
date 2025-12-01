@@ -42,12 +42,7 @@ else
   sudo apt install -y git python3 python3-venv python3-pip php-cli php-cgi php-mysql mariadb-client postgresql-client
 fi
 
-# MariaDB будет установлен через install.sh, но можно установить заранее если нужно
-if ! command -v mariadb &> /dev/null && ! command -v mysql &> /dev/null; then
-  echo "[install_panel] Установка MariaDB..."
-  sudo apt install -y mariadb-server
-  sudo systemctl enable --now mariadb
-fi
+# MariaDB будет установлен через install.sh
 
 echo "[install_panel] Клонирование/обновление репозитория в ${INSTALL_DIR}..." # git clone/pull
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
@@ -75,7 +70,15 @@ deactivate
 
 echo "[install_panel] Запуск установочного скрипта backend (если есть)..." # backend install
 if [[ -x "./install.sh" ]]; then
+  # Устанавливаем MariaDB если еще не установлен
+  if ! command -v mariadb &> /dev/null && ! command -v mysql &> /dev/null; then
+    echo "[install_panel] Установка MariaDB..."
+    sudo apt install -y mariadb-server
+    sudo systemctl enable --now mariadb
+  fi
   sudo ./install.sh
+else
+  echo "[install_panel] install.sh не найден или не исполняемый, пропускаем..."
 fi
 
 # Установка веб-сервера в зависимости от выбора
@@ -102,10 +105,24 @@ else
   # Python сервер работает из INSTALL_DIR, файлы уже там
 fi
 
+# Создаем пользователя monitoring если его нет
+if ! id "monitoring" &>/dev/null; then
+  echo "[install_panel] Создание пользователя monitoring..."
+  sudo useradd -r -s /bin/false -d ${INSTALL_DIR} monitoring || true
+fi
+# Устанавливаем права на директорию
+sudo chown -R monitoring:monitoring ${INSTALL_DIR} 2>/dev/null || sudo chown -R $(whoami):$(whoami) ${INSTALL_DIR}
+
 echo "[install_panel] Установка systemd-сервисов..." # systemd units
 if compgen -G "systemd/*.service" > /dev/null; then
   for unit in systemd/*.service; do
     unit_name=$(basename "$unit")
+    
+    # Пропускаем monitoring-master.service (не используется в этой архитектуре)
+    if [[ "$unit_name" == "monitoring-master.service" ]]; then
+      continue
+    fi
+    
     sudo cp "$unit" /etc/systemd/system/
     
     # Настройка monitoring-web.service для Python сервера
@@ -123,11 +140,16 @@ if compgen -G "systemd/*.service" > /dev/null; then
         continue
       fi
     fi
+    
+    # Настройка monitoring-agent.service
+    if [[ "$unit_name" == "monitoring-agent.service" ]]; then
+      sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|g" /etc/systemd/system/monitoring-agent.service
+      sudo sed -i "s|Environment=\"PATH=.*\"|Environment=\"PATH=${INSTALL_DIR}/.venv/bin\"|g" /etc/systemd/system/monitoring-agent.service
+      sudo sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/.venv/bin/python3 ${INSTALL_DIR}/agent/main.py|g" /etc/systemd/system/monitoring-agent.service
+      echo "[install_panel] Для агента задайте NODE_* и включите вручную: sudo systemctl enable --now monitoring-agent" # подсказка по агенту
+    fi
   done
   sudo systemctl daemon-reload
-  
-  [[ -f "systemd/monitoring-master.service" ]] && sudo systemctl enable --now monitoring-master || true
-  [[ -f "systemd/monitoring-agent.service" ]] && echo "[install_panel] Для агента задайте NODE_* и включите вручную: sudo systemctl enable --now monitoring-agent" # подсказка по агенту
   
   if [[ "$WEB_SERVER" == "python" ]]; then
     [[ -f "systemd/monitoring-web.service" ]] && sudo systemctl enable --now monitoring-web || true
@@ -149,12 +171,19 @@ echo ""
 if [[ "$WEB_SERVER" == "python" ]]; then
   echo "Python веб-сервер запущен как systemd сервис: monitoring-web"
   echo "Управление: sudo systemctl status/start/stop/restart monitoring-web"
+  echo ""
+  echo "Проверка статуса сервиса:"
+  sudo systemctl status monitoring-web --no-pager -l || true
 fi
 echo ""
 echo "Следующие шаги:"
-echo "1. Откройте панель управления в браузере"
-echo "2. Создайте ноду в панели"
-echo "3. Экспортируйте конфиг для установки агента"
+echo "1. Проверьте статус сервисов:"
+echo "   sudo systemctl status monitoring-web"
+echo "2. Если сервис не запущен, проверьте логи:"
+echo "   sudo journalctl -u monitoring-web -f"
+echo "3. Откройте панель управления в браузере"
+echo "4. Создайте ноду в панели"
+echo "5. Экспортируйте конфиг для установки агента"
 echo "=========================================="
 
 
