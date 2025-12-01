@@ -474,8 +474,9 @@ const handleEditSubmit = async (event) => {
 function generateNewKey(type = 'create') {
     const inputId = type === 'create' ? 'secret-key-input-create' : 'secret-key-input-edit';
     fetch(`${API_URL}?action=generate-key`)
-        .then(res => res.json())
-        .then(data => {
+        .then(res => res.text())
+        .then(text => {
+            const data = text ? JSON.parse(text) : {};
             const input = document.getElementById(inputId);
             if (input) input.value = data.secret_key;
         })
@@ -575,7 +576,8 @@ async function exportNodeConfig(nodeId) {
     try {
         const response = await fetch(`${API_BASE}/nodes.php?id=${nodeId}&action=generate-config`, { credentials: 'include' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
         
         if (data.error) {
             showToast(data.error, 'error');
@@ -590,7 +592,8 @@ async function exportNodeConfig(nodeId) {
         
         // Получаем имя ноды
         const nodeRes = await fetch(`${API_BASE}/nodes.php?id=${nodeId}`, { credentials: 'include' });
-        const nodeData = await nodeRes.json();
+        const nodeText = await nodeRes.text();
+        const nodeData = nodeText ? JSON.parse(nodeText) : {};
         const node = nodeData.node || {};
         const nodeName = node.name || `node-${nodeId}`;
         

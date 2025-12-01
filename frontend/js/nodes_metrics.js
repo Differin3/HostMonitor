@@ -14,7 +14,8 @@ async function loadNodes() {
     try {
         const nodesRes = await fetch(API_URL, { credentials: 'include' });
         if (!nodesRes.ok) throw new Error(`HTTP ${nodesRes.status}`);
-        const nodesData = await nodesRes.json();
+        const nodesText = await nodesRes.text();
+        const nodesData = nodesText ? JSON.parse(nodesText) : {};
         const nodes = nodesData.nodes || [];
         populateNodeFilter(nodes);
     } catch (error) {
@@ -65,7 +66,8 @@ const loadMetrics = async (nodeId, silent = false) => {
         }
         const res = await fetch(`${API_URL}?id=${nodeId}`, { credentials: 'include' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
         const node = data?.node || null;
         
         if (node) {
