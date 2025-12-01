@@ -1,0 +1,19 @@
+[Unit]
+Description=HostMonitor Agent
+After=network.target
+
+[Service]
+Type=simple
+User=monitoring
+WorkingDirectory=/opt/monitoring
+Environment="PATH=/opt/monitoring/.venv/bin"
+Environment="MASTER_URL=https://master-server:8000"
+Environment="NODE_NAME=node-1"
+Environment="NODE_TOKEN=your-token-here"
+ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/agent/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

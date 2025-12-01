@@ -1,0 +1,18 @@
+# Главный сервер
+fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+pydantic==2.5.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+websockets==12.0
+docker==6.1.3
+influxdb-client==1.38.0
+
+# Агент
+psutil==5.9.6
+requests==2.31.0
+cryptography==41.0.7
+

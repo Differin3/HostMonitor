@@ -1,0 +1,22 @@
+/* SVG иконки как fallback если Lucide не загрузился */
+.icon {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.icon-home::before { content: "🏠"; }
+.icon-server::before { content: "🖥️"; }
+.icon-activity::before { content: "📊"; }
+.icon-box::before { content: "📦"; }
+.icon-network::before { content: "🌐"; }
+.icon-file-text::before { content: "📄"; }
+.icon-log-out::before { content: "🚪"; }
+.icon-moon::before { content: "🌙"; }
+.icon-sun::before { content: "☀️"; }
+.icon-search::before { content: "🔍"; }
+.icon-user::before { content: "👤"; }
+.icon-chevron-down::before { content: "⌄"; }
+.icon-menu::before { content: "☰"; }
+

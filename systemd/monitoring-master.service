@@ -1,0 +1,16 @@
+[Unit]
+Description=HostMonitor Master Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=monitoring
+WorkingDirectory=/opt/monitoring
+Environment="PATH=/opt/monitoring/.venv/bin"
+ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/master/api/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

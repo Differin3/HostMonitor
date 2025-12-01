@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: monitoring
+      POSTGRES_USER: monitoring
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: monitoring
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    ports:
+      - "8086:8086"
+
+  api:
+    build: ../master/api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: monitoring
+      DB_USER: monitoring
+      DB_PASSWORD: password
+    depends_on:
+      - postgres
+    volumes:
+      - ../master/api:/app
+
+  web:
+    image: php:8.2-apache
+    ports:
+      - "8080:80"
+    volumes:
+      - ../master/web:/var/www/html
+      - ../frontend:/var/www/html/../frontend
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  influxdb_data:
+
