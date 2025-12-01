@@ -256,6 +256,20 @@ function renderPayments(payments) {
     }
 }
 
+window.editNodeBilling = editNodeBilling;
+window.quickUpdatePaymentDate = quickUpdatePaymentDate;
+window.addNodeBilling = addNodeBilling;
+window.addPayment = addPayment;
+window.addProvider = addProvider;
+window.editProvider = editProvider;
+window.deleteProvider = deleteProvider;
+window.refreshBilling = refreshBilling;
+window.refreshPayments = refreshPayments;
+window.closeBillingModal = closeBillingModal;
+window.closePaymentModal = closePaymentModal;
+window.closeProviderModal = closeProviderModal;
+window.closeUpdatePaymentDateModal = closeUpdatePaymentDateModal;
+
 function editNodeBilling(nodeId) {
     const node = window.billingNodesData?.find(n => n.id == nodeId);
     if (!node) return;
@@ -377,6 +391,9 @@ function selectAllBillingNodes() {
     if (selectAll) selectAll.checked = true;
     updateBillingSelection();
 }
+
+window.clearBillingSelection = clearBillingSelection;
+window.selectAllBillingNodes = selectAllBillingNodes;
 
 function quickUpdatePaymentDate(nodeId) {
     const node = window.billingNodesData?.find(n => n.id == nodeId);
@@ -757,16 +774,20 @@ async function deleteProvider(id) {
 }
 
 function showToast(message, type = 'info') {
-    // Простая реализация toast
-    const toast = document.getElementById('toast') || document.createElement('div');
-    toast.id = 'toast';
-    toast.textContent = message;
-    toast.className = `toast toast-${type}`;
-    if (!document.getElementById('toast')) {
-        document.body.appendChild(toast);
+    if (window.showToast) {
+        window.showToast(message, type);
+    } else {
+        // Fallback если window.showToast еще не загружен
+        const toast = document.getElementById('toast') || document.createElement('div');
+        toast.id = 'toast';
+        toast.textContent = message;
+        toast.className = `toast toast-${type}`;
+        if (!document.getElementById('toast')) {
+            document.body.appendChild(toast);
+        }
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3000);
     }
-    toast.classList.remove('hidden');
-    setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
 function refreshBilling() {
@@ -777,19 +798,41 @@ function refreshPayments() {
     loadBillingData();
 }
 
-function closeBillingModal() {
-    const modal = document.getElementById('billing-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.classList.add('hidden'), 200);
-    }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     loadProviders();
     loadBillingData();
     populatePaymentProviders();
     setInterval(() => loadBillingData(true), 60000); // Обновление каждую минуту без анимации
+    
+    // Обработчики клика вне модальных окон
+    const billingModal = document.getElementById('billing-modal');
+    const paymentModal = document.getElementById('payment-modal');
+    const providerModal = document.getElementById('provider-modal');
+    const updateDateModal = document.getElementById('update-payment-date-modal');
+    
+    if (billingModal) {
+        billingModal.addEventListener('click', (e) => {
+            if (e.target === billingModal) closeBillingModal();
+        });
+    }
+    
+    if (paymentModal) {
+        paymentModal.addEventListener('click', (e) => {
+            if (e.target === paymentModal) closePaymentModal();
+        });
+    }
+    
+    if (providerModal) {
+        providerModal.addEventListener('click', (e) => {
+            if (e.target === providerModal) closeProviderModal();
+        });
+    }
+    
+    if (updateDateModal) {
+        updateDateModal.addEventListener('click', (e) => {
+            if (e.target === updateDateModal) closeUpdatePaymentDateModal();
+        });
+    }
     
     // Инициализация чекбокса "Выбрать все"
     const selectAll = document.getElementById('select-all-billing-nodes');

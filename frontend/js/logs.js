@@ -192,6 +192,7 @@ function showToast(message, type = 'info') {
     if (window.showToast) {
         window.showToast(message, type);
     } else {
+        // Fallback если window.showToast еще не загружен
         alert(message);
     }
 }

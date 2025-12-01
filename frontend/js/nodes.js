@@ -143,16 +143,6 @@ const renderNodes = (nodesToRender = null) => {
         return;
     }
     
-    // Инициализация чекбокса "Выбрать все"
-    const selectAll = document.getElementById('select-all-nodes');
-    if (selectAll) {
-        selectAll.addEventListener('change', (e) => {
-            const checkboxes = document.querySelectorAll('.node-checkbox');
-            checkboxes.forEach(cb => cb.checked = e.target.checked);
-            updateSelection();
-        });
-    }
-    
     nodes.forEach((node) => {
         const tr = document.createElement('tr');
         tr.dataset.nodeId = node.id;
@@ -232,6 +222,14 @@ function addNode() {
 }
 
 window.addNode = addNode;
+window.togglePowerSelectedNodes = togglePowerSelectedNodes;
+window.refreshSelectedNodes = refreshSelectedNodes;
+window.deleteSelectedNodes = deleteSelectedNodes;
+window.refreshNode = refreshNode;
+window.refreshAllNodes = refreshAllNodes;
+window.generateNewKey = generateNewKey;
+window.copySecretKey = copySecretKey;
+window.copyConfig = copyConfig;
 
 function openCreateModal() {
     if (!createModal) return;
@@ -698,6 +696,9 @@ function selectAllNodes() {
     if (selectAll) selectAll.checked = true;
     updateSelection();
 }
+
+window.clearSelection = clearSelection;
+window.selectAllNodes = selectAllNodes;
 
 function enableSelectedNodes() {
     if (selectedNodes.size === 0) return;

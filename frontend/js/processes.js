@@ -205,7 +205,17 @@ function appendProcessLogs(logs) {
     const container = document.getElementById('processes-logs-content');
     if (!container) return;
     
-    logs.forEach(log => {
+    // Фильтруем логи по PID если указан
+    const currentPid = window.currentProcessPid;
+    let filteredLogs = logs;
+    if (currentPid) {
+        filteredLogs = logs.filter(log => {
+            const logPid = log.pid || log.process_id;
+            return logPid == currentPid || (log.message && log.message.includes(`pid=${currentPid}`));
+        });
+    }
+    
+    filteredLogs.forEach(log => {
         const entry = document.createElement('div');
         entry.className = 'log-entry';
         entry.innerHTML = `
@@ -300,6 +310,7 @@ function showToast(message, type = 'info') {
     if (window.showToast) {
         window.showToast(message, type);
     } else {
+        // Fallback если window.showToast еще не загружен
         alert(message);
     }
 }
@@ -307,7 +318,15 @@ function showToast(message, type = 'info') {
 function viewProcessLog(pid, nodeId) {
     switchProcessTab('logs');
     if (selectedNodeId) {
-        loadProcessLogs(selectedNodeId);
+        // Фильтруем логи по PID процесса
+        const logsContent = document.getElementById('processes-logs-content');
+        if (logsContent) {
+            // Сохраняем PID для фильтрации
+            window.currentProcessPid = pid;
+            // Очищаем и загружаем логи
+            logsContent.innerHTML = '';
+            loadProcessLogs(selectedNodeId);
+        }
     }
 }
 
@@ -315,6 +334,7 @@ window.switchProcessTab = switchProcessTab;
 window.pauseProcessLogs = pauseProcessLogs;
 window.clearProcessLogs = clearProcessLogs;
 window.exportProcessLogs = exportProcessLogs;
+window.viewProcessLog = viewProcessLog;
 
 async function killProcess(pid, nodeId) {
     if (!pid || !nodeId) return;

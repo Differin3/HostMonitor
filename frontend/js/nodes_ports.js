@@ -125,11 +125,50 @@ function scanPorts() {
 }
 
 async function closePort(port, nodeId) {
+    if (!port || !nodeId) return;
+    
     const confirmed = await window.showConfirm(`Вы уверены, что хотите закрыть порт ${port}?`, 'Закрытие порта', 'warning');
     if (!confirmed) return;
-    console.log('Close port', port, nodeId);
-    // TODO: API call
+    
+    try {
+        const response = await fetch(`${API_BASE}/ports.php?node_id=${nodeId}&action=deny`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                port: port,
+                proto: 'tcp',
+                action: 'deny'
+            })
+        });
+        
+        if (!response.ok) {
+            const text = await response.text();
+            let error;
+            try {
+                error = JSON.parse(text);
+            } catch {
+                error = { error: `HTTP ${response.status}` };
+            }
+            throw new Error(error.error || `Ошибка ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (window.showToast) {
+            window.showToast(data.message || `Порт ${port} закрыт`, 'success');
+        }
+        
+        // Обновляем список портов
+        setTimeout(() => loadPorts(), 1000);
+    } catch (error) {
+        console.error('Error closing port:', error);
+        if (window.showToast) {
+            window.showToast(error.message || 'Ошибка закрытия порта', 'error');
+        }
+    }
 }
+
+window.closePort = closePort;
 
 let allPorts = [];
 

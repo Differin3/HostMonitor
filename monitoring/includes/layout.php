@@ -181,6 +181,37 @@ function render_layout_end(array $scripts = []): void
                 }
             };
 
+            // Toast уведомления
+            window.showToast = function(message, type = 'info') {
+                let toast = document.getElementById('toast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.id = 'toast';
+                    toast.className = 'toast hidden';
+                    document.body.appendChild(toast);
+                }
+                
+                const iconMap = {
+                    success: 'check-circle',
+                    error: 'alert-circle',
+                    warning: 'alert-triangle',
+                    info: 'info'
+                };
+                const icon = iconMap[type] || 'info';
+                
+                toast.dataset.type = type;
+                toast.innerHTML = `<i data-lucide="${icon}"></i><span>${message}</span>`;
+                toast.classList.remove('hidden');
+                
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+                
+                setTimeout(() => {
+                    toast.classList.add('hidden');
+                }, 3000);
+            };
+
             // Стилизованное окно подтверждения
             window.showConfirm = function(message, title = 'Подтверждение', type = 'danger') {
                 return new Promise((resolve) => {
@@ -237,6 +268,23 @@ function render_layout_end(array $scripts = []): void
                     setTimeout(() => modal.classList.add('active'), 10);
                 });
             };
+
+            // Глобальный обработчик Escape для закрытия модальных окон
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    // Закрываем все открытые модальные окна
+                    document.querySelectorAll('.modal.active').forEach(modal => {
+                        modal.classList.remove('active');
+                        setTimeout(() => modal.classList.add('hidden'), 200);
+                    });
+                    // Закрываем окно подтверждения
+                    const confirmModal = document.getElementById('confirm-modal');
+                    if (confirmModal && confirmModal.classList.contains('active')) {
+                        confirmModal.classList.remove('active');
+                        setTimeout(() => confirmModal.classList.add('hidden'), 200);
+                    }
+                }
+            });
 
             // Инициализация иконок Lucide
             document.addEventListener('DOMContentLoaded', () => {

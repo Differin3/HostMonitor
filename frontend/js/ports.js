@@ -129,10 +129,42 @@ function renderPorts(ports) {
     }
 }
 
-function scanPorts() {
-    // Перезагружаем список портов (агент сам обновит данные по расписанию)
-    console.log('Scanning ports (refresh)...');
-    loadPorts();
+async function scanPorts() {
+    try {
+        showToast('Сканирование портов...', 'info');
+        const response = await fetch(`${API_BASE}/ports.php?action=scan`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        if (window.showToast) {
+            window.showToast(data.message || 'Сканирование портов запущено', 'success');
+        }
+        
+        // Обновляем список портов через 2 секунды
+        setTimeout(() => loadPorts(), 2000);
+    } catch (error) {
+        console.error('Error scanning ports:', error);
+        if (window.showToast) {
+            window.showToast(error.message || 'Ошибка сканирования портов', 'error');
+        }
+    }
+}
+
+window.scanPorts = scanPorts;
+
+function showToast(message, type = 'info') {
+    if (window.showToast) {
+        window.showToast(message, type);
+    } else {
+        alert(message);
+    }
 }
 
 async function togglePort(port, type, nodeId) {
