@@ -11,7 +11,7 @@
 
 **Мониторинг серверов в реальном времени | Метрики | Процессы | Порты | Контейнеры**
 
-[<img src="frontend/icons/lucide/rocket.svg" width="16" height="16" alt="Rocket"> Быстрая установка](#-быстрая-установка) • [<img src="frontend/icons/lucide/book.svg" width="16" height="16" alt="Book"> Документация](#-документация) • [<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Конфигурация](#️-конфигурация) • [<img src="frontend/icons/lucide/bug.svg" width="16" height="16" alt="Bug"> Исправления](#-последние-исправления)
+[🚀 Быстрая установка](#-быстрая-установка) • [📖 Документация](#-документация) • [<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Конфигурация](#️-конфигурация) • [🐛 Исправления](#-последние-исправления)
 
 </div>
 
@@ -30,7 +30,7 @@
 
 ---
 
-## <img src="frontend/icons/lucide/sparkles.svg" width="20" height="20" alt="Features"> Возможности
+## ✨ Возможности
 
 <table>
 <tr>
@@ -48,7 +48,7 @@
 
 ### <img src="frontend/icons/lucide/palette.svg" width="20" height="20" alt="Interface"> Интерфейс
 - <img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> **Современный веб-интерфейс**: Адаптивный дизайн
-- <img src="frontend/icons/lucide/bar-chart-2.svg" width="16" height="16" alt="Dashboard"> **Дашборд**: Обзор всех нод на одной странице
+- 📊 **Дашборд**: Обзор всех нод на одной странице
 - <img src="frontend/icons/lucide/trending-up.svg" width="16" height="16" alt="Charts"> **Графики**: Визуализация метрик и трендов
 - <img src="frontend/icons/lucide/bell.svg" width="16" height="16" alt="Notifications"> **Уведомления**: Система алертов и уведомлений
 - <img src="frontend/icons/lucide/wallet.svg" width="16" height="16" alt="Billing"> **Биллинг**: Учет расходов на провайдеров
@@ -63,11 +63,11 @@
 - <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита API endpoints
 - <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> TLS/SSL поддержка
 
-### <img src="frontend/icons/lucide/zap.svg" width="20" height="20" alt="Performance"> Производительность
-- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Легковесный агент (Python)
-- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Быстрый веб-интерфейс (PHP + JS)
-- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Оптимизированные SQL запросы
-- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Кэширование метрик
+### ⚡ Производительность
+- ⚡ Легковесный агент (Python)
+- ⚡ Быстрый веб-интерфейс (PHP + JS)
+- ⚡ Оптимизированные SQL запросы
+- ⚡ Кэширование метрик
 
 ---
 
