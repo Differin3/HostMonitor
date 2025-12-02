@@ -72,7 +72,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    - Нажмите "Экспорт конфига" или скопируйте конфиг
 
 2. **Сохраните конфиг на сервере ноды:**
-   ```bash
+```bash
    sudo nano /opt/monitoring/agent/node.conf
    ```
    
@@ -83,10 +83,10 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    NODE_TOKEN="your-node-token"
    COLLECT_INTERVAL=60
    TLS_VERIFY=false
-   ```
+```
 
 3. **Запустите агента:**
-   ```bash
+```bash
    # Как systemd сервис (рекомендуется)
    sudo cp /opt/monitoring/systemd/monitoring-agent.service /etc/systemd/system/
    sudo systemctl daemon-reload
@@ -96,12 +96,12 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    cd /opt/monitoring
    source .venv/bin/activate
    python agent/main.py
-   ```
+```
 
 4. **Проверьте статус:**
-   ```bash
+```bash
    sudo systemctl status monitoring-agent
-   ```
+```
 
 ---
 

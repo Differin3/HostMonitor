@@ -12,17 +12,17 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_seen TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     secret_key TEXT,
-    country VARCHAR(2),
-    node_token VARCHAR(255),
-    provider_name VARCHAR(255),
-    provider_url VARCHAR(500),
+    country VARCHAR(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    node_token VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    provider_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    provider_url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     billing_amount DECIMAL(10, 2),
-    billing_currency VARCHAR(3) DEFAULT 'RUB',
+    billing_currency VARCHAR(3) DEFAULT 'RUB' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     billing_period INT DEFAULT 30,
     last_payment_date DATE,
     next_payment_date DATE,
-    last_command VARCHAR(255),
-    command_status VARCHAR(20) DEFAULT 'pending',
+    last_command VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    command_status VARCHAR(20) DEFAULT 'pending' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     command_timestamp TIMESTAMP NULL,
     INDEX idx_status (status),
     INDEX idx_provider (provider_name)
@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS metrics (
     disk_percent FLOAT,
     network_in FLOAT,
     network_out FLOAT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Таблица GPU метрик
+CREATE TABLE IF NOT EXISTS gpu_metrics (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT,
+    gpu_index INT,
+    gpu_name VARCHAR(255),
+    vendor VARCHAR(20),
+    utilization FLOAT,
+    memory_used BIGINT,
+    memory_total BIGINT,
+    temperature FLOAT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id),
@@ -98,9 +115,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- Таблица провайдеров
 CREATE TABLE IF NOT EXISTS providers (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
-    url VARCHAR(500),
-    favicon_url VARCHAR(500),
+    name VARCHAR(255) UNIQUE NOT NULL CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    favicon_url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -128,10 +145,12 @@ CREATE TABLE IF NOT EXISTS logs (
     level VARCHAR(20) DEFAULT 'info',
     message TEXT NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    type VARCHAR(32) DEFAULT 'system',
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id),
     INDEX idx_level (level),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_type (type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Таблица портов
@@ -380,4 +399,38 @@ INSERT INTO ports (node_id, port, type, process_name, pid, status) VALUES
 (2, 8080, 'tcp', 'node', 2346, 'open'),
 (3, 22, 'tcp', 'sshd', 1000, 'open')
 ON DUPLICATE KEY UPDATE id=id;
+
+-- Таблица истории обновлений
+CREATE TABLE IF NOT EXISTS update_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT,
+    node_name VARCHAR(255),
+    package VARCHAR(255),
+    version VARCHAR(100),
+    success BOOLEAN DEFAULT FALSE,
+    message TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Таблица доступных обновлений
+CREATE TABLE IF NOT EXISTS node_updates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NOT NULL,
+    node_name VARCHAR(255),
+    package VARCHAR(255) NOT NULL,
+    current_version VARCHAR(100),
+    new_version VARCHAR(100),
+    priority VARCHAR(20) DEFAULT 'normal',
+    os_name VARCHAR(100),
+    os_version VARCHAR(100),
+    kernel_version VARCHAR(100),
+    last_check TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_node_package (node_id, package),
+    INDEX idx_node_id (node_id),
+    INDEX idx_priority (priority),
+    INDEX idx_last_check (last_check)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -149,13 +149,16 @@ const renderNodes = (nodesToRender = null) => {
         const uptime = formatUptime(node.uptime || 0);
         const ping = node.ping !== undefined ? `${node.ping} мс` : '-';
         const statusClass = getStatusClass(node.status);
+        
         tr.innerHTML = `
             <td><input type="checkbox" class="node-checkbox" value="${node.id}" onchange="updateSelection()"></td>
             <td>${node.id ?? '-'}</td>
             <td>${node.name ?? '-'}</td>
             <td>${node.host ?? '-'}</td>
             <td>${node.provider_name ? `<a href="${node.provider_url || '#'}" target="_blank">${node.provider_name}</a>` : '-'}</td>
-            <td><span class="status pill ${statusClass}">${node.status ?? 'unknown'}</span></td>
+            <td>
+                <span class="status pill ${statusClass}">${node.status ?? 'unknown'}</span>
+            </td>
             <td>${uptime}</td>
             <td><span class="ping-value ${getPingClass(node.ping)}">${ping}</span></td>
             <td>
@@ -222,7 +225,6 @@ function addNode() {
 }
 
 window.addNode = addNode;
-window.togglePowerSelectedNodes = togglePowerSelectedNodes;
 window.refreshSelectedNodes = refreshSelectedNodes;
 window.deleteSelectedNodes = deleteSelectedNodes;
 window.refreshNode = refreshNode;
@@ -431,12 +433,20 @@ const handleCreateSubmit = async (event) => {
             method: 'POST',
             body: JSON.stringify(payload),
         });
-        showToast('Нода создана успешно', 'success');
-        closeCreateModal();
-        loadNodes();
+        if (result && result.id) {
+            showToast('Нода создана успешно', 'success');
+            closeCreateModal();
+            // Обновляем список нод с небольшой задержкой, чтобы БД успела обновиться
+            setTimeout(() => {
+                loadNodes();
+            }, 500);
+        } else {
+            throw new Error(result?.error || 'Неизвестная ошибка');
+        }
     } catch (error) {
-        console.error(error);
-        showToast(error.message || 'Ошибка сохранения', 'error');
+        console.error('Ошибка создания ноды:', error);
+        const errorMessage = error.message || 'Ошибка сохранения';
+        showToast(errorMessage, 'error');
     } finally {
         toggleCreateLoading(false);
     }
@@ -627,7 +637,6 @@ function updateSelection() {
     const count = selectedNodes.size;
     const countEl = document.getElementById('selected-count');
     const menu = document.getElementById('nodes-context-menu');
-    const powerBtn = document.getElementById('context-power-btn');
     
     if (countEl) countEl.textContent = count;
     if (menu) {
@@ -641,42 +650,7 @@ function updateSelection() {
         }
     }
     
-    // Управление кнопкой включить/выключить в зависимости от статуса нод
-    if (powerBtn) {
-        if (count === 0) {
-            powerBtn.disabled = true;
-            powerBtn.style.opacity = '0.5';
-            powerBtn.style.cursor = 'not-allowed';
-            powerBtn.innerHTML = '<i data-lucide="power"></i> Включить / Выключить';
-        } else {
-            const selectedIds = Array.from(selectedNodes);
-            const selectedData = nodesState.filter(n => selectedIds.includes(parseInt(n.id)));
-            const hasOnline = selectedData.some(n => n.status === 'online');
-            const allOffline = selectedData.length > 0 && selectedData.every(n => n.status !== 'online');
-
-            powerBtn.disabled = false;
-            powerBtn.style.opacity = '1';
-            powerBtn.style.cursor = 'pointer';
-
-            powerBtn.classList.remove('context-power-on', 'context-power-off');
-
-            if (hasOnline) {
-                // Есть хотя бы одна online-нода – показываем как "Выключить" (красная кнопка)
-                powerBtn.innerHTML = '<i data-lucide="power"></i> Выключить';
-                powerBtn.dataset.powerAction = 'shutdown';
-                powerBtn.classList.add('context-power-off');
-            } else {
-                // Все выбранные ноды считаем выключенными – показываем как "Включить" (зелёная кнопка)
-                powerBtn.innerHTML = '<i data-lucide="power"></i> Включить';
-                powerBtn.dataset.powerAction = 'reboot';
-                powerBtn.classList.add('context-power-on');
-            }
-
-            if (typeof lucide !== 'undefined') {
-                lucide.createIcons();
-            }
-        }
-    }
+    // Кнопка выключения удалена для безопасности
     
     // Обновляем состояние "Выбрать все"
     const selectAll = document.getElementById('select-all-nodes');
@@ -730,6 +704,19 @@ async function refreshSelectedNodes() {
 
 async function sendNodeCommand(action) {
     if (selectedNodes.size === 0) return;
+    
+    // Проверка опасных команд
+    if (action === 'reboot' || action === 'shutdown') {
+        const confirmed = await window.showConfirm(
+            `⚠️ ВНИМАНИЕ: Команда "${action}" может выключить ноду!\n\n` +
+            `Вы уверены, что хотите ${action === 'reboot' ? 'перезагрузить' : 'выключить'} ${selectedNodes.size} нод(у)?\n\n` +
+            `Эта операция может привести к потере данных и недоступности сервисов.`,
+            action === 'reboot' ? 'Перезагрузка нод' : 'Выключение нод',
+            'danger'
+        );
+        if (!confirmed) return;
+    }
+    
     const actionNames = {
         reboot: 'перезагрузить',
         shutdown: 'выключить'
@@ -740,21 +727,53 @@ async function sendNodeCommand(action) {
     };
     const actionName = actionNames[action] || action;
     const title = titleNames[action] || 'Действие с нодами';
-    const confirmed = await window.showConfirm(
-        `Вы уверены, что хотите ${actionName} ${selectedNodes.size} нод(у)?`,
-        title,
-        'danger'
-    );
-    if (!confirmed) return;
+    
     try {
+        let successCount = 0;
+        let errorCount = 0;
+        let blockedCount = 0;
+        
         for (const nodeId of selectedNodes) {
-            await fetchJson(`?id=${nodeId}&action=${action}`, { method: 'POST' });
+            try {
+                const response = await fetchJson(`?id=${nodeId}&action=${action}`, { method: 'POST' });
+                if (response.error && response.error.includes('disabled')) {
+                    blockedCount++;
+                } else {
+                    successCount++;
+                }
+            } catch (error) {
+                errorCount++;
+                console.error(`Error sending command to node ${nodeId}:`, error);
+            }
         }
-        showToast(`Команда '${action}' отправлена для ${selectedNodes.size} нод(ы)`, 'success');
+        
+        if (blockedCount > 0) {
+            showToast(
+                `⚠️ Команды выключения/перезагрузки отключены для безопасности. ` +
+                `Установите ALLOW_DANGEROUS_COMMANDS=true для включения.`,
+                'warning',
+                5000
+            );
+        } else if (errorCount > 0) {
+            showToast(
+                `Ошибка отправки команды для ${errorCount} нод(ы)`,
+                'error'
+            );
+        } else if (successCount > 0) {
+            showToast(`Команда '${action}' отправлена для ${successCount} нод(ы)`, 'success');
+        }
         clearSelection();
     } catch (error) {
         console.error('Error sending node command:', error);
-        showToast(error.message || 'Ошибка отправки команды', 'error');
+        if (error.message && error.message.includes('disabled')) {
+            showToast(
+                '⚠️ Команды выключения/перезагрузки отключены для безопасности',
+                'warning',
+                5000
+            );
+        } else {
+            showToast(error.message || 'Ошибка отправки команды', 'error');
+        }
     }
 }
 
@@ -766,22 +785,7 @@ async function shutdownSelectedNodes() {
     await sendNodeCommand('shutdown'); // оставлено для совместимости, не используется напрямую
 }
 
-async function togglePowerSelectedNodes() {
-    if (selectedNodes.size === 0) return;
-    const powerBtn = document.getElementById('context-power-btn');
-    let action = 'shutdown';
-    if (powerBtn && powerBtn.dataset.powerAction) {
-        action = powerBtn.dataset.powerAction;
-    } else {
-        // Определяем действие по статусу выбранных нод
-        const selectedIds = Array.from(selectedNodes);
-        const selectedData = nodesState.filter(n => selectedIds.includes(parseInt(n.id)));
-        const hasOnline = selectedData.some(n => n.status === 'online');
-        const allOffline = selectedData.length > 0 && selectedData.every(n => n.status !== 'online');
-        action = hasOnline && !allOffline ? 'shutdown' : 'reboot';
-    }
-    await sendNodeCommand(action);
-}
+// Функция togglePowerSelectedNodes удалена - команды выключения отключены для безопасности
 
 async function editSelectedNode() {
     // Функция оставлена для совместимости, редактирование теперь только по кнопке в строке
@@ -812,16 +816,44 @@ async function deleteSelectedNodes() {
     if (selectedNodes.size === 0) return;
     const confirmed = await window.showConfirm(`Вы уверены, что хотите удалить ${selectedNodes.size} нод(у)? Это действие нельзя отменить.`, 'Удаление нод', 'danger');
     if (!confirmed) return;
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
     try {
         for (const nodeId of selectedNodes) {
-            await fetchJson(`?id=${nodeId}`, { method: 'DELETE' });
+            try {
+                const result = await fetchJson(`?id=${nodeId}`, { method: 'DELETE' });
+                if (result && result.success) {
+                    successCount++;
+                } else {
+                    errorCount++;
+                    errors.push(`Нода ${nodeId}: ${result?.error || 'Неизвестная ошибка'}`);
+                }
+            } catch (error) {
+                errorCount++;
+                errors.push(`Нода ${nodeId}: ${error.message || 'Ошибка удаления'}`);
+                console.error(`Ошибка удаления ноды ${nodeId}:`, error);
+            }
         }
-        showToast(`Удалено нод: ${selectedNodes.size}`, 'success');
+        
+        if (successCount > 0) {
+            showToast(`Удалено нод: ${successCount}${errorCount > 0 ? `, ошибок: ${errorCount}` : ''}`, successCount === selectedNodes.size ? 'success' : 'warning');
+        }
+        
+        if (errorCount > 0) {
+            console.error('Ошибки удаления:', errors);
+            if (successCount === 0) {
+                showToast(`Ошибка удаления: ${errors[0]}`, 'error');
+            }
+        }
+        
         clearSelection();
         loadNodes();
     } catch (error) {
-        console.error(error);
-        showToast('Ошибка удаления', 'error');
+        console.error('Критическая ошибка при удалении:', error);
+        showToast(`Ошибка удаления: ${error.message || 'Неизвестная ошибка'}`, 'error');
     }
 }
 

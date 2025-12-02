@@ -46,6 +46,52 @@ if (!$isAuthorized) {
 try {
     if ($method === 'GET') {
         $type = $_GET['type'] ?? null;
+        
+        // Обработка логов авторизации
+        if ($type === 'auth') {
+            $eventType = $_GET['event_type'] ?? null;
+            $limit = (int)($_GET['limit'] ?? 100);
+            
+            // Проверяем наличие таблицы auth_logs
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS auth_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username VARCHAR(100),
+                    ip_address VARCHAR(45),
+                    event_type VARCHAR(20) NOT NULL,
+                    success BOOLEAN DEFAULT FALSE,
+                    message TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_event_type (event_type),
+                    INDEX idx_timestamp (timestamp),
+                    INDEX idx_ip_address (ip_address)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            } catch (Exception $e) {
+                error_log("Error creating auth_logs table: " . $e->getMessage());
+            }
+            
+            $sql = "SELECT * FROM auth_logs WHERE 1=1";
+            $params = [];
+            
+            if ($eventType) {
+                $sql .= " AND event_type = ?";
+                $params[] = $eventType;
+            }
+            
+            $sql .= " ORDER BY timestamp DESC LIMIT ?";
+            $params[] = $limit;
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            echo json_encode(['logs' => $logs]);
+            exit;
+        }
+        
+        // Обычные системные логи
         $nodeId = $_GET['node_id'] ?? null;
         $level = $_GET['level'] ?? null;
         $limit = (int)($_GET['limit'] ?? 100);
@@ -118,15 +164,16 @@ try {
         }
         
         if ($logs && count($logs) > 0) {
-            $stmt = $pdo->prepare("INSERT INTO logs (node_id, level, message, timestamp) VALUES (?, ?, ?, ?)");
+            $stmt = $pdo->prepare("INSERT INTO logs (node_id, level, message, timestamp, type) VALUES (?, ?, ?, ?, ?)");
             $inserted = 0;
             foreach ($logs as $log) {
                 $level = $log['level'] ?? 'info';
                 $message = $log['message'] ?? '';
                 $timestamp = $log['timestamp'] ?? date('Y-m-d H:i:s');
+                $type = $log['type'] ?? 'system';
                 
                 if ($message) {
-                    $stmt->execute([$nodeId, $level, $message, $timestamp]);
+                    $stmt->execute([$nodeId, $level, $message, $timestamp, $type]);
                     $inserted++;
                 }
             }

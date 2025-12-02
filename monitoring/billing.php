@@ -238,7 +238,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
                 <div class="form-field">
                     <label class="form-label">Сумма биллинга *</label>
                     <div class="form-hint-text">Сумма оплаты за период, RUB</div>
-                    <div class="input-with-icon">
+                    <div class="input-with-icon" style="max-width: 260px;">
                         <i data-lucide="dollar-sign" class="input-icon"></i>
                         <input type="number" name="billing_amount" id="billing-amount" step="0.01" min="0" required placeholder="0.00">
                     </div>
@@ -246,9 +246,13 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
                 <div class="form-field">
                     <label class="form-label">Следующий платеж *</label>
                     <div class="form-hint-text">Дата и время следующей оплаты этого узла. Система уведомит вас о предстоящем платеже.</div>
-                    <div class="input-with-icon">
+                    <div class="input-with-icon date-picker-wrapper" data-picker="billing-next-payment" style="max-width: 260px;">
                         <i data-lucide="calendar" class="input-icon"></i>
-                        <input type="datetime-local" name="next_payment_date" id="billing-next-payment" required>
+                        <input type="text" id="billing-next-payment-display" placeholder="Выберите дату" readonly>
+                        <div class="date-picker-panel hidden" id="billing-next-payment-panel">
+                            <div class="date-picker-calendar" data-for="billing-next-payment"></div>
+                        </div>
+                        <input type="hidden" name="next_payment_date" id="billing-next-payment" required>
                     </div>
                 </div>
                 <div class="modal-actions">
@@ -280,9 +284,13 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
                 <div class="form-field">
                     <label class="form-label">Дата оплаты *</label>
                     <div class="form-hint-text">Дата и время оплаты счёта.</div>
-                    <div class="input-with-icon">
+                    <div class="input-with-icon date-picker-wrapper" data-picker="payment-date" style="max-width: 260px;">
                         <i data-lucide="calendar" class="input-icon"></i>
-                        <input type="datetime-local" name="payment_date" id="payment-date" required value="<?= date('Y-m-d\TH:i') ?>">
+                        <input type="text" id="payment-date-display" placeholder="Выберите дату" readonly>
+                        <div class="date-picker-panel hidden" id="payment-date-panel">
+                            <div class="date-picker-calendar" data-for="payment-date"></div>
+                        </div>
+                        <input type="hidden" name="payment_date" id="payment-date" required value="<?= date('Y-m-d') ?>">
                     </div>
                 </div>
                 <div class="form-field">
@@ -360,9 +368,13 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
                 </div>
                 <div class="form-field">
                     <label class="form-label">Новая дата</label>
-                    <div class="input-with-icon">
+                    <div class="input-with-icon date-picker-wrapper" data-picker="update-payment-new-date">
                         <i data-lucide="calendar" class="input-icon"></i>
-                        <input type="date" name="new_date" id="update-payment-new-date" required>
+                        <input type="text" id="update-payment-new-date-display" placeholder="Выберите дату" readonly>
+                        <div class="date-picker-panel hidden" id="update-payment-new-date-panel">
+                            <div class="date-picker-calendar" data-for="update-payment-new-date"></div>
+                        </div>
+                        <input type="hidden" name="new_date" id="update-payment-new-date" required>
                     </div>
                 </div>
                 <div class="modal-actions">

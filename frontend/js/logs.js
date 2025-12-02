@@ -205,6 +205,89 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+let currentLogsTab = 'system';
+
+function switchLogsTab(tab) {
+    currentLogsTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.getElementById('system-logs-tab')?.classList.toggle('active', tab === 'system');
+    document.getElementById('auth-logs-tab')?.classList.toggle('active', tab === 'auth');
+    
+    if (tab === 'auth') {
+        loadAuthLogs();
+    }
+}
+
+window.switchLogsTab = switchLogsTab;
+
+let authLogsCache = [];
+
+async function loadAuthLogs(eventType = '') {
+    try {
+        const url = eventType ? `${API_BASE}/logs.php?type=auth&event_type=${eventType}` : `${API_BASE}/logs.php?type=auth`;
+        const response = await fetch(url, { credentials: 'include' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : { logs: [] };
+        authLogsCache = data.logs || [];
+        renderAuthLogs(authLogsCache);
+    } catch (error) {
+        console.error('Error loading auth logs:', error);
+        const tbody = document.getElementById('auth-logs-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Ошибка загрузки</td></tr>';
+        }
+    }
+}
+
+function filterAuthLogs(searchTerm) {
+    const filtered = authLogsCache.filter(log => {
+        if (!searchTerm) return true;
+        const username = (log.username || '').toLowerCase();
+        const ip = (log.ip_address || '').toLowerCase();
+        const message = (log.message || '').toLowerCase();
+        return username.includes(searchTerm) || ip.includes(searchTerm) || message.includes(searchTerm);
+    });
+    renderAuthLogs(filtered);
+}
+
+function renderAuthLogs(logs) {
+    const tbody = document.getElementById('auth-logs-tbody');
+    if (!tbody) return;
+    
+    if (logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Логи авторизации не найдены</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = logs.map(log => {
+        const eventType = log.event_type || 'unknown';
+        const success = log.success;
+        const eventTypeText = {
+            'login': 'Вход',
+            'logout': 'Выход',
+            'failed': 'Неудачная попытка'
+        }[eventType] || eventType;
+        
+        return `
+            <tr>
+                <td>${log.timestamp ? new Date(log.timestamp).toLocaleString('ru-RU') : '-'}</td>
+                <td>${log.username || '-'}</td>
+                <td>${log.ip_address || '-'}</td>
+                <td><span class="status pill ${eventType}">${eventTypeText}</span></td>
+                <td><span class="status ${success ? 'status-online' : 'status-offline'}">${success ? 'Успешно' : 'Ошибка'}</span></td>
+                <td>${log.message || '-'}</td>
+            </tr>
+        `;
+    }).join('');
+    
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadNodes();
     showEmptyState();
@@ -227,9 +310,22 @@ document.addEventListener('DOMContentLoaded', () => {
         autoScroll = e.target.checked;
     });
     
+    // Фильтры для логов авторизации
+    document.getElementById('authEventFilter')?.addEventListener('change', (e) => {
+        const eventType = e.target.value;
+        loadAuthLogs(eventType);
+    });
+    document.getElementById('authLogSearch')?.addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        filterAuthLogs(searchTerm);
+    });
+    
     setInterval(() => {
-        if (selectedNodeId && !logsPaused) {
+        if (selectedNodeId && !logsPaused && currentLogsTab === 'system') {
             loadLogs(selectedNodeId, true);
+        } else if (currentLogsTab === 'auth') {
+            const eventType = document.getElementById('authEventFilter')?.value || '';
+            loadAuthLogs(eventType);
         }
     }, 2000);
 });

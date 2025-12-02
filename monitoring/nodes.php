@@ -242,9 +242,6 @@ render_layout_start('Ноды', 'nodes', $actions);
         <div class="context-menu-actions">
             <button class="context-action-link" onclick="clearSelection()">Очистить выбор</button>
             <button class="context-action-link" onclick="selectAllNodes()">Выбрать все</button>
-            <button class="context-action-btn" type="button" id="context-power-btn" onclick="togglePowerSelectedNodes()">
-                <i data-lucide="power"></i> Включить / Выключить
-            </button>
             <button class="context-action-btn context-action-refresh" onclick="refreshSelectedNodes()">
                 <i data-lucide="refresh-cw"></i> Обновить
             </button>

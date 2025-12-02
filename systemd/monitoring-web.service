@@ -1,15 +1,24 @@
 [Unit]
 Description=Monitoring Web UI (Python server + php-cgi)
-After=network.target php-fpm.service
+After=network.target
 
 [Service]
 Type=simple
-User=monitoring
+User=root
 WorkingDirectory=/opt/monitoring
-Environment="PATH=/opt/monitoring/.venv/bin"
+Environment="PATH=/opt/monitoring/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PHP_CGI=/usr/bin/php-cgi"
+Environment="DB_HOST=localhost"
+Environment="DB_PORT=3306"
+Environment="DB_NAME=monitoring"
+Environment="DB_USER=monitoring"
+Environment="DB_PASSWORD=password"
 Environment="WEB_HOST=0.0.0.0"
 Environment="WEB_PORT=8080"
-ExecStart=/opt/monitoring/.venv/bin/python3 scripts/python_web_server.py
+Environment="MASTER_URL=http://localhost:8080"
+ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/scripts/python_web_server.py
+StandardOutput=journal
+StandardError=journal
 Restart=always
 RestartSec=5
 

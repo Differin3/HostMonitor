@@ -19,6 +19,34 @@ if (!function_exists('json_exception')) {
     }
 }
 
+if (!function_exists('log_auth_event')) {
+    function log_auth_event(PDO $pdo, $userId, $username, $eventType, $success, $message = null) {
+        try {
+            // Проверяем наличие таблицы auth_logs
+            $pdo->exec("CREATE TABLE IF NOT EXISTS auth_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT,
+                username VARCHAR(100),
+                ip_address VARCHAR(45),
+                event_type VARCHAR(20) NOT NULL,
+                success BOOLEAN DEFAULT FALSE,
+                message TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_event_type (event_type),
+                INDEX idx_timestamp (timestamp),
+                INDEX idx_ip_address (ip_address)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            
+            $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+            $stmt = $pdo->prepare("INSERT INTO auth_logs (user_id, username, ip_address, event_type, success, message) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$userId, $username, $ipAddress, $eventType, $success ? 1 : 0, $message]);
+        } catch (Exception $e) {
+            error_log("Error logging auth event: " . $e->getMessage());
+        }
+    }
+}
+
 if (!function_exists('require_api_auth')) {
     function require_api_auth(PDO $pdo): array
     {
@@ -31,15 +59,45 @@ if (!function_exists('require_api_auth')) {
             return ['user' => (int)$_SESSION['user_id'], 'node' => null];
         }
 
+        // Пробуем получить заголовок Authorization разными способами
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (empty($authHeader) && function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+        // Также пробуем через REDIRECT_HTTP_AUTHORIZATION (для некоторых конфигураций)
+        if (empty($authHeader)) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+        }
+        
         if ($authHeader && preg_match('/Bearer\s+(.+)/i', $authHeader, $m)) {
-            $token = $m[1];
+            $token = trim($m[1]);
+            // Логируем для отладки (первые и последние символы токена)
+            $tokenPreview = strlen($token) > 8 ? substr($token, 0, 4) . '...' . substr($token, -4) : '***';
+            error_log("[require_api_auth] Token received, length: " . strlen($token) . ", preview: " . $tokenPreview);
+            
             $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
             $stmt->execute([$token]);
             $nodeInfo = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($nodeInfo) {
+                error_log("[require_api_auth] Node found: id=" . $nodeInfo['id'] . ", name=" . $nodeInfo['name']);
                 return ['user' => null, 'node' => $nodeInfo];
+            } else {
+                // Проверяем, есть ли вообще ноды с токенами
+                $checkStmt = $pdo->query("SELECT COUNT(*) as cnt FROM nodes WHERE node_token IS NOT NULL AND node_token != ''");
+                $checkResult = $checkStmt->fetch(PDO::FETCH_ASSOC);
+                error_log("[require_api_auth] Node not found. Total nodes with tokens: " . ($checkResult['cnt'] ?? 0));
+                // Пробуем найти по первым символам для отладки
+                $tokenStart = substr($token, 0, 8);
+                $debugStmt = $pdo->prepare("SELECT id, name, LEFT(node_token, 8) as token_start FROM nodes WHERE LEFT(node_token, 8) = ? LIMIT 1");
+                $debugStmt->execute([$tokenStart]);
+                $debugNode = $debugStmt->fetch(PDO::FETCH_ASSOC);
+                if ($debugNode) {
+                    error_log("[require_api_auth] Found node with matching token start: id=" . $debugNode['id'] . ", name=" . $debugNode['name']);
+                }
             }
+        } else {
+            error_log("[require_api_auth] No Authorization header found. HTTP_AUTHORIZATION: " . ($_SERVER['HTTP_AUTHORIZATION'] ?? 'NOT SET'));
         }
 
         json_error('Unauthorized', 401);

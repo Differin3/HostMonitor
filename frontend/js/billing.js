@@ -11,6 +11,7 @@ let providersPerPage = 10;
 let monthlyChart = null;
 let providerChart = null;
 let paymentsTimelineChart = null;
+const datePickers = {}; // хранилище наших однодневных календарей
 
 const toggleTableLoader = (tableId, show) => {
     const tableContainer = document.querySelector(`#${tableId}`)?.closest('.table-container');
@@ -269,6 +270,117 @@ window.closeBillingModal = closeBillingModal;
 window.closePaymentModal = closePaymentModal;
 window.closeProviderModal = closeProviderModal;
 window.closeUpdatePaymentDateModal = closeUpdatePaymentDateModal;
+window.billingDatePickers = datePickers;
+
+const initDatePicker = (pickerId) => { // инициализация однодневного календаря
+    const displayInput = document.getElementById(`${pickerId}-display`);
+    const hiddenInput = document.getElementById(pickerId);
+    const panel = document.getElementById(`${pickerId}-panel`);
+    const calendarRoot = panel?.querySelector('.date-picker-calendar');
+    if (!displayInput || !hiddenInput || !panel || !calendarRoot) return;
+
+    const state = { monthCursor: new Date(), selected: null };
+
+    const formatDate = (d) => d.toLocaleDateString('ru-RU');
+    const toIsoDate = (d) => d.toISOString().split('T')[0];
+    const sameDay = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+    const render = () => {
+        const base = new Date(state.monthCursor.getFullYear(), state.monthCursor.getMonth(), 1);
+        const year = base.getFullYear();
+        const month = base.getMonth();
+        const firstDay = new Date(year, month, 1).getDay() || 7;
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const prevDays = firstDay - 1;
+        const today = new Date();
+
+        let html = `<div class="date-picker-header">
+            <div class="date-picker-nav">
+                <button type="button" id="${pickerId}-prev"><</button>
+                <button type="button" id="${pickerId}-next">></button>
+            </div>
+            <span>${base.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</span>
+        </div>`;
+        const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        html += '<div class="date-picker-grid">';
+        weekDays.forEach(w => { html += `<div class="date-picker-weekday">${w}</div>`; });
+        for (let i = 0; i < prevDays; i++) {
+            html += '<div class="date-picker-day other-month"></div>';
+        }
+        for (let day = 1; day <= daysInMonth; day++) {
+            const d = new Date(year, month, day);
+            let cls = 'date-picker-day';
+            if (sameDay(d, state.selected)) cls += ' selected';
+            if (sameDay(d, today) && !sameDay(d, state.selected)) cls += ' today';
+            html += `<button type="button" class="${cls}" data-day="${day}">${day}</button>`;
+        }
+        html += '</div>';
+        html += `<div class="date-picker-footer">
+            <span>${state.selected ? formatDate(state.selected) : '—'}</span>
+            <button type="button" class="btn-outline" id="${pickerId}-today">Сегодня</button>
+        </div>`;
+        calendarRoot.innerHTML = html;
+
+        document.getElementById(`${pickerId}-prev`).onclick = () => {
+            state.monthCursor = new Date(year, month - 1, 1);
+            render();
+        };
+        document.getElementById(`${pickerId}-next`).onclick = () => {
+            state.monthCursor = new Date(year, month + 1, 1);
+            render();
+        };
+        document.getElementById(`${pickerId}-today`).onclick = () => {
+            const t = new Date();
+            setDate(t);
+            state.monthCursor = new Date(t.getFullYear(), t.getMonth(), 1);
+            render();
+        };
+        calendarRoot.querySelectorAll('.date-picker-day[data-day]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const day = Number(btn.dataset.day);
+                const d = new Date(year, month, day);
+                setDate(d);
+                render(); // перерисовываем, но панель не закрываем, можно менять месяц/дату дальше
+            });
+        });
+    };
+
+    const hidePanel = () => {
+        panel.classList.add('hidden');
+    };
+
+    const setDate = (date) => {
+        state.selected = date;
+        hiddenInput.value = toIsoDate(date);
+        displayInput.value = formatDate(date);
+    };
+
+    displayInput.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.classList.remove('hidden');
+        if (!state.selected && hiddenInput.value) {
+            const d = new Date(hiddenInput.value);
+            if (!isNaN(d.getTime())) state.selected = d;
+        }
+        if (state.selected) {
+            state.monthCursor = new Date(state.selected.getFullYear(), state.selected.getMonth(), 1);
+        }
+        render();
+    });
+
+    // клики внутри панели не должны закрывать её через document.click
+    panel.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!panel.contains(e.target) && !displayInput.contains(e.target)) {
+            hidePanel();
+        }
+    });
+
+    datePickers[pickerId] = { setDate, getDate: () => state.selected };
+};
 
 function editNodeBilling(nodeId) {
     const node = window.billingNodesData?.find(n => n.id == nodeId);
@@ -305,10 +417,11 @@ function editNodeBilling(nodeId) {
     
     if (node.next_payment_date) {
         const date = new Date(node.next_payment_date);
-        const datetimeLocal = date.toISOString().slice(0, 16);
-        document.getElementById('billing-next-payment').value = datetimeLocal;
-    } else {
-        document.getElementById('billing-next-payment').value = '';
+        if (!isNaN(date.getTime()) && datePickers['billing-next-payment']) {
+            datePickers['billing-next-payment'].setDate(date);
+        }
+    } else if (datePickers['billing-next-payment']) {
+        datePickers['billing-next-payment'].setDate(new Date());
     }
     
     form.querySelector('button[type="submit"]').textContent = 'Сохранить';
@@ -488,7 +601,9 @@ function addPayment() {
     const form = document.getElementById('payment-form');
     if (form) {
         form.reset();
-        form.payment_date.value = new Date().toISOString().slice(0, 16);
+    }
+    if (datePickers['payment-date']) {
+        datePickers['payment-date'].setDate(new Date());
     }
     populatePaymentProviders();
     modal.classList.remove('hidden');
@@ -773,21 +888,16 @@ async function deleteProvider(id) {
         });
 }
 
-function showToast(message, type = 'info') {
-    if (window.showToast) {
-        window.showToast(message, type);
-    } else {
-        // Fallback если window.showToast еще не загружен
-        const toast = document.getElementById('toast') || document.createElement('div');
-        toast.id = 'toast';
-        toast.textContent = message;
-        toast.className = `toast toast-${type}`;
-        if (!document.getElementById('toast')) {
-            document.body.appendChild(toast);
-        }
-        toast.classList.remove('hidden');
-        setTimeout(() => toast.classList.add('hidden'), 3000);
+function showToast(message, type = 'info') { // локальный toast без рекурсии
+    const toast = document.getElementById('toast') || document.createElement('div'); // находим/создаём блок
+    toast.id = 'toast'; // id
+    toast.textContent = message; // текст
+    toast.className = `toast toast-${type}`; // класс по типу
+    if (!document.getElementById('toast')) { // если ещё не в DOM
+        document.body.appendChild(toast); // добавляем
     }
+    toast.classList.remove('hidden'); // показать
+    setTimeout(() => toast.classList.add('hidden'), 3000); // скрыть через 3 сек
 }
 
 function refreshBilling() {
@@ -796,6 +906,15 @@ function refreshBilling() {
 
 function refreshPayments() {
     loadBillingData();
+}
+
+// Закрытие основного модального окна биллинга ноды
+function closeBillingModal() {
+    const modal = document.getElementById('billing-modal'); // находим модалку
+    if (modal) { // если есть в DOM
+        modal.classList.remove('active'); // убираем класс активного состояния
+        setTimeout(() => modal.classList.add('hidden'), 200); // прячем после короткой анимации
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -937,8 +1056,8 @@ document.addEventListener('DOMContentLoaded', () => {
         paymentForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            const paymentDate = formData.get('payment_date');
-            const dateOnly = paymentDate.split('T')[0];
+            const paymentDate = formData.get('payment_date') || '';
+            const dateOnly = paymentDate.split('T')[0] || paymentDate;
             
             try {
                 // Находим ноду по провайдеру
@@ -1085,17 +1204,28 @@ document.addEventListener('DOMContentLoaded', () => {
             if (lastPaymentInput.value && periodInput.value) {
                 const date = new Date(lastPaymentInput.value);
                 date.setDate(date.getDate() + parseInt(periodInput.value));
-                document.getElementById('billing-next-payment').value = date.toISOString().split('T')[0];
+                if (datePickers['billing-next-payment']) {
+                    datePickers['billing-next-payment'].setDate(date);
+                }
             }
         });
         periodInput.addEventListener('change', () => {
             if (lastPaymentInput.value && periodInput.value) {
                 const date = new Date(lastPaymentInput.value);
                 date.setDate(date.getDate() + parseInt(periodInput.value));
-                document.getElementById('billing-next-payment').value = date.toISOString().split('T')[0];
+                if (datePickers['billing-next-payment']) {
+                    datePickers['billing-next-payment'].setDate(date);
+                }
             }
         });
     }
+
+    // Инициализация наших календарей
+    initDatePicker('billing-next-payment');
+    initDatePicker('payment-date');
+    initDatePicker('update-payment-new-date');
+    // значения по умолчанию
+    if (datePickers['payment-date']) datePickers['payment-date'].setDate(new Date());
 });
 
 

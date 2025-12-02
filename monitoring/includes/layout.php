@@ -28,6 +28,7 @@ $menuItems = [
         ]
     ],
     ['slug' => 'logs', 'label' => 'Логи', 'href' => 'logs.php', 'icon' => 'file-text'],
+    ['slug' => 'updates', 'label' => 'Обновления', 'href' => 'updates.php', 'icon' => 'package'],
 ];
 
 function render_layout_start(string $title, string $activeSlug, string $actionsHtml = ''): void

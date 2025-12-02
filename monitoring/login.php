@@ -1,4 +1,8 @@
 <?php
+// Настройка сессий для PHP-CGI
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_only_cookies', '1');
+ini_set('session.cookie_samesite', 'Lax');
 session_start();
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/database.php';
@@ -19,10 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
+            
+            // Логируем успешный вход
+            log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
+            
+            session_write_close(); // Сохраняем сессию перед редиректом
             header('Location: index.php');
             exit;
         } else {
             $error = 'Неверный логин или пароль';
+            
+            // Логируем неудачную попытку входа
+            log_auth_event($pdo, null, $username, 'failed', false, 'Invalid credentials');
         }
     } catch (Exception $e) {
         $error = 'Ошибка подключения к базе данных';

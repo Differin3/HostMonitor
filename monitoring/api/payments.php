@@ -53,10 +53,23 @@ function handleGet($pdo) {
         
         echo json_encode(['payment' => $payment]);
     } else {
-        $sql = "SELECT p.*, n.name as node_name, n.provider_name, n.provider_url, p2.favicon_url 
-                FROM payments p 
-                LEFT JOIN nodes n ON p.node_id = n.id 
-                LEFT JOIN providers p2 ON n.provider_name = p2.name";
+        // Проверяем наличие колонки provider_name
+        $checkColumn = $pdo->query("SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.COLUMNS 
+                                     WHERE TABLE_SCHEMA = DATABASE() 
+                                     AND TABLE_NAME = 'nodes' 
+                                     AND COLUMN_NAME = 'provider_name'");
+        $hasProviderName = $checkColumn->fetch(PDO::FETCH_ASSOC)['cnt'] > 0;
+        
+        if ($hasProviderName) {
+            $sql = "SELECT p.*, n.name as node_name, n.provider_name, n.provider_url, p2.favicon_url 
+                    FROM payments p 
+                    LEFT JOIN nodes n ON p.node_id = n.id 
+                    LEFT JOIN providers p2 ON n.provider_name COLLATE utf8mb4_unicode_ci = p2.name COLLATE utf8mb4_unicode_ci";
+        } else {
+            $sql = "SELECT p.*, n.name as node_name, NULL as provider_name, NULL as provider_url, NULL as favicon_url 
+                    FROM payments p 
+                    LEFT JOIN nodes n ON p.node_id = n.id";
+        }
         $params = [];
         
         if ($nodeId) {

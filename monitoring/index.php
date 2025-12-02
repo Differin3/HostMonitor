@@ -62,6 +62,20 @@ render_layout_start('Дашборд', 'dashboard');
                 </div>
                 <canvas id="memory-chart"></canvas>
             </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Нагрузка диска</h3>
+                    <span class="chart-range">1ч</span>
+                </div>
+                <canvas id="disk-chart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3>Сетевой трафик</h3>
+                    <span class="chart-range">1ч</span>
+                </div>
+                <canvas id="net-chart"></canvas>
+            </div>
         </div>
 
         <div class="grid-2">

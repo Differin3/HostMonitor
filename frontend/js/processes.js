@@ -327,7 +327,7 @@ function viewProcessLog(pid, nodeId) {
             window.currentProcessPid = pid;
             // Очищаем и загружаем логи
             logsContent.innerHTML = '';
-            loadProcessLogs(selectedNodeId);
+        loadProcessLogs(selectedNodeId);
         }
     }
 }

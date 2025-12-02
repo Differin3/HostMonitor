@@ -16,6 +16,54 @@ $nodeInfo = $auth['node'];
 
 try {
     if ($method === 'GET') {
+        $action = $_GET['action'] ?? null;
+        
+        // Обработка запроса интерфейсов
+        if ($action === 'interfaces') {
+            $nodeId = $_GET['node_id'] ?? null;
+            
+            // Проверяем наличие таблицы network_interfaces, если нет - создаем
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    node_id INT NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    ip VARCHAR(45),
+                    netmask VARCHAR(45),
+                    status VARCHAR(20),
+                    speed INT DEFAULT 0,
+                    rx_bytes BIGINT DEFAULT 0,
+                    tx_bytes BIGINT DEFAULT 0,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_node_id (node_id),
+                    INDEX idx_timestamp (timestamp)
+                )");
+            } catch (Exception $e) {
+                error_log("Error creating network_interfaces table: " . $e->getMessage());
+            }
+            
+            $sql = "SELECT ni.*, COALESCE(n.name, CONCAT('Node ', ni.node_id)) as node_name 
+                    FROM network_interfaces ni 
+                    LEFT JOIN nodes n ON ni.node_id = n.id 
+                    WHERE 1=1";
+            $params = [];
+            
+            if ($nodeId) {
+                $sql .= " AND ni.node_id = ?";
+                $params[] = $nodeId;
+            }
+            
+            $sql .= " ORDER BY ni.timestamp DESC, ni.name ASC";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $interfaces = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            echo json_encode(['interfaces' => $interfaces]);
+            exit;
+        }
+        
+        // Обычный запрос портов
         $nodeId = $_GET['node_id'] ?? null;
         
         $sql = "SELECT p.*, COALESCE(n.name, CONCAT('Node ', p.node_id)) as node_name 
@@ -103,6 +151,71 @@ try {
                 'proto' => $proto,
                 'action' => $action
             ]);
+            exit;
+        }
+        
+        // Обработка интерфейсов от агента
+        if (isset($_GET['action']) && $_GET['action'] === 'interfaces') {
+            global $nodeInfo;
+            $raw = file_get_contents('php://input');
+            $data = $raw !== '' ? json_decode($raw, true) : null;
+            
+            if ($data === null && $raw !== '') {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid JSON']);
+                exit;
+            }
+            
+            $nodeId = $nodeInfo ? $nodeInfo['id'] : ($data['node_id'] ?? null);
+            if (!$nodeId) {
+                http_response_code(400);
+                echo json_encode(['error' => 'node_id is required']);
+                exit;
+            }
+            
+            // Проверяем наличие таблицы
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    node_id INT NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    ip VARCHAR(45),
+                    netmask VARCHAR(45),
+                    status VARCHAR(20),
+                    speed INT DEFAULT 0,
+                    rx_bytes BIGINT DEFAULT 0,
+                    tx_bytes BIGINT DEFAULT 0,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_node_id (node_id),
+                    INDEX idx_timestamp (timestamp)
+                )");
+            } catch (Exception $e) {
+                error_log("Error creating network_interfaces table: " . $e->getMessage());
+            }
+            
+            $interfaces = $data['interfaces'] ?? [];
+            if (count($interfaces) > 0) {
+                // Удаляем старые интерфейсы для этой ноды
+                $deleteStmt = $pdo->prepare("DELETE FROM network_interfaces WHERE node_id = ?");
+                $deleteStmt->execute([$nodeId]);
+                
+                // Вставляем новые интерфейсы
+                $stmt = $pdo->prepare("INSERT INTO network_interfaces (node_id, name, ip, netmask, status, speed, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                foreach ($interfaces as $iface) {
+                    $stmt->execute([
+                        $nodeId,
+                        $iface['name'] ?? 'unknown',
+                        $iface['ip'] ?? null,
+                        $iface['netmask'] ?? null,
+                        $iface['status'] ?? 'unknown',
+                        $iface['speed'] ?? 0,
+                        $iface['rx_bytes'] ?? 0,
+                        $iface['tx_bytes'] ?? 0
+                    ]);
+                }
+            }
+            
+            echo json_encode(['success' => true, 'count' => count($interfaces)]);
             exit;
         }
         

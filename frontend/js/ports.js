@@ -225,15 +225,94 @@ async function togglePort(port, type, nodeId) {
 
 window.togglePort = togglePort;
 
+let currentPortsTab = 'ports';
+
+function switchPortsTab(tab) {
+    currentPortsTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.getElementById('ports-tab')?.classList.toggle('active', tab === 'ports');
+    document.getElementById('interfaces-tab')?.classList.toggle('active', tab === 'interfaces');
+    
+    if (tab === 'interfaces') {
+        loadInterfaces();
+    } else {
+        loadPorts();
+    }
+}
+
+window.switchPortsTab = switchPortsTab;
+
+async function loadInterfaces(silent = false) {
+    try {
+        if (!silent && window.toggleTableLoader) {
+            window.toggleTableLoader('interfaces-tbody', true);
+        }
+        const response = await fetch(`${API_BASE}/ports.php?action=interfaces`, { credentials: 'include' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : { interfaces: [] };
+        const interfaces = data.interfaces || [];
+        
+        renderInterfaces(interfaces);
+    } catch (error) {
+        console.error('Error loading interfaces:', error);
+        renderInterfaces([]);
+    } finally {
+        if (!silent && window.toggleTableLoader) {
+            window.toggleTableLoader('interfaces-tbody', false);
+        }
+    }
+}
+
+function renderInterfaces(interfaces) {
+    const tbody = document.getElementById('interfaces-tbody');
+    if (!tbody) return;
+    
+    if (interfaces.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center">Интерфейсы не найдены</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = interfaces.map(i => `
+        <tr>
+            <td><strong>${i.name || 'N/A'}</strong></td>
+            <td>${i.node_name || 'N/A'}</td>
+            <td>${i.ip || 'N/A'}</td>
+            <td>${i.netmask || 'N/A'}</td>
+            <td><span class="status ${i.status}">${i.status || 'unknown'}</span></td>
+            <td>${formatBytes(i.rx_bytes || 0)}</td>
+            <td>${formatBytes(i.tx_bytes || 0)}</td>
+        </tr>
+    `).join('');
+    
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadNodes().then(() => {
-    loadPorts();
+        if (currentPortsTab === 'ports') {
+            loadPorts();
+        } else {
+            loadInterfaces();
+        }
     });
     
     document.getElementById('nodeFilter')?.addEventListener('change', applyFilters);
     document.getElementById('portTypeFilter')?.addEventListener('change', applyFilters);
     document.getElementById('portSearch')?.addEventListener('input', applyFilters);
+    document.getElementById('interfacesNodeFilter')?.addEventListener('change', () => loadInterfaces(true));
+    document.getElementById('interfaceSearch')?.addEventListener('input', () => loadInterfaces(true));
     
-    setInterval(() => loadPorts(true), 15000);
+    setInterval(() => {
+        if (currentPortsTab === 'ports') {
+            loadPorts(true);
+        } else {
+            loadInterfaces(true);
+        }
+    }, 15000);
 });
 

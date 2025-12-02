@@ -4,15 +4,18 @@ After=network.target
 
 [Service]
 Type=simple
-User=monitoring
-WorkingDirectory=/opt/monitoring
-Environment="PATH=/opt/monitoring/.venv/bin"
-Environment="MASTER_URL=https://master-server:8000"
-Environment="NODE_NAME=node-1"
-Environment="NODE_TOKEN=your-token-here"
+# Запуск от root для доступа к системным метрикам
+# User=root убран из-за ошибки 217/USER в некоторых конфигурациях systemd
+WorkingDirectory=/opt/monitoring/agent
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/monitoring/.venv/bin"
+# Переменные будут загружены из node.conf через load_node_conf() в main.py
 ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/agent/main.py
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
+# Увеличиваем таймаут для запуска
+TimeoutStartSec=30
 
 [Install]
 WantedBy=multi-user.target
