@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖥️ HostMonitor
+# <img src="frontend/icons/lucide/server.svg" width="32" height="32" alt="Server"> HostMonitor
 
 ### Современная система мониторинга серверов с веб-интерфейсом
 
@@ -11,7 +11,7 @@
 
 **Мониторинг серверов в реальном времени | Метрики | Процессы | Порты | Контейнеры**
 
-[🚀 Быстрая установка](#-быстрая-установка) • [📖 Документация](#-документация) • [⚙️ Конфигурация](#️-конфигурация) • [🐛 Исправления](#-последние-исправления)
+[<img src="frontend/icons/lucide/rocket.svg" width="16" height="16" alt="Rocket"> Быстрая установка](#-быстрая-установка) • [<img src="frontend/icons/lucide/book.svg" width="16" height="16" alt="Book"> Документация](#-документация) • [<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Конфигурация](#️-конфигурация) • [<img src="frontend/icons/lucide/bug.svg" width="16" height="16" alt="Bug"> Исправления](#-последние-исправления)
 
 </div>
 
@@ -30,44 +30,44 @@
 
 ---
 
-## ✨ Возможности
+## <img src="frontend/icons/lucide/sparkles.svg" width="20" height="20" alt="Features"> Возможности
 
 <table>
 <tr>
 <td width="50%">
 
-### 📊 Мониторинг
-- 📈 **Метрики в реальном времени**: CPU, RAM, Disk, Network
-- 🖥️ **GPU мониторинг**: Загрузка, память, температура
-- ⚙️ **Процессы**: Список запущенных процессов с деталями
-- 🌐 **Порты**: Мониторинг открытых портов и соединений
-- 📦 **Контейнеры**: Docker контейнеры и их статусы
+### <img src="frontend/icons/lucide/activity.svg" width="20" height="20" alt="Monitoring"> Мониторинг
+- <img src="frontend/icons/lucide/trending-up.svg" width="16" height="16" alt="Trending"> **Метрики в реальном времени**: CPU, RAM, Disk, Network
+- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> **GPU мониторинг**: Загрузка, память, температура
+- <img src="frontend/icons/lucide/cpu.svg" width="16" height="16" alt="CPU"> **Процессы**: Список запущенных процессов с деталями
+- <img src="frontend/icons/lucide/network.svg" width="16" height="16" alt="Network"> **Порты**: Мониторинг открытых портов и соединений
+- <img src="frontend/icons/lucide/box.svg" width="16" height="16" alt="Box"> **Контейнеры**: Docker контейнеры и их статусы
 
 </td>
 <td width="50%">
 
-### 🎨 Интерфейс
-- 🏠 **Современный веб-интерфейс**: Адаптивный дизайн
-- 📊 **Дашборд**: Обзор всех нод на одной странице
-- 📈 **Графики**: Визуализация метрик и трендов
-- 🔔 **Уведомления**: Система алертов и уведомлений
-- 💰 **Биллинг**: Учет расходов на провайдеров
+### <img src="frontend/icons/lucide/palette.svg" width="20" height="20" alt="Interface"> Интерфейс
+- <img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> **Современный веб-интерфейс**: Адаптивный дизайн
+- <img src="frontend/icons/lucide/bar-chart-2.svg" width="16" height="16" alt="Dashboard"> **Дашборд**: Обзор всех нод на одной странице
+- <img src="frontend/icons/lucide/trending-up.svg" width="16" height="16" alt="Charts"> **Графики**: Визуализация метрик и трендов
+- <img src="frontend/icons/lucide/bell.svg" width="16" height="16" alt="Notifications"> **Уведомления**: Система алертов и уведомлений
+- <img src="frontend/icons/lucide/wallet.svg" width="16" height="16" alt="Billing"> **Биллинг**: Учет расходов на провайдеров
 
 </td>
 </tr>
 </table>
 
-### 🔐 Безопасность
-- ✅ Аутентификация пользователей
-- ✅ Токены для агентов
-- ✅ Защита API endpoints
-- ✅ TLS/SSL поддержка
+### <img src="frontend/icons/lucide/shield.svg" width="20" height="20" alt="Security"> Безопасность
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Аутентификация пользователей
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Токены для агентов
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита API endpoints
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> TLS/SSL поддержка
 
-### 🚀 Производительность
-- ⚡ Легковесный агент (Python)
-- ⚡ Быстрый веб-интерфейс (PHP + JS)
-- ⚡ Оптимизированные SQL запросы
-- ⚡ Кэширование метрик
+### <img src="frontend/icons/lucide/zap.svg" width="20" height="20" alt="Performance"> Производительность
+- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Легковесный агент (Python)
+- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Быстрый веб-интерфейс (PHP + JS)
+- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Оптимизированные SQL запросы
+- <img src="frontend/icons/lucide/zap.svg" width="16" height="16" alt="Zap"> Кэширование метрик
 
 ---
 
