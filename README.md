@@ -17,7 +17,7 @@
 
 ---
 
-## 📋 Содержание
+## <img src="frontend/icons/lucide/file-text.svg" width="20" height="20" alt="Contents"> Содержание
 
 - [Возможности](#-возможности)
 - [Архитектура](#-архитектура)
@@ -48,7 +48,7 @@
 
 ### <img src="frontend/icons/lucide/palette.svg" width="20" height="20" alt="Interface"> Интерфейс
 - <img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> **Современный веб-интерфейс**: Адаптивный дизайн
-- 📊 **Дашборд**: Обзор всех нод на одной странице
+- <img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> **Дашборд**: Обзор всех нод на одной странице
 - <img src="frontend/icons/lucide/trending-up.svg" width="16" height="16" alt="Charts"> **Графики**: Визуализация метрик и трендов
 - <img src="frontend/icons/lucide/bell.svg" width="16" height="16" alt="Notifications"> **Уведомления**: Система алертов и уведомлений
 - <img src="frontend/icons/lucide/wallet.svg" width="16" height="16" alt="Billing"> **Биллинг**: Учет расходов на провайдеров
@@ -71,7 +71,7 @@
 
 ---
 
-## 🏗️ Архитектура
+## <img src="frontend/icons/lucide/building.svg" width="20" height="20" alt="Architecture"> Архитектура
 
 <div align="center">
 
@@ -90,28 +90,28 @@ graph TB
 
 ### Компоненты системы
 
-| 🖥️ Компонент | Технология | Описание |
+| <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Component"> Компонент | Технология | Описание |
 |-----------|-----------|----------|
-| **⚙️ Backend-агент** | Python 3.9+ | Собирает метрики, процессы, порты, контейнеры и отправляет на API |
-| **🏠 Веб-интерфейс** | PHP 8.0+ + JavaScript | Панель управления с дашбордом и настройками |
-| **📡 API** | PHP REST API | Обработка запросов от агентов и веб-интерфейса |
-| **💾 База данных** | MySQL/MariaDB | Хранение метрик, нод, пользователей, настроек |
-| **🌐 Веб-сервер** | Nginx / Python HTTP Server | Обслуживание веб-интерфейса |
+| **<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Backend-агент** | Python 3.9+ | Собирает метрики, процессы, порты, контейнеры и отправляет на API |
+| **<img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> Веб-интерфейс** | PHP 8.0+ + JavaScript | Панель управления с дашбордом и настройками |
+| **<img src="frontend/icons/lucide/network.svg" width="16" height="16" alt="Network"> API** | PHP REST API | Обработка запросов от агентов и веб-интерфейса |
+| **<img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> База данных** | MySQL/MariaDB | Хранение метрик, нод, пользователей, настроек |
+| **<img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Веб-сервер** | Nginx / Python HTTP Server | Обслуживание веб-интерфейса |
 
 ---
 
-## 📦 Требования
+## <img src="frontend/icons/lucide/package.svg" width="20" height="20" alt="Requirements"> Требования
 
 ### Минимальные требования
 
 <table>
 <tr>
-<th>⚙️ Компонент</th>
+<th><img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Компонент</th>
 <th>Версия</th>
 <th>Примечание</th>
 </tr>
 <tr>
-<td><strong>🖥️ ОС</strong></td>
+<td><strong><img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> ОС</strong></td>
 <td>Debian 11/12, Ubuntu 20.04+</td>
 <td>Linux для production, Windows для dev</td>
 </tr>
@@ -126,12 +126,12 @@ graph TB
 <td>С расширениями: <code>mysql</code>, <code>json</code></td>
 </tr>
 <tr>
-<td><strong>💾 База данных</strong></td>
+<td><strong><img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> База данных</strong></td>
 <td>MySQL 8.0+ / MariaDB 10.5+</td>
 <td>Для хранения данных</td>
 </tr>
 <tr>
-<td><strong>🌐 Веб-сервер</strong></td>
+<td><strong><img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Веб-сервер</strong></td>
 <td>Nginx (production)</td>
 <td>Опционально: Python HTTP Server для dev</td>
 </tr>
@@ -147,14 +147,14 @@ graph TB
 
 ## 🚀 Быстрая установка
 
-### 🖥️ Установка панели управления (мастер-сервер)
+### <img src="frontend/icons/lucide/server.svg" width="20" height="20" alt="Server"> Установка панели управления (мастер-сервер)
 
 <details>
 <summary><b>🔽 Развернуть инструкцию</b></summary>
 
 #### 🚀 Вариант 1: Автоматическая установка (рекомендуется)
 
-**▶️ Одна команда для установки:**
+**<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Одна команда для установки:**
 
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh)
@@ -166,19 +166,19 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
 bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh) https://github.com/Differin3/HostMonitor
 ```
 
-**✅ Что делает скрипт:**
-- ⚙️ Запрашивает выбор веб-сервера (nginx или Python)
-- 🌐 Запрашивает порт для веб-интерфейса (по умолчанию: 80 для nginx, 8080 для Python)
-- 📥 Устанавливает все зависимости (Python, MariaDB, PHP)
+**<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Что делает скрипт:**
+- <img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Запрашивает выбор веб-сервера (nginx или Python)
+- <img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Запрашивает порт для веб-интерфейса (по умолчанию: 80 для nginx, 8080 для Python)
+- <img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Устанавливает все зависимости (Python, MariaDB, PHP)
 - 🌿 Клонирует репозиторий в `/opt/monitoring`
-- 💾 Настраивает базу данных
-- 🖥️ Устанавливает и настраивает выбранный веб-сервер
-- ✅ Готово к использованию!
+- <img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> Настраивает базу данных
+- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> Устанавливает и настраивает выбранный веб-сервер
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Готово к использованию!
 
-**➡️ После установки:**
-1. 🌐 Откройте панель управления: `http://your-server-ip:PORT` или `http://your-domain:PORT`
-2. ℹ️ Порт будет указан в сообщении после установки
-3. ➕ Создайте ноду и экспортируйте конфиг для установки агента
+**<img src="frontend/icons/lucide/arrow-right.svg" width="16" height="16" alt="Arrow"> После установки:**
+1. <img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Откройте панель управления: `http://your-server-ip:PORT` или `http://your-domain:PORT`
+2. <img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Порт будет указан в сообщении после установки
+3. <img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте ноду и экспортируйте конфиг для установки агента
 
 #### Вариант 2: Ручная установка
 
@@ -193,34 +193,34 @@ sudo scripts/install_web_debian.sh
 
 </details>
 
-### ⚙️ Установка агента на ноде
+### <img src="frontend/icons/lucide/settings.svg" width="20" height="20" alt="Settings"> Установка агента на ноде
 
 <details>
 <summary><b>🔽 Развернуть инструкцию</b></summary>
 
 #### 🚀 Автоматическая установка
 
-**▶️ Одна команда:**
+**<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Одна команда:**
 
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh) https://github.com/Differin3/HostMonitor
 ```
 
-**✅ Что делает скрипт:**
-- 📥 Устанавливает зависимости (Python, git)
+**<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Что делает скрипт:**
+- <img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Устанавливает зависимости (Python, git)
 - 🌿 Клонирует репозиторий в `/opt/monitoring`
 - 📁 Создает виртуальное окружение
-- 📦 Устанавливает Python-зависимости
-- ✅ Готов к настройке конфига
+- <img src="frontend/icons/lucide/package.svg" width="16" height="16" alt="Package"> Устанавливает Python-зависимости
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Готов к настройке конфига
 
-#### ⚙️ Настройка после установки
+#### <img src="frontend/icons/lucide/settings.svg" width="20" height="20" alt="Settings"> Настройка после установки
 
-1. **📥 Получите конфиг из панели управления:**
-   - 🏠 Зайдите в панель управления
-   - ➕ Создайте ноду или откройте существующую
-   - 📥 Нажмите "Экспорт конфига" или скопируйте конфиг
+1. **<img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Получите конфиг из панели управления:**
+   - <img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> Зайдите в панель управления
+   - <img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте ноду или откройте существующую
+   - <img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Нажмите "Экспорт конфига" или скопируйте конфиг
 
-2. **📄 Сохраните конфиг на сервере ноды:**
+2. **<img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> Сохраните конфиг на сервере ноды:**
    ```bash
    sudo nano /opt/monitoring/agent/node.conf
    ```
@@ -234,7 +234,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    TLS_VERIFY=false
    ```
 
-3. **▶️ Запустите агента:**
+3. **<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Запустите агента:**
    ```bash
    # Как systemd сервис (рекомендуется)
    sudo cp /opt/monitoring/systemd/monitoring-agent.service /etc/systemd/system/
@@ -247,7 +247,7 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    python agent/main.py
    ```
 
-4. **✅ Проверьте статус:**
+4. **<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Проверьте статус:**
    ```bash
    sudo systemctl status monitoring-agent
    ```
@@ -256,9 +256,9 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
 
 ---
 
-## ⚙️ Конфигурация
+## <img src="frontend/icons/lucide/settings.svg" width="20" height="20" alt="Settings"> Конфигурация
 
-### ⚙️ Конфигурация агента
+### <img src="frontend/icons/lucide/settings.svg" width="20" height="20" alt="Settings"> Конфигурация агента
 
 Агент настраивается через файл `agent/node.conf` или переменные окружения:
 
@@ -281,7 +281,7 @@ export NODE_TOKEN=your-node-token
 export COLLECT_INTERVAL=60
 ```
 
-### 💾 Конфигурация базы данных
+### <img src="frontend/icons/lucide/database.svg" width="20" height="20" alt="Database"> Конфигурация базы данных
 
 Настроить через переменные окружения:
 ```bash
@@ -294,7 +294,7 @@ export DB_PASSWORD=password
 
 Или отредактировать `monitoring/includes/database.php`.
 
-### 🌐 Конфигурация веб-сервера
+### <img src="frontend/icons/lucide/globe.svg" width="20" height="20" alt="Globe"> Конфигурация веб-сервера
 
 **Python веб-сервер (dev/staging):**
 ```bash
@@ -305,7 +305,7 @@ export WEB_HOST=0.0.0.0  # Адрес по умолчанию: 0.0.0.0
 **Nginx (production):**
 См. конфигурацию в `nginx/monitoring.conf`
 
-### 🔒 Настройка домена и SSL
+### <img src="frontend/icons/lucide/lock.svg" width="20" height="20" alt="Lock"> Настройка домена и SSL
 
 ```bash
 # Установить домен
@@ -319,49 +319,49 @@ scripts/configure_ssl_letsencrypt.sh example.com admin@example.com www.example.c
 
 ## 📖 Использование
 
-### 📋 Пошаговая инструкция
+### <img src="frontend/icons/lucide/file-text.svg" width="20" height="20" alt="File"> Пошаговая инструкция
 
 <ol>
 <li>
-<strong>🖥️ Установите панель управления:</strong>
+<strong><img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> Установите панель управления:</strong>
 <pre><code>bash &lt;(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh)</code></pre>
 </li>
 
 <li>
-<strong>➕ Создайте ноду в панели управления:</strong>
+<strong><img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте ноду в панели управления:</strong>
 <ul>
-<li>🏠 Зайдите в панель управления</li>
-<li>➕ Создайте новую ноду</li>
-<li>📥 Нажмите "Экспорт конфига" или скопируйте конфиг</li>
+<li><img src="frontend/icons/lucide/home.svg" width="16" height="16" alt="Home"> Зайдите в панель управления</li>
+<li><img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте новую ноду</li>
+<li><img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Нажмите "Экспорт конфига" или скопируйте конфиг</li>
 </ul>
 </li>
 
 <li>
-<strong>⚙️ Установите агент на ноде:</strong>
+<strong><img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Установите агент на ноде:</strong>
 <pre><code>bash &lt;(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh) https://github.com/Differin3/HostMonitor</code></pre>
 </li>
 
 <li>
-<strong>⚙️ Настройте конфиг агента:</strong>
+<strong><img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Настройте конфиг агента:</strong>
 <ul>
-<li>📄 Сохраните конфиг из панели в <code>/opt/monitoring/agent/node.conf</code></li>
-<li>📋 Или скопируйте конфиг через веб-интерфейс</li>
+<li><img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> Сохраните конфиг из панели в <code>/opt/monitoring/agent/node.conf</code></li>
+<li><img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> Или скопируйте конфиг через веб-интерфейс</li>
 </ul>
 </li>
 
 <li>
-<strong>▶️ Запустите агента:</strong>
+<strong><img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Запустите агента:</strong>
 <pre><code>sudo cp /opt/monitoring/systemd/monitoring-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now monitoring-agent</code></pre>
 </li>
 
 <li>
-<strong>✅ Проверьте статус:</strong>
+<strong><img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Проверьте статус:</strong>
 <ul>
 <li>📊 В панели управления нода должна появиться как "online"</li>
-<li>📈 Метрики начнут собираться автоматически</li>
-<li>ℹ️ Проверка: <code>sudo systemctl status monitoring-agent</code></li>
+<li><img src="frontend/icons/lucide/trending-up.svg" width="16" height="16" alt="Trending"> Метрики начнут собираться автоматически</li>
+<li><img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Проверка: <code>sudo systemctl status monitoring-agent</code></li>
 </ul>
 </li>
 </ol>
@@ -375,37 +375,37 @@ cd docker
 docker-compose up -d
 ```
 
-**ℹ️ Примечание:** В Docker Compose веб-интерфейс доступен на порту **8080** (маппинг `8080:80`).
+**<img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Примечание:** В Docker Compose веб-интерфейс доступен на порту **8080** (маппинг `8080:80`).
 
 ---
 
 ## 🐛 Последние исправления
 
-### ✅ Исправление бага с отображением нод (2024)
+### <img src="frontend/icons/lucide/check-circle.svg" width="20" height="20" alt="Check"> Исправление бага с отображением нод (2024)
 
-**⚠️ Проблема:**
-- 🖥️ Ноды со статусом `offline` пропадали из списка
-- 📋 При статусе `online` появлялись дубликаты нод
+**<img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Проблема:**
+- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> Ноды со статусом `offline` пропадали из списка
+- <img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> При статусе `online` появлялись дубликаты нод
 - 🔄 Нестабильное отображение при перезагрузке страницы
 
-**🔍 Причина:**
-1. 💻 Сложная логика ручного удаления дубликатов по ID
-2. 💾 Автоматическое обновление статуса в БД при каждом GET-запросе
-3. 🔗 Отсутствие JOIN с таблицей providers
+**<img src="frontend/icons/lucide/search.svg" width="16" height="16" alt="Search"> Причина:**
+1. <img src="frontend/icons/lucide/cpu.svg" width="16" height="16" alt="CPU"> Сложная логика ручного удаления дубликатов по ID
+2. <img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> Автоматическое обновление статуса в БД при каждом GET-запросе
+3. <img src="frontend/icons/lucide/link.svg" width="16" height="16" alt="Link"> Отсутствие JOIN с таблицей providers
 
-**🔧 Решение:**
-1. ✅ Возврат к простому LEFT JOIN запросу (как в старой версии)
-2. ✅ Убрано автоматическое обновление статуса в БД - статус обновляется только через heartbeat/refresh
-3. ✅ Упрощена логика удаления дубликатов
+**<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Решение:**
+1. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Возврат к простому LEFT JOIN запросу (как в старой версии)
+2. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Убрано автоматическое обновление статуса в БД - статус обновляется только через heartbeat/refresh
+3. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Упрощена логика удаления дубликатов
 
-**✅ Результат:**
-- ✅ Все ноды отображаются корректно (online/offline)
-- ✅ Нет дубликатов
-- ✅ Стабильное отображение
-- ✅ Меньше нагрузка на БД
+**<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Результат:**
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Все ноды отображаются корректно (online/offline)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Нет дубликатов
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Стабильное отображение
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Меньше нагрузка на БД
 
-**📄 Файлы:**
-- 💻 `monitoring/api/nodes.php` - основной файл с исправлениями
+**<img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> Файлы:**
+- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> `monitoring/api/nodes.php` - основной файл с исправлениями
 
 ---
 
@@ -413,11 +413,11 @@ docker-compose up -d
 
 ### 📚 Документация
 
-- 📄 **API документация**: См. файлы в `frontend/docs/api-contracts.md`
-- 🎨 **UI/UX документация**: См. файлы в `frontend/docs/uiux.md`
-- 💾 **База данных**: Схемы в `database/schema_mysql.sql`
+- <img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> **API документация**: См. файлы в `frontend/docs/api-contracts.md`
+- <img src="frontend/icons/lucide/palette.svg" width="16" height="16" alt="Palette"> **UI/UX документация**: См. файлы в `frontend/docs/uiux.md`
+- <img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> **База данных**: Схемы в `database/schema_mysql.sql`
 
-### 🔍 Отладка
+### <img src="frontend/icons/lucide/search.svg" width="20" height="20" alt="Search"> Отладка
 
 **Проверка логов агента:**
 ```bash
@@ -447,7 +447,7 @@ mysql -u monitoring -p monitoring
 
 ---
 
-## 📄 Лицензия
+## <img src="frontend/icons/lucide/file-text.svg" width="20" height="20" alt="File"> Лицензия
 
 Этот проект распространяется под лицензией MIT. См. файл [LICENSE](LICENSE) для подробностей.
 
