@@ -1,0 +1,504 @@
+/* Network equipment cards — Cisco / Huawei / MikroTik chassis */
+
+.gear-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.gear-card {
+    border-radius: 16px;
+    padding: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.gear-card h3 {
+    margin: 0;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+.gear-card h3 > :first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gear-card .mk-badge,
+.gear-card .status {
+    flex-shrink: 0;
+}
+
+.gear-meta {
+    margin: 4px 0 10px;
+    color: #9aa3b2;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gear-kv {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: grid;
+    gap: 5px;
+    font-size: 12px;
+    color: #c9ced6;
+}
+
+.gear-kv li {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.gear-kv span {
+    color: #9aa3b2;
+    min-width: 72px;
+    display: inline-block;
+}
+
+.gear-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 12px;
+}
+
+.gear-pills .pill,
+.gear-pills span {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #c9ced6;
+}
+
+/* ——— 1U front panel ——— */
+.gear-face {
+    position: relative;
+    height: 84px;
+    margin: 0 0 14px;
+    border-radius: 8px;
+    padding: 8px 18px 10px 18px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%),
+        linear-gradient(90deg, #1a1c20 0%, #141518 50%, #1a1c20 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.gear-face::before,
+.gear-face::after {
+    content: '';
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    width: 10px;
+    border-radius: 2px;
+    background:
+        repeating-linear-gradient(180deg, #2a2d32 0 3px, #111 3px 6px);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.gear-face::before { left: 4px; }
+.gear-face::after { right: 4px; }
+
+.gear-brand-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 18px;
+}
+
+.gear-brand {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.gear-sku {
+    font-size: 10px;
+    color: #9aa3b2;
+    letter-spacing: 0.04em;
+    margin-right: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gear-leds {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.gear-leds .led {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #3f3f46;
+    display: block;
+}
+
+.gear-leds .led.up {
+    background: #4ade80;
+    box-shadow: 0 0 8px #22c55e;
+}
+
+.gear-leds .led.warn {
+    background: #fbbf24;
+    box-shadow: 0 0 8px #f59e0b;
+}
+
+.gear-bay {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gear-group,
+.gear-sfp-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 3px;
+    align-items: flex-end;
+}
+
+.gear-group.rows-2 {
+    width: 168px;
+}
+
+.gear-group.rows-2.dense {
+    width: 200px;
+}
+
+.gear-group .gp,
+.gear-face .gp {
+    width: 11px;
+    height: 9px;
+    background: linear-gradient(180deg, #2a2a2e, #0a0a0a);
+    border: 1px solid #3f3f46;
+    border-radius: 1px;
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+}
+
+.gear-group .gp.dense {
+    width: 8px;
+    height: 7px;
+}
+
+.gear-group .gp::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: 2px;
+    right: 2px;
+    height: 2px;
+    background: #14532d;
+    border-radius: 1px;
+}
+
+.gear-group .gp.up::after {
+    background: #4ade80;
+    box-shadow: 0 0 4px #22c55e;
+}
+
+.gear-sfp-group .gs {
+    width: 18px;
+    height: 11px;
+    display: block;
+    background: #0b0b0d;
+    border: 1px solid #52525b;
+    border-radius: 1px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.gear-sfp-group .gs::before {
+    content: '';
+    position: absolute;
+    inset: 2px 3px;
+    border: 1px solid #3f3f46;
+}
+
+.gear-sfp-group .gs.up {
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+    border-color: #38bdf8;
+}
+
+.gear-sfp-group .gs.xs {
+    width: 22px;
+    height: 12px;
+    border-color: #6d28d9;
+}
+
+.gear-sfp-group .gs.xs.up {
+    border-color: #a78bfa;
+    box-shadow: 0 0 8px rgba(167, 139, 250, 0.55);
+}
+
+.gear-face.is-offline {
+    filter: grayscale(0.35);
+    opacity: 0.78;
+}
+
+.gear-role {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    font-weight: 700;
+    color: #94a3b8;
+}
+
+.gear-console {
+    width: 16px;
+    height: 10px;
+    border-radius: 50% / 40%;
+    border: 1px solid #71717a;
+    background: #18181b;
+}
+
+/* Vendor skins */
+.gear-face.vendor-cisco {
+    background:
+        linear-gradient(180deg, rgba(4, 159, 217, 0.16), transparent 38%),
+        linear-gradient(90deg, #0d274d 0%, #15202b 55%, #0b1c2e 100%);
+    border-color: rgba(4, 159, 217, 0.55);
+    box-shadow:
+        inset 0 0 0 1px rgba(4, 159, 217, 0.25),
+        0 0 22px rgba(4, 159, 217, 0.18);
+}
+
+.gear-face.vendor-cisco .gear-brand { color: #049fd9; }
+
+.gear-face.vendor-huawei {
+    background:
+        linear-gradient(180deg, #cf0a2c 0 4px, transparent 4px),
+        linear-gradient(180deg, rgba(207, 10, 44, 0.18), transparent 42%),
+        linear-gradient(90deg, #1a1214 0%, #141010 100%);
+    border-color: rgba(207, 10, 44, 0.55);
+    box-shadow:
+        inset 0 0 0 1px rgba(207, 10, 44, 0.22),
+        0 0 22px rgba(207, 10, 44, 0.16);
+}
+
+.gear-face.vendor-huawei .gear-brand { color: #ff3b5c; }
+
+.gear-face.vendor-mikrotik {
+    background:
+        linear-gradient(90deg, transparent 14px, #7f1d1d 14px, #7f1d1d 22px, transparent 22px),
+        linear-gradient(180deg, rgba(185, 28, 28, 0.2), transparent 40%),
+        linear-gradient(90deg, #1c1414 0%, #171111 100%);
+    border-color: rgba(185, 28, 28, 0.5);
+    box-shadow:
+        inset 0 0 0 1px rgba(185, 28, 28, 0.25),
+        0 0 22px rgba(153, 27, 27, 0.18);
+}
+
+.gear-face.vendor-mikrotik .gear-brand {
+    color: #fecaca;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+}
+
+.gear-face.vendor-keenetic {
+    background:
+        linear-gradient(180deg, rgba(45, 212, 191, 0.16), transparent 40%),
+        linear-gradient(90deg, #10201e, #141918);
+    border-color: rgba(45, 212, 191, 0.4);
+}
+
+.gear-face.vendor-keenetic .gear-brand { color: #2dd4bf; letter-spacing: 0.1em; }
+
+.gear-face.vendor-generic {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gear-face.vendor-generic .gear-brand { color: #94a3b8; }
+
+.gear-face.vendor-tplink {
+    background:
+        linear-gradient(180deg, rgba(34, 197, 94, 0.14), transparent 40%),
+        linear-gradient(90deg, #102016, #141814);
+    border-color: rgba(34, 197, 94, 0.4);
+}
+
+.gear-face.vendor-tplink .gear-brand { color: #4ade80; letter-spacing: 0.1em; }
+
+.gear-face.vendor-dlink {
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.16), transparent 40%), linear-gradient(90deg, #0f1a24, #14181c);
+    border-color: rgba(56, 189, 248, 0.4);
+}
+.gear-face.vendor-dlink .gear-brand { color: #38bdf8; }
+
+.gear-face.vendor-asus {
+    background: linear-gradient(180deg, rgba(96, 165, 250, 0.16), transparent 40%), linear-gradient(90deg, #12151c, #16181e);
+    border-color: rgba(96, 165, 250, 0.4);
+}
+.gear-face.vendor-asus .gear-brand { color: #93c5fd; }
+
+.gear-face.vendor-zyxel {
+    background: linear-gradient(180deg, rgba(244, 114, 182, 0.14), transparent 40%), linear-gradient(90deg, #1a1218, #161214);
+    border-color: rgba(244, 114, 182, 0.35);
+}
+.gear-face.vendor-zyxel .gear-brand { color: #f9a8d4; }
+
+.gear-face.vendor-ubiquiti {
+    background: linear-gradient(180deg, rgba(165, 180, 252, 0.16), transparent 40%), linear-gradient(90deg, #12141c, #14161c);
+    border-color: rgba(165, 180, 252, 0.4);
+}
+.gear-face.vendor-ubiquiti .gear-brand { color: #c7d2fe; }
+
+.gear-face.vendor-netgear {
+    background: linear-gradient(180deg, rgba(251, 191, 36, 0.14), transparent 40%), linear-gradient(90deg, #1a1610, #161410);
+    border-color: rgba(251, 191, 36, 0.4);
+}
+.gear-face.vendor-netgear .gear-brand { color: #fbbf24; }
+
+.gear-face.vendor-xiaomi {
+    background: linear-gradient(180deg, rgba(251, 113, 133, 0.16), transparent 40%), linear-gradient(90deg, #1a1214, #161214);
+    border-color: rgba(251, 113, 133, 0.4);
+}
+.gear-face.vendor-xiaomi .gear-brand { color: #fb7185; }
+
+.gear-face.vendor-zte,
+.gear-face.vendor-eltex,
+.gear-face.vendor-fortinet,
+.gear-face.vendor-juniper,
+.gear-face.vendor-aruba,
+.gear-face.vendor-synology,
+.gear-face.vendor-qnap,
+.gear-face.vendor-avm,
+.gear-face.vendor-tenda,
+.gear-face.vendor-openwrt,
+.gear-face[class*="vendor-mfr-"] {
+    background: linear-gradient(180deg, rgba(96, 165, 250, 0.12), transparent 42%), linear-gradient(90deg, #14161a, #121416);
+    border-color: rgba(96, 165, 250, 0.32);
+}
+.gear-face.vendor-zte .gear-brand,
+.gear-face.vendor-eltex .gear-brand,
+.gear-face.vendor-fortinet .gear-brand,
+.gear-face.vendor-juniper .gear-brand,
+.gear-face.vendor-aruba .gear-brand,
+.gear-face.vendor-synology .gear-brand,
+.gear-face.vendor-qnap .gear-brand,
+.gear-face.vendor-avm .gear-brand,
+.gear-face.vendor-tenda .gear-brand,
+.gear-face.vendor-openwrt .gear-brand,
+.gear-face[class*="vendor-mfr-"] .gear-brand { color: #93c5fd; }
+
+.gear-card.vendor-cisco {
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(4, 159, 217, 0.16);
+}
+.gear-card.vendor-huawei {
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(207, 10, 44, 0.16);
+}
+.gear-card.vendor-mikrotik {
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(185, 28, 28, 0.16);
+}
+
+/* Map node skins — role via icon color, same square as network_map.css */
+
+.gear-face.kind-core .gear-sfp-group {
+    max-width: 240px;
+}
+
+.card.gear-card {
+    padding: 14px;
+}
+
+.gear-card .table-container {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    margin-top: 8px;
+}
+
+.gear-card .mk-table {
+    margin: 2px -4px 0;
+}
+
+.gear-card .info-row {
+    font-size: 12px;
+    min-width: 0;
+}
+
+.gear-card .info-row span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.gear-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.gear-card .card-title {
+    font-weight: 700;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gear-card .status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.gear-card .status-online {
+    color: #4ade80;
+    background: rgba(34, 197, 94, 0.12);
+}
+
+.gear-card .status-offline {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.gear-card .info-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 4px 0;
+    color: #c9ced6;
+}
+
+.gear-card .info-row svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #9aa3b2;
+}

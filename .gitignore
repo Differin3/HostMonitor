@@ -13,4 +13,11 @@ env/
 certs/
 *.key
 *.crt
+monitoring/data/db.local.php
+monitoring/data/*.php
+monitoring/data/retention.last
+.db-credentials
+/NA
+*.bekap.sql
+database/monitoring_bekap.sql
 

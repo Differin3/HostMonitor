@@ -35,6 +35,7 @@ function loadSavedSettings() {
     document.getElementById('refresh-interval').value = refreshInterval;
 }
 
+window.saveProfile = saveProfile;
 function saveProfile() {
     const newPassword = document.getElementById('new-password').value;
     const confirmPassword = document.getElementById('confirm-password').value;
@@ -79,25 +80,7 @@ function saveProfile() {
     showToast('Профиль сохранён', 'success'); // успешное сохранение
 }
 
-function showToast(message, type = 'info') {
-    if (window.showToast) {
-        window.showToast(message, type);
-    } else {
-        // Fallback если window.showToast еще не загружен
-        let toast = document.getElementById('toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.id = 'toast';
-            toast.className = 'toast hidden';
-            document.body.appendChild(toast);
-        }
-        const iconMap = { success: 'check-circle', error: 'alert-circle', warning: 'alert-triangle', info: 'info' };
-        const icon = iconMap[type] || 'info';
-        toast.dataset.type = type;
-        toast.innerHTML = `<i data-lucide="${icon}"></i><span>${message}</span>`;
-        toast.classList.remove('hidden');
-        if (typeof lucide !== 'undefined') { lucide.createIcons(); }
-        setTimeout(() => toast.classList.add('hidden'), 3000);
-    }
-}
+const showToast = (message, type = 'info') => {
+    if (typeof window.showToast === 'function') window.showToast(message, type);
+};
 

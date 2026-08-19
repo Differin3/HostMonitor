@@ -176,9 +176,9 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
 - <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Готово к использованию!
 
 **<img src="frontend/icons/lucide/arrow-right.svg" width="16" height="16" alt="Arrow"> После установки:**
-1. <img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Откройте панель управления: `http://your-server-ip:PORT` или `http://your-domain:PORT`
-2. <img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Порт будет указан в сообщении после установки
-3. <img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте ноду и экспортируйте конфиг для установки агента
+1. <img src="frontend/icons/lucide/globe.svg" width="16" height="16" alt="Globe"> Откройте панель: `http://your-server-ip:PORT`
+2. На первом заходе откроется мастер: задайте логин администратора панели. **Базу MySQL создавать вручную не нужно** — её уже создал `install.sh`.
+3. <img src="frontend/icons/lucide/plus.svg" width="16" height="16" alt="Plus"> Создайте ноду и экспортируйте конфиг для агента
 
 #### Вариант 2: Ручная установка
 

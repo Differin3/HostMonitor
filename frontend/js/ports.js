@@ -118,8 +118,8 @@ function renderPorts(ports) {
             <td>${p.pid || 'N/A'}</td>
             <td><span class="status ${p.status}">${p.status || 'unknown'}</span></td>
             <td>
-                <button onclick="togglePort(${p.port}, '${p.type || 'tcp'}', ${p.node_id})" class="${p.status === 'open' ? 'btn-danger' : 'primary'}">
-                    ${p.status === 'open' ? '<i data-lucide="lock"></i>' : '<i data-lucide="unlock"></i>'}
+                <button onclick="togglePort(${p.port}, '${p.type || 'tcp'}', ${p.node_id})" class="${p.status === 'open' ? 'btn-danger' : 'primary'}" title="${p.status === 'open' ? 'Закрыть порт' : 'Открыть порт'}">
+                    ${p.status === 'open' ? '<i data-lucide="lock"></i> Закрыть' : '<i data-lucide="unlock"></i> Открыть'}
                 </button>
             </td>
         </tr>
@@ -161,13 +161,13 @@ async function scanPorts() {
 
 window.scanPorts = scanPorts;
 
-function showToast(message, type = 'info') {
-    if (window.showToast) {
+const showToast = (message, type = 'info') => {
+    if (typeof window.showToast === 'function') {
         window.showToast(message, type);
-    } else {
-        alert(message);
+        return;
     }
-}
+    alert(message);
+};
 
 async function togglePort(port, type, nodeId) {
     if (!port || !type || !nodeId) return;
@@ -274,12 +274,20 @@ function renderInterfaces(interfaces) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center">Интерфейсы не найдены</td></tr>';
         return;
     }
+
+    const ipCell = (row) => {
+        const v4 = row.ip && row.ip !== 'N/A' ? row.ip : '';
+        const v6 = row.ipv6 && row.ipv6 !== 'N/A' ? row.ipv6 : '';
+        if (!v4 && !v6) return 'N/A';
+        if (v4 && v6) return `${v4}<br><span class="muted">${v6}</span>`;
+        return v4 || v6;
+    };
     
     tbody.innerHTML = interfaces.map(i => `
         <tr>
             <td><strong>${i.name || 'N/A'}</strong></td>
             <td>${i.node_name || 'N/A'}</td>
-            <td>${i.ip || 'N/A'}</td>
+            <td>${ipCell(i)}</td>
             <td>${i.netmask || 'N/A'}</td>
             <td><span class="status ${i.status}">${i.status || 'unknown'}</span></td>
             <td>${formatBytes(i.rx_bytes || 0)}</td>

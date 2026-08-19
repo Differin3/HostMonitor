@@ -15,5 +15,9 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))  # количество пов�
 RETRY_DELAY = int(os.getenv("RETRY_DELAY", "5"))  # пауза между повторами (секунды)
 
 # Health-check HTTP сервер агента (0 = выключен)
-HEALTH_PORT = int(os.getenv("HEALTH_PORT", "0"))  # порт для /health
+UPNP_ENABLED = os.getenv("UPNP_ENABLED", "true").lower() == "true"
+UPNP_MX = int(os.getenv("UPNP_MX", "3"))
+UPNP_TIMEOUT = float(os.getenv("UPNP_TIMEOUT", "8"))
+UPNP_INTERVAL_CYCLES = int(os.getenv("UPNP_INTERVAL_CYCLES", "2"))
+UPNP_GENA_PORT = int(os.getenv("UPNP_GENA_PORT", "0"))
 

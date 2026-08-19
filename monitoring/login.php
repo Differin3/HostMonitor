@@ -7,7 +7,19 @@ session_start();
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/database.php';
 
+if (db_needs_setup()) {
+    header('Location: setup.php');
+    exit;
+}
+
 $error = '';
+if (isset($_GET['setup'])) {
+    $error = '';
+}
+$notice = isset($_GET['setup']) ? 'База создана. Войдите учётной записью администратора.' : '';
+if (isset($_GET['expired'])) {
+    $notice = 'Сессия истекла. Войдите снова.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
@@ -23,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
+            $_SESSION['last_activity'] = time();
             
             // Логируем успешный вход
             log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
@@ -47,7 +60,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход · HostMonitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/style.css')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/nexus.css')) ?>">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="dark">
@@ -66,6 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="login-error">
                     <i data-lucide="alert-circle"></i>
                     <span><?= htmlspecialchars($error) ?></span>
+                </div>
+            <?php elseif (!empty($notice)): ?>
+                <div class="login-error <?= isset($_GET['expired']) ? '' : 'login-ok' ?>">
+                    <i data-lucide="<?= isset($_GET['expired']) ? 'clock' : 'check-circle' ?>"></i>
+                    <span><?= htmlspecialchars($notice) ?></span>
                 </div>
             <?php endif; ?>
             

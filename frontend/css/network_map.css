@@ -1,0 +1,813 @@
+/* Карта сети — Nexus glass, один рендер для живой страницы и preview */
+
+.netmap {
+    --nm-glass: var(--glass, rgba(22, 22, 26, 0.62));
+    --nm-glass-strong: var(--glass-strong, rgba(16, 16, 18, 0.82));
+    --nm-border: var(--border-color, rgba(255, 255, 255, 0.08));
+    --nm-muted: var(--text-muted, #9aa3b2);
+    --nm-text: var(--text-primary, #f4f5f7);
+    --nm-accent: var(--accent, #3b82f6);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--nm-text);
+    position: relative;
+    flex: 1;
+    min-height: 560px;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid var(--nm-border);
+    background-color: rgba(18, 18, 22, 0.42);
+    background-image:
+        radial-gradient(circle at 18% 8%, rgba(59, 130, 246, 0.12), transparent 32%),
+        radial-gradient(circle at 86% 92%, rgba(34, 197, 94, 0.06), transparent 28%),
+        radial-gradient(rgba(255, 255, 255, 0.07) 1.1px, transparent 1.1px);
+    background-size: auto, auto, 22px 22px;
+    box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.18);
+}
+
+.content:has(.netmap) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 10px;
+    min-height: 0;
+}
+
+.content:has(.netmap) .header {
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.netmap .hidden {
+    display: none !important;
+}
+
+.netmap-tools {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    width: 58px;
+    padding: 10px 8px;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 6;
+    background: var(--nm-glass);
+    border: 1px solid var(--nm-border);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+}
+
+.netmap-tool {
+    width: 40px;
+    height: 40px;
+    border: 0;
+    background: transparent;
+    color: #d7dbe3;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+
+.netmap-tool i,
+.netmap-tool svg {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+}
+
+.netmap-tool:hover,
+.netmap-tool.active {
+    background: rgba(59, 130, 246, 0.18);
+    color: #fff;
+    box-shadow: 0 0 14px rgba(59, 130, 246, 0.3);
+}
+
+.netmap-stage {
+    position: absolute;
+    inset: 0 348px 0 0;
+    cursor: default;
+    overflow: hidden;
+    transition: inset 0.2s ease;
+}
+
+.netmap.panel-collapsed .netmap-stage {
+    inset: 0 64px 0 0;
+}
+
+.netmap-stage.is-panning {
+    cursor: grab;
+}
+
+.netmap-links {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.netmap-nodes {
+    position: absolute;
+    inset: 0;
+}
+
+.netmap-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 8px;
+    color: var(--nm-muted);
+    text-align: center;
+    z-index: 3;
+}
+
+.netmap-empty i,
+.netmap-empty svg {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+}
+
+.netmap-empty h3 {
+    margin: 0;
+    color: var(--nm-text);
+    font-size: 16px;
+}
+
+.netmap-empty p {
+    margin: 0;
+    font-size: 13px;
+}
+
+.netmap-hub,
+.netmap-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    z-index: 2;
+    width: 128px;
+}
+
+.netmap-node.selected {
+    z-index: 4;
+}
+
+.netmap-hub .icon,
+.netmap-node .icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 8px;
+    border-radius: 14px;
+    background: rgba(42, 42, 48, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: grid;
+    place-items: center;
+    color: #e8eaed;
+    position: relative;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+.netmap-node .icon::after {
+    content: '';
+    position: absolute;
+    right: 7px;
+    top: 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 8px #22c55e;
+}
+
+.netmap-node.offline .icon::after {
+    background: #f87171;
+    box-shadow: 0 0 8px #ef4444;
+}
+
+.netmap-hub .icon {
+    background: rgba(30, 41, 59, 0.95);
+    color: #93c5fd;
+}
+
+.netmap-node.kind-wan .icon { color: #93c5fd; background: rgba(30, 58, 95, 0.9); }
+.netmap-node.kind-core .icon { color: #c4b5fd; }
+.netmap-node.kind-router .icon { color: #38bdf8; }
+.netmap-node.kind-switch .icon { color: #94a3b8; }
+.netmap-node.kind-ap .icon { color: #2dd4bf; }
+.netmap-node.kind-device .icon { color: #a78bfa; }
+.netmap-node.kind-printer .icon { color: #fbbf24; }
+.netmap-node.kind-media .icon { color: #f472b6; }
+.netmap-node.kind-server .icon { color: #e2e8f0; }
+.netmap-node.kind-subnet .icon {
+    color: #60a5fa;
+    border-style: dashed;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.netmap-node.selected .icon {
+    border-color: rgba(96, 165, 250, 0.7);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.28), 0 0 22px rgba(59, 130, 246, 0.4);
+}
+
+.netmap-node.offline .icon {
+    opacity: 0.62;
+}
+
+.netmap-node .icon i,
+.netmap-hub .icon i,
+.netmap-node .icon svg,
+.netmap-hub .icon svg {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+}
+
+.netmap-node .name,
+.netmap-hub .name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    max-width: 128px;
+    margin: 0 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.netmap-node .meta {
+    font-size: 11px;
+    color: var(--nm-muted);
+    margin-top: 2px;
+    max-width: 128px;
+    margin-left: auto;
+    margin-right: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.netmap-link {
+    fill: none;
+    stroke: #64748b;
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.netmap-link.active {
+    stroke: url(#netmapBlue);
+    stroke-width: 3.4;
+    filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.8));
+}
+
+.netmap-link.busy {
+    stroke-width: 3;
+}
+
+.netmap-link.offline {
+    stroke: #4b5563;
+    stroke-dasharray: 7 6;
+    opacity: 0.75;
+}
+
+.netmap-pkt {
+    fill: #7dd3fc;
+    filter: drop-shadow(0 0 5px #38bdf8);
+    pointer-events: none;
+}
+
+.netmap-pkt.wan {
+    fill: #86efac;
+    filter: drop-shadow(0 0 6px #22c55e);
+}
+
+.netmap-pkt-rev {
+    fill: #93c5fd;
+    filter: drop-shadow(0 0 5px #60a5fa);
+}
+
+.netmap-link.wan {
+    stroke: url(#netmapBlue);
+    stroke-width: 3.4;
+}
+
+.netmap-link.lan {
+    stroke: #38bdf8;
+    stroke-width: 2.6;
+}
+
+.netmap-dot {
+    fill: #22c55e;
+    filter: drop-shadow(0 0 6px #22c55e);
+}
+
+.netmap-dot.off {
+    fill: #ef4444;
+    filter: drop-shadow(0 0 6px #ef4444);
+}
+
+.netmap-llabel {
+    fill: #cbd5e1;
+    font-size: 10px;
+    font-family: Inter, sans-serif;
+    text-anchor: middle;
+    paint-order: stroke;
+    stroke: rgba(12, 12, 16, 0.88);
+    stroke-width: 3px;
+}
+
+.netmap-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: 324px;
+    border-radius: 22px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 6;
+    background: var(--nm-glass);
+    border: 1px solid var(--nm-border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+    overflow: hidden;
+    min-height: 0;
+    transition: width 0.2s ease, height 0.2s ease, max-height 0.2s ease, padding 0.2s ease;
+}
+
+.netmap-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.netmap-panel.is-collapsed {
+    width: 46px;
+    padding: 10px 8px;
+    align-items: center;
+}
+
+.netmap-panel.is-collapsed .netmap-panel-head h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+}
+
+.netmap-panel.is-collapsed .netmap-panel-head {
+    justify-content: center;
+}
+
+.netmap-panel .hm-collapse-btn {
+    background: transparent !important;
+    color: rgba(244, 245, 247, 0.5);
+    margin: 0 !important;
+}
+
+.netmap-panel .hm-collapse-btn:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #fff;
+}
+
+.netmap-panel h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.netmap-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--nm-muted);
+}
+
+.netmap-stats b {
+    color: var(--nm-text);
+    font-weight: 700;
+}
+
+.netmap-selected,
+.netmap-neighbors,
+.netmap-alerts {
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--nm-border);
+    border-radius: 14px;
+    padding: 10px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.netmap-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 72px;
+    flex: 1 1 0;
+    overflow: hidden;
+}
+
+.netmap-block-main {
+    flex: 1.45 1 0;
+}
+
+.netmap-block.is-collapsed {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+}
+
+.netmap-block .hm-panel-head h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--nm-muted);
+}
+
+.netmap-sel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.netmap-sel-head h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.netmap-selected .muted,
+.netmap-selected p,
+.netmap-neighbors .muted,
+.netmap-alerts .muted {
+    margin: 0;
+    color: var(--nm-muted);
+    font-size: 12px;
+}
+
+.netmap .status {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    line-height: 1.2;
+}
+
+.netmap .status.status-online {
+    background: rgba(34, 197, 94, 0.16);
+    color: #4ade80;
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.35);
+}
+
+.netmap .status.status-offline {
+    background: rgba(239, 68, 68, 0.16);
+    color: #f87171;
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+
+.netmap-kv {
+    display: grid;
+    gap: 6px 0;
+    margin-top: 10px;
+}
+
+.netmap-kv > div {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.netmap-kv span {
+    color: var(--nm-muted);
+    font-size: 11px;
+}
+
+.netmap-kv b {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--nm-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.netmap-meter {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--nm-muted);
+}
+
+.netmap-meter b {
+    text-align: right;
+    color: var(--nm-text);
+    font-size: 11px;
+}
+
+.netmap-meter .bar {
+    height: 6px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.netmap-meter .bar .fill {
+    display: block;
+    height: 100%;
+    border-radius: 99px;
+    background: #38bdf8;
+}
+
+.netmap-meter.warn .bar .fill { background: #fbbf24; }
+.netmap-meter.hot .bar .fill { background: #f87171; }
+
+.netmap-nbor,
+.netmap-alert {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    padding: 8px;
+    border: 0;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.netmap-nbor:last-child,
+.netmap-alert:last-child {
+    margin-bottom: 0;
+}
+
+.netmap-nbor:hover,
+.netmap-alert:hover {
+    background: rgba(59, 130, 246, 0.14);
+}
+
+.netmap-nbor .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #64748b;
+    flex-shrink: 0;
+}
+
+.netmap-nbor .dot.on { background: #4ade80; }
+.netmap-nbor .dot.busy { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+.netmap-nbor .dot.off { background: #f87171; }
+
+.netmap-nbor .txt {
+    min-width: 0;
+    display: grid;
+}
+
+.netmap-nbor b,
+.netmap-alert b {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.netmap-nbor small,
+.netmap-alert span {
+    font-size: 11px;
+    color: var(--nm-muted);
+}
+
+.netmap-alert {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    border-left: 2px solid #fbbf24;
+}
+
+.netmap-alert.crit {
+    border-left-color: #f87171;
+}
+
+.netmap-links,
+.netmap-nodes {
+    transform-origin: 0 0;
+}
+
+@media (max-width: 1280px) {
+    .netmap-panel {
+        width: 292px;
+        padding: 12px 10px 10px;
+        gap: 8px;
+    }
+    .netmap-stage {
+        inset: 0 316px 0 0;
+    }
+    .netmap-kv > div {
+        grid-template-columns: 64px minmax(0, 1fr);
+        gap: 6px;
+    }
+}
+
+@media (max-width: 1100px) {
+    .netmap {
+        --nm-sheet-h: min(42vh, 360px);
+        min-height: 0;
+    }
+
+    .netmap-tools {
+        flex-direction: row;
+        width: auto;
+        top: 8px;
+        left: 8px;
+        padding: 6px;
+        gap: 4px;
+    }
+
+    .netmap-tool {
+        width: 36px;
+        height: 36px;
+    }
+
+    .netmap-stage {
+        inset: 0 0 calc(var(--nm-sheet-h) + 20px) 0;
+    }
+
+    .netmap.panel-collapsed .netmap-stage {
+        inset: 0 0 70px 0;
+    }
+
+    .netmap-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        align-content: stretch;
+        top: auto;
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: auto;
+        height: var(--nm-sheet-h);
+        max-height: var(--nm-sheet-h);
+        padding: 10px 12px;
+        gap: 8px;
+        border-radius: 18px;
+        overflow: hidden;
+    }
+
+    .netmap-panel-head,
+    .netmap-stats {
+        grid-column: 1 / -1;
+    }
+
+    .netmap-panel .hm-collapse-btn svg {
+        transform: rotate(90deg);
+    }
+
+    .netmap-block {
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .netmap-selected,
+    .netmap-neighbors,
+    .netmap-alerts {
+        flex: 1 1 auto;
+    }
+
+    .netmap-panel.is-collapsed {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        width: auto;
+        height: 48px;
+        max-height: 48px;
+        padding: 8px 10px;
+    }
+
+    .netmap-panel.is-collapsed .netmap-panel-head {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .netmap-panel.is-collapsed .netmap-panel-head h2 {
+        position: static;
+        width: auto;
+        height: auto;
+        overflow: visible;
+        clip: auto;
+        clip-path: none;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 720px) {
+    .netmap {
+        --nm-sheet-h: min(48vh, 420px);
+        min-height: 420px;
+        border-radius: 16px;
+    }
+
+    .netmap-panel {
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .netmap-block {
+        flex: 0 0 auto;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    .netmap-block-main {
+        flex: 0 0 auto;
+    }
+
+    .netmap-selected,
+    .netmap-neighbors,
+    .netmap-alerts {
+        overflow: visible;
+        max-height: none;
+    }
+
+    .netmap-kv > div {
+        grid-template-columns: 56px minmax(0, 1fr);
+    }
+
+    .netmap-kv b {
+        white-space: normal;
+        overflow: visible;
+        word-break: break-all;
+    }
+
+    .netmap-sel-head {
+        gap: 6px;
+    }
+
+    .netmap-sel-head h3 {
+        font-size: 14px;
+    }
+
+    .netmap-node,
+    .netmap-hub {
+        width: 96px;
+    }
+
+    .netmap-hub .icon,
+    .netmap-node .icon {
+        width: 52px;
+        height: 52px;
+        margin-bottom: 6px;
+        border-radius: 12px;
+    }
+
+    .netmap-node .name,
+    .netmap-hub .name,
+    .netmap-node .meta {
+        max-width: 96px;
+        font-size: 12px;
+    }
+
+    .netmap-node .meta {
+        font-size: 10px;
+    }
+}

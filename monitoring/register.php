@@ -6,6 +6,10 @@ require_once __DIR__ . '/includes/database.php';
 $error = '';
 
 try {
+    if (db_needs_setup()) {
+        header('Location: setup.php');
+        exit;
+    }
     $pdo = getDbConnection();
     $count = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
     if ($count > 0) {
@@ -13,7 +17,8 @@ try {
         exit;
     }
 } catch (Exception $e) {
-    $error = 'Ошибка подключения к базе данных';
+    header('Location: setup.php');
+    exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error) {
@@ -43,7 +48,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Регистрация администратора · HostMonitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/style.css')) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/nexus.css')) ?>">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="dark">

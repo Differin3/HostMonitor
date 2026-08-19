@@ -4,6 +4,9 @@ declare(strict_types=1);
 if (!function_exists('json_error')) {
     function json_error(string $message, int $status = 400): void
     {
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+        }
         http_response_code($status);
         echo json_encode(['error' => $message]);
         exit;

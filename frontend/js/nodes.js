@@ -47,32 +47,7 @@ const fetchJson = async (path = '', options = {}) => {
 };
 
 const showToast = (message, type = 'info') => {
-    if (!toast) {
-        toast = document.getElementById('toast');
-        if (!toast) return;
-    }
-    toast.textContent = message;
-    toast.classList.remove('hidden');
-    toast.dataset.type = type;
-    
-    // Добавляем иконку
-    const iconMap = {
-        success: 'check-circle',
-        error: 'alert-circle',
-        warning: 'alert-triangle',
-        info: 'info'
-    };
-    
-    const icon = iconMap[type] || 'info';
-    toast.innerHTML = `<i data-lucide="${icon}"></i><span>${message}</span>`;
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-    
-    setTimeout(() => {
-        toast.classList.add('hidden');
-    }, 3000);
+    if (window.showToast) window.showToast(message, type);
 };
 
 let filteredNodes = [];
@@ -269,7 +244,7 @@ async function loadProvidersForSelect(selectId) {
         if (!select) return;
         
         const currentValue = select.value;
-        select.innerHTML = '<option value="">Выберите провайдера</option>';
+        select.innerHTML = '<option value="">Нет / домашняя лаборатория</option>';
         
         providers.forEach(provider => {
             const option = document.createElement('option');
@@ -424,7 +399,7 @@ const handleCreateSubmit = async (event) => {
         country: createForm.country?.value || null,
         secret_key: createForm.secret_key?.value || null,
         node_token: generatedNodeToken || null,
-        provider_name: document.getElementById('provider-select-create')?.value || null,
+        provider_name: document.getElementById('provider-select-create')?.value.trim() || null,
     };
     
     try {
@@ -457,7 +432,7 @@ const handleEditSubmit = async (event) => {
     if (!editForm) return;
     
     const providerSelect = document.getElementById('provider-select-edit');
-    const providerName = providerSelect ? providerSelect.value : null;
+    const providerName = (providerSelect?.value || '').trim() || null;
     
     const payload = {
         name: editForm.name.value.trim(),

@@ -14,6 +14,55 @@ $pdo = getDbConnection();
 $auth = require_api_auth($pdo);
 $nodeInfo = $auth['node'];
 
+function ensure_network_interfaces_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        node_id INT NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        ip VARCHAR(45),
+        ipv6 VARCHAR(45) DEFAULT NULL,
+        netmask VARCHAR(45),
+        ipv6_netmask VARCHAR(45) DEFAULT NULL,
+        gateway VARCHAR(45) DEFAULT NULL,
+        gateway6 VARCHAR(45) DEFAULT NULL,
+        status VARCHAR(20),
+        speed INT DEFAULT 0,
+        rx_bytes BIGINT DEFAULT 0,
+        tx_bytes BIGINT DEFAULT 0,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_node_id (node_id),
+        INDEX idx_timestamp (timestamp)
+    )");
+    foreach ([
+        'ALTER TABLE network_interfaces ADD COLUMN gateway VARCHAR(45) DEFAULT NULL AFTER netmask',
+        'ALTER TABLE network_interfaces ADD COLUMN ipv6 VARCHAR(45) DEFAULT NULL AFTER ip',
+        'ALTER TABLE network_interfaces ADD COLUMN ipv6_netmask VARCHAR(45) DEFAULT NULL AFTER netmask',
+        'ALTER TABLE network_interfaces ADD COLUMN gateway6 VARCHAR(45) DEFAULT NULL AFTER gateway',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Exception $e) {
+            // column already exists
+        }
+    }
+}
+
+function ensure_network_neighbors_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS network_neighbors (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        node_id INT NOT NULL,
+        ip VARCHAR(45) NOT NULL,
+        mac VARCHAR(32) DEFAULT NULL,
+        iface VARCHAR(100) DEFAULT NULL,
+        family TINYINT DEFAULT 4,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_nn_node (node_id),
+        INDEX idx_nn_ip (ip)
+    )");
+}
+
 try {
     if ($method === 'GET') {
         $action = $_GET['action'] ?? null;
@@ -21,23 +70,9 @@ try {
         // Обработка запроса интерфейсов
         if ($action === 'interfaces') {
             $nodeId = $_GET['node_id'] ?? null;
-            
-            // Проверяем наличие таблицы network_interfaces, если нет - создаем
+
             try {
-                $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    node_id INT NOT NULL,
-                    name VARCHAR(100) NOT NULL,
-                    ip VARCHAR(45),
-                    netmask VARCHAR(45),
-                    status VARCHAR(20),
-                    speed INT DEFAULT 0,
-                    rx_bytes BIGINT DEFAULT 0,
-                    tx_bytes BIGINT DEFAULT 0,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_node_id (node_id),
-                    INDEX idx_timestamp (timestamp)
-                )");
+                ensure_network_interfaces_table($pdo);
             } catch (Exception $e) {
                 error_log("Error creating network_interfaces table: " . $e->getMessage());
             }
@@ -173,40 +208,29 @@ try {
                 exit;
             }
             
-            // Проверяем наличие таблицы
             try {
-                $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    node_id INT NOT NULL,
-                    name VARCHAR(100) NOT NULL,
-                    ip VARCHAR(45),
-                    netmask VARCHAR(45),
-                    status VARCHAR(20),
-                    speed INT DEFAULT 0,
-                    rx_bytes BIGINT DEFAULT 0,
-                    tx_bytes BIGINT DEFAULT 0,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_node_id (node_id),
-                    INDEX idx_timestamp (timestamp)
-                )");
+                ensure_network_interfaces_table($pdo);
             } catch (Exception $e) {
                 error_log("Error creating network_interfaces table: " . $e->getMessage());
             }
-            
+
             $interfaces = $data['interfaces'] ?? [];
+            $neighbors = $data['neighbors'] ?? [];
+            $deleteStmt = $pdo->prepare("DELETE FROM network_interfaces WHERE node_id = ?");
+            $deleteStmt->execute([$nodeId]);
+
             if (count($interfaces) > 0) {
-                // Удаляем старые интерфейсы для этой ноды
-                $deleteStmt = $pdo->prepare("DELETE FROM network_interfaces WHERE node_id = ?");
-                $deleteStmt->execute([$nodeId]);
-                
-                // Вставляем новые интерфейсы
-                $stmt = $pdo->prepare("INSERT INTO network_interfaces (node_id, name, ip, netmask, status, speed, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO network_interfaces (node_id, name, ip, ipv6, netmask, ipv6_netmask, gateway, gateway6, status, speed, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 foreach ($interfaces as $iface) {
                     $stmt->execute([
                         $nodeId,
                         $iface['name'] ?? 'unknown',
                         $iface['ip'] ?? null,
+                        $iface['ipv6'] ?? null,
                         $iface['netmask'] ?? null,
+                        $iface['ipv6_netmask'] ?? null,
+                        $iface['gateway'] ?? null,
+                        $iface['gateway6'] ?? null,
                         $iface['status'] ?? 'unknown',
                         $iface['speed'] ?? 0,
                         $iface['rx_bytes'] ?? 0,
@@ -214,8 +238,31 @@ try {
                     ]);
                 }
             }
+
+            try {
+                ensure_network_neighbors_table($pdo);
+                $pdo->prepare("DELETE FROM network_neighbors WHERE node_id = ?")->execute([$nodeId]);
+                if (count($neighbors) > 0) {
+                    $nstmt = $pdo->prepare("INSERT INTO network_neighbors (node_id, ip, mac, iface, family) VALUES (?, ?, ?, ?, ?)");
+                    foreach ($neighbors as $row) {
+                        $ip = trim((string)($row['ip'] ?? ''));
+                        if ($ip === '') {
+                            continue;
+                        }
+                        $nstmt->execute([
+                            $nodeId,
+                            mb_substr($ip, 0, 45),
+                            mb_substr((string)($row['mac'] ?? ''), 0, 32) ?: null,
+                            mb_substr((string)($row['iface'] ?? ''), 0, 100) ?: null,
+                            (int)($row['family'] ?? (strpos($ip, ':') !== false ? 6 : 4)),
+                        ]);
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('network_neighbors: ' . $e->getMessage());
+            }
             
-            echo json_encode(['success' => true, 'count' => count($interfaces)]);
+            echo json_encode(['success' => true, 'count' => count($interfaces), 'neighbors' => count($neighbors)]);
             exit;
         }
         

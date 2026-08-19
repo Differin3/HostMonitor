@@ -888,17 +888,9 @@ async function deleteProvider(id) {
         });
 }
 
-function showToast(message, type = 'info') { // локальный toast без рекурсии
-    const toast = document.getElementById('toast') || document.createElement('div'); // находим/создаём блок
-    toast.id = 'toast'; // id
-    toast.textContent = message; // текст
-    toast.className = `toast toast-${type}`; // класс по типу
-    if (!document.getElementById('toast')) { // если ещё не в DOM
-        document.body.appendChild(toast); // добавляем
-    }
-    toast.classList.remove('hidden'); // показать
-    setTimeout(() => toast.classList.add('hidden'), 3000); // скрыть через 3 сек
-}
+const showToast = (message, type = 'info') => {
+    if (typeof window.showToast === 'function') window.showToast(message, type);
+};
 
 function refreshBilling() {
     loadBillingData();

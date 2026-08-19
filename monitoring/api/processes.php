@@ -13,6 +13,139 @@ $pdo = getDbConnection();
 $auth = require_api_auth($pdo);
 $nodeInfo = $auth['node'];
 
+// Обработка запроса логов процесса напрямую с ноды: GET /api/processes.php?node_id=X&pid=Y&logs=1
+if ($method === 'GET' && isset($_GET['logs']) && $_GET['logs'] == '1' && isset($_GET['node_id']) && isset($_GET['pid'])) {
+    $nodeId = (int)$_GET['node_id'];
+    $pid = (int)$_GET['pid'];
+    $fromTime = $_GET['from'] ?? null;
+    $toTime = $_GET['to'] ?? null;
+    $limit = isset($_GET['limit']) ? max(1, min((int)$_GET['limit'], 10000)) : 1000;
+    
+    // Получаем информацию о ноде
+    $nodeStmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
+    $nodeStmt->execute([$nodeId]);
+    $node = $nodeStmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$node) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Node not found']);
+        exit;
+    }
+    
+    // Формируем команду для агента
+    $command = "get-process-logs {$pid}";
+    if ($fromTime) {
+        $command .= " --from " . escapeshellarg($fromTime);
+    }
+    if ($toTime) {
+        $command .= " --to " . escapeshellarg($toTime);
+    }
+    $command .= " --limit {$limit}";
+    
+    // Очищаем предыдущий результат команды
+    $clearStmt = $pdo->prepare("UPDATE nodes SET command_result = NULL WHERE id = ?");
+    $clearStmt->execute([$nodeId]);
+    
+    // Сохраняем команду в БД - ВАЖНО: команда должна быть доступна по node_name для агента
+    $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
+    $stmt->execute([$command, $nodeId]);
+    
+    // Логируем для отладки
+    error_log("Process logs command queued: node_id={$nodeId}, node_name={$node['name']}, pid={$pid}, command={$command}");
+    
+    // Проверяем что команда действительно сохранена (по id и по name для агента)
+    $checkStmt = $pdo->prepare("SELECT id, name, last_command, command_status FROM nodes WHERE id = ? OR name = ?");
+    $checkStmt->execute([$nodeId, $node['name']]);
+    $check = $checkStmt->fetch(PDO::FETCH_ASSOC);
+    error_log("Command saved check: id={$check['id']}, name={$check['name']}, command=" . ($check['last_command'] ?? 'NULL') . ", status=" . ($check['command_status'] ?? 'NULL'));
+    
+    // Возвращаем статус что команда поставлена, фронтенд будет делать polling
+    echo json_encode([
+        'status' => 'pending',
+        'message' => 'Command queued, use polling to get results',
+        'command' => $command,
+        'node_id' => $nodeId,
+        'node_name' => $node['name'] ?? null
+    ]);
+    exit;
+}
+
+// Получение результата команды: GET /api/processes.php?node_id=X&pid=Y&get-result=1
+if ($method === 'GET' && isset($_GET['get-result']) && $_GET['get-result'] == '1' && isset($_GET['node_id']) && isset($_GET['pid'])) {
+    $nodeId = (int)$_GET['node_id'];
+    $pid = (int)$_GET['pid'];
+    
+    // Проверяем статус команды и результат
+    $statusStmt = $pdo->prepare("SELECT command_status, command_result FROM nodes WHERE id = ?");
+    $statusStmt->execute([$nodeId]);
+    $status = $statusStmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$status) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Node not found']);
+        exit;
+    }
+    
+    if ($status['command_status'] === 'completed' && $status['command_result']) {
+        // Команда выполнена, возвращаем результат
+        $logs = json_decode($status['command_result'], true);
+        echo json_encode([
+            'status' => 'completed',
+            'logs' => $logs ?: [],
+            'count' => count($logs ?: []),
+            'source' => 'node'
+        ]);
+    } elseif ($status['command_status'] === 'failed') {
+        echo json_encode([
+            'status' => 'failed',
+            'error' => 'Failed to get logs from node'
+        ]);
+    } else {
+        // Команда еще выполняется
+        echo json_encode([
+            'status' => 'pending',
+            'message' => 'Command is still executing'
+        ]);
+    }
+    exit;
+}
+
+// Прием результата команды от агента: POST /api/processes.php?action=command-result
+if ($method === 'POST' && isset($_GET['action']) && $_GET['action'] === 'command-result') {
+    global $nodeInfo;
+    $data = json_decode(file_get_contents('php://input'), true);
+    
+    if (!$nodeInfo) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Unauthorized']);
+        exit;
+    }
+    
+    $nodeId = $nodeInfo['id'];
+    $command = $data['command'] ?? '';
+    $logs = $data['logs'] ?? [];
+    
+    error_log("Received command result from node_id={$nodeId}, command={$command}, logs_count=" . count($logs));
+    
+    // Сохраняем результат команды
+    $resultJson = json_encode($logs, JSON_UNESCAPED_UNICODE);
+    $stmt = $pdo->prepare("UPDATE nodes SET command_result = ?, command_status = 'completed' WHERE id = ?");
+    $stmt->execute([$resultJson, $nodeId]);
+    
+    // Проверяем что результат сохранен
+    $checkStmt = $pdo->prepare("SELECT command_result, command_status FROM nodes WHERE id = ?");
+    $checkStmt->execute([$nodeId]);
+    $check = $checkStmt->fetch(PDO::FETCH_ASSOC);
+    error_log("Command result saved: status=" . ($check['command_status'] ?? 'NULL') . ", result_length=" . (strlen($check['command_result'] ?? '')));
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Command result saved',
+        'logs_count' => count($logs)
+    ]);
+    exit;
+}
+
 // Обработка действий с процессами: POST /api/processes.php?node_id={id}&pid={pid}&action=kill
 if ($method === 'POST' && isset($_GET['node_id']) && isset($_GET['pid']) && isset($_GET['action'])) {
     $nodeId = $_GET['node_id'];

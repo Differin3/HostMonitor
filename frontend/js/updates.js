@@ -10,32 +10,7 @@ let isChecking = false; // Флаг для блокировки проверки
 
 // Функция показа уведомлений в стиле nodes.js
 const showToast = (message, type = 'info') => {
-    if (!toast) {
-        toast = document.getElementById('toast');
-        if (!toast) return;
-    }
-    toast.textContent = message;
-    toast.classList.remove('hidden');
-    toast.dataset.type = type;
-    
-    // Добавляем иконку
-    const iconMap = {
-        success: 'check-circle',
-        error: 'alert-circle',
-        warning: 'alert-triangle',
-        info: 'info'
-    };
-    
-    const icon = iconMap[type] || 'info';
-    toast.innerHTML = `<i data-lucide="${icon}"></i><span>${message}</span>`;
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-    
-    setTimeout(() => {
-        toast.classList.add('hidden');
-    }, 3000);
+    if (window.showToast) window.showToast(message, type);
 };
 
 async function fetchJson(path, options = {}) {
@@ -823,6 +798,7 @@ function populateHistoryNodeFilter() {
 window.checkUpdates = checkUpdates;
 window.installUpdates = installUpdates;
 window.installSingleUpdate = installSingleUpdate;
+window.loadHistory = loadHistory;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('select-all-updates')?.addEventListener('change', (e) => {

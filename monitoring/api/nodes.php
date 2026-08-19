@@ -130,9 +130,25 @@ function handleGet($pdo) {
             }
         } else {
             // Используем node_id из токена
+            $nodeId = $nodeInfo['id'];
+            $nodeName = $nodeInfo['name'];
+            
+            // Проверяем команду по node_id (основной способ)
             $stmt = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?");
-            $stmt->execute([$nodeInfo['id']]);
+            $stmt->execute([$nodeId]);
             $node = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Дополнительная проверка - может быть команда поставлена по node_name
+            if (!$node || !$node['last_command'] || $node['command_status'] !== 'pending') {
+                $stmt2 = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE name = ?");
+                $stmt2->execute([$nodeName]);
+                $node2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+                if ($node2 && $node2['command_status'] === 'pending' && $node2['last_command']) {
+                    $node = $node2;
+                    error_log("Command found by node_name={$nodeName}, node_id={$nodeId}, command={$node['last_command']}");
+                }
+            }
+            
             if ($node && $node['command_status'] === 'pending' && $node['last_command']) {
                 $result = [
                     'status' => 'ok',
@@ -140,6 +156,9 @@ function handleGet($pdo) {
                     'command_status' => $node['command_status'],
                     'command_timestamp' => $node['command_timestamp'],
                 ];
+                error_log("Command found for node_id={$nodeId}, node_name={$nodeName}, command={$node['last_command']}");
+            } else {
+                error_log("No command found for node_id={$nodeId}, node_name={$nodeName}, status=" . ($node['command_status'] ?? 'NULL') . ", command=" . ($node['last_command'] ?? 'NULL'));
             }
         }
 
@@ -191,13 +210,24 @@ function handleGet($pdo) {
         $node['ping'] = pingNode($node['host']);
         
         // Получаем последние метрики из таблицы metrics
-        $metricsStmt = $pdo->prepare("SELECT cpu_percent, memory_percent, disk_percent, network_in, network_out 
-                                     FROM metrics 
-                                     WHERE node_id = ? 
-                                     ORDER BY timestamp DESC 
+        $metricsStmt = $pdo->prepare("SELECT cpu_percent, memory_percent, disk_percent, network_in, network_out,
+                                            memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count
+                                     FROM metrics
+                                     WHERE node_id = ?
+                                     ORDER BY timestamp DESC
                                      LIMIT 1");
-        $metricsStmt->execute([$id]);
-        $metrics = $metricsStmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $metricsStmt->execute([$id]);
+            $metrics = $metricsStmt->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            $metricsStmt = $pdo->prepare("SELECT cpu_percent, memory_percent, disk_percent, network_in, network_out
+                                         FROM metrics
+                                         WHERE node_id = ?
+                                         ORDER BY timestamp DESC
+                                         LIMIT 1");
+            $metricsStmt->execute([$id]);
+            $metrics = $metricsStmt->fetch(PDO::FETCH_ASSOC);
+        }
         
         // Получаем последние GPU метрики
         try {
@@ -233,13 +263,26 @@ function handleGet($pdo) {
             $node['disk_usage'] = (float)($metrics['disk_percent'] ?? 0);
             $node['network_in'] = (float)($metrics['network_in'] ?? 0);
             $node['network_out'] = (float)($metrics['network_out'] ?? 0);
+            $node['memory_used'] = (float)($metrics['memory_used'] ?? 0);
+            $node['memory_total'] = (float)($metrics['memory_total'] ?? 0);
+            $node['disk_used'] = (float)($metrics['disk_used'] ?? 0);
+            $node['disk_total'] = (float)($metrics['disk_total'] ?? 0);
+            $node['swap_percent'] = (float)($metrics['swap_percent'] ?? 0);
+            $node['load_avg'] = (float)($metrics['load_avg'] ?? 0);
+            $node['cpu_count'] = (int)($metrics['cpu_count'] ?? 0);
         } else {
-            // Если метрик нет, устанавливаем значения по умолчанию
             $node['cpu_usage'] = 0;
             $node['memory_usage'] = 0;
             $node['disk_usage'] = 0;
             $node['network_in'] = 0;
             $node['network_out'] = 0;
+            $node['memory_used'] = 0;
+            $node['memory_total'] = 0;
+            $node['disk_used'] = 0;
+            $node['disk_total'] = 0;
+            $node['swap_percent'] = 0;
+            $node['load_avg'] = 0;
+            $node['cpu_count'] = 0;
         }
         
         echo json_encode(['node' => $node]);
@@ -278,7 +321,14 @@ function handleGet($pdo) {
                        m.memory_percent,
                        m.disk_percent,
                        m.network_in,
-                       m.network_out
+                       m.network_out,
+                       m.memory_used,
+                       m.memory_total,
+                       m.disk_used,
+                       m.disk_total,
+                       m.swap_percent,
+                       m.load_avg,
+                       m.cpu_count
                 FROM metrics m
                 INNER JOIN (
                     SELECT node_id, MAX(timestamp) AS ts
@@ -287,10 +337,33 @@ function handleGet($pdo) {
                     GROUP BY node_id
                 ) last ON last.node_id = m.node_id AND last.ts = m.timestamp
             ";
-            $metricsStmt = $pdo->prepare($metricsSql);
-            $metricsStmt->execute($nodeIds);
-            while ($row = $metricsStmt->fetch(PDO::FETCH_ASSOC)) {
-                $metricsByNode[$row['node_id']] = $row;
+            try {
+                $metricsStmt = $pdo->prepare($metricsSql);
+                $metricsStmt->execute($nodeIds);
+                while ($row = $metricsStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $metricsByNode[$row['node_id']] = $row;
+                }
+            } catch (Exception $e) {
+                $metricsSql = "
+                    SELECT m.node_id,
+                           m.cpu_percent,
+                           m.memory_percent,
+                           m.disk_percent,
+                           m.network_in,
+                           m.network_out
+                    FROM metrics m
+                    INNER JOIN (
+                        SELECT node_id, MAX(timestamp) AS ts
+                        FROM metrics
+                        WHERE node_id IN ($placeholders)
+                        GROUP BY node_id
+                    ) last ON last.node_id = m.node_id AND last.ts = m.timestamp
+                ";
+                $metricsStmt = $pdo->prepare($metricsSql);
+                $metricsStmt->execute($nodeIds);
+                while ($row = $metricsStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $metricsByNode[$row['node_id']] = $row;
+                }
             }
         }
         
@@ -333,12 +406,26 @@ function handleGet($pdo) {
                 $node['disk_usage'] = (float)($m['disk_percent'] ?? 0);
                 $node['network_in'] = (float)($m['network_in'] ?? 0);
                 $node['network_out'] = (float)($m['network_out'] ?? 0);
+                $node['memory_used'] = (float)($m['memory_used'] ?? 0);
+                $node['memory_total'] = (float)($m['memory_total'] ?? 0);
+                $node['disk_used'] = (float)($m['disk_used'] ?? 0);
+                $node['disk_total'] = (float)($m['disk_total'] ?? 0);
+                $node['swap_percent'] = (float)($m['swap_percent'] ?? 0);
+                $node['load_avg'] = (float)($m['load_avg'] ?? 0);
+                $node['cpu_count'] = (int)($m['cpu_count'] ?? 0);
             } else {
                 $node['cpu_usage'] = 0.0;
                 $node['memory_usage'] = 0.0;
                 $node['disk_usage'] = 0.0;
                 $node['network_in'] = 0.0;
                 $node['network_out'] = 0.0;
+                $node['memory_used'] = 0.0;
+                $node['memory_total'] = 0.0;
+                $node['disk_used'] = 0.0;
+                $node['disk_total'] = 0.0;
+                $node['swap_percent'] = 0.0;
+                $node['load_avg'] = 0.0;
+                $node['cpu_count'] = 0;
             }
             
             // Получаем GPU метрики для каждой ноды
@@ -396,13 +483,14 @@ function calculateUptime($node) {
 }
 
 function pingNode($host) {
-    // Пинг только если нода была online (last_seen не NULL)
-    // Для новых нод без агента пинг будет null
     if (empty($host)) {
         return null;
     }
+    if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false
+        && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return null;
+    }
     
-    // Используем ping команду для реального ICMP пинга
     $command = "ping -c 1 -W 1 " . escapeshellarg($host) . " 2>/dev/null";
     $output = @shell_exec($command);
     
@@ -505,13 +593,20 @@ function generateAgentConfig($node) {
     $config .= "NODE_NAME=\"" . $node['name'] . "\"\n";
     $config .= "NODE_HOST=\"" . ($node['host'] ?? '') . "\"\n";
     $config .= "NODE_PORT=\"" . ($node['port'] ?? '2222') . "\"\n";
-    $config .= "NODE_TOKEN=\"" . $node['node_token'] . "\"\n";
-    $config .= "COLLECT_INTERVAL=60\n";
-    $config .= "HEARTBEAT_INTERVAL=15\n";
+        $config .= "NODE_TOKEN=\"" . $node['node_token'] . "\"\n";
+        $collectInterval = max(10, min((int)setting_get('collect_interval', '60'), 300));
+        $config .= "COLLECT_INTERVAL=" . $collectInterval . "\n";
+        $config .= "HEARTBEAT_INTERVAL=15\n";
+        $upnpOn = setting_get('upnp_enabled', 'true') === 'true' ? 'true' : 'false';
+        $config .= "UPNP_ENABLED=" . $upnpOn . "\n";
+        $config .= "UPNP_INTERVAL_CYCLES=" . (int)setting_get('upnp_interval_cycles', '2') . "\n";
+        $config .= "UPNP_MX=" . (int)setting_get('upnp_mx', '3') . "\n";
+        $config .= "UPNP_TIMEOUT=" . (int)setting_get('upnp_timeout', '8') . "\n";
+        $config .= "UPNP_GENA_PORT=" . (int)setting_get('upnp_gena_port', '0') . "\n";
     $config .= "TLS_VERIFY=false\n";
     $config .= "TLS_CERT_PATH=\"\"\n\n";
     $config .= "# Установка зависимостей:\n";
-    $config .= "# pip install -r requirements.txt\n\n";
+        $config .= "# pip install -r agent/requirements.txt\n\n";
     $config .= "# Запуск:\n";
     $config .= "# python agent/main.py\n";
     
@@ -666,7 +761,8 @@ function handlePost($pdo) {
     $secretKey = $data['secret_key'] ?? generateSecretKey();
     $nodeToken = $data['node_token'] ?? generateNodeToken();
     
-    $providerName = $data['provider_name'] ?? null;
+    $providerName = trim((string)($data['provider_name'] ?? ''));
+    $providerName = $providerName !== '' ? $providerName : null;
     $providerUrl = $data['provider_url'] ?? null;
     $billingAmount = isset($data['billing_amount']) && $data['billing_amount'] !== '' ? (float)$data['billing_amount'] : null;
     $billingPeriod = isset($data['billing_period']) ? (int)$data['billing_period'] : 30;
@@ -787,8 +883,15 @@ function handlePut($pdo) {
     $host = $data['host'] ?? $currentNode['host'];
     $port = isset($data['port']) ? (int)$data['port'] : (int)$currentNode['port'];
     $country = $data['country'] ?? ($currentNode['country'] ?? null);
-    $providerName = $data['provider_name'] ?? $currentNode['provider_name'];
-    $providerUrl = $data['provider_url'] ?? $currentNode['provider_url'];
+    $providerName = array_key_exists('provider_name', $data)
+        ? (trim((string)$data['provider_name']) !== '' ? trim((string)$data['provider_name']) : null)
+        : ($currentNode['provider_name'] ?? null);
+    $providerUrl = array_key_exists('provider_url', $data)
+        ? ($data['provider_url'] ?: null)
+        : ($currentNode['provider_url'] ?? null);
+    if ($providerName === null) {
+        $providerUrl = null;
+    }
     $billingAmount = isset($data['billing_amount']) && $data['billing_amount'] !== '' ? (float)$data['billing_amount'] : $currentNode['billing_amount'];
     $billingPeriod = isset($data['billing_period']) ? (int)$data['billing_period'] : ($currentNode['billing_period'] ?? 30);
     $lastPaymentDate = $data['last_payment_date'] ?? $currentNode['last_payment_date'];
@@ -1051,28 +1154,38 @@ if ($method === 'GET' && isset($_GET['id']) && isset($_GET['action']) && $_GET['
         exit;
     }
     
-    // Получаем последние метрики сети
-    $metricsStmt = $pdo->prepare("SELECT network_in, network_out FROM metrics WHERE node_id = ? ORDER BY timestamp DESC LIMIT 1");
-    $metricsStmt->execute([$nodeId]);
-    $metrics = $metricsStmt->fetch(PDO::FETCH_ASSOC);
-    
-    // Получаем порты ноды
     $portsStmt = $pdo->prepare("SELECT port, type, status FROM ports WHERE node_id = ?");
     $portsStmt->execute([$nodeId]);
     $ports = $portsStmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // TODO: Реальная реализация получения информации о сетевых интерфейсах через агент
+
+    $interfaces = [];
+    try {
+        $ifaceStmt = $pdo->prepare("SELECT name, ip, ipv6, netmask, ipv6_netmask, gateway, gateway6, status, speed, rx_bytes, tx_bytes FROM network_interfaces WHERE node_id = ? ORDER BY name");
+        $ifaceStmt->execute([$nodeId]);
+        foreach ($ifaceStmt->fetchAll(PDO::FETCH_ASSOC) as $iface) {
+            $name = (string)($iface['name'] ?? '');
+            if (preg_match('/^(lo(\d+)?$|docker|veth|br-|virbr|cni|flannel|calico|kube)/i', $name)) {
+                continue;
+            }
+            $interfaces[] = [
+                'name' => $name,
+                'ip' => $iface['ip'] ?? '',
+                'ipv6' => $iface['ipv6'] ?? '',
+                'netmask' => $iface['netmask'] ?? '',
+                'gateway' => $iface['gateway'] ?? '',
+                'gateway6' => $iface['gateway6'] ?? '',
+                'status' => $iface['status'] ?? 'unknown',
+                'speed' => $iface['speed'] ?? 0,
+                'rx_bytes' => $iface['rx_bytes'] ?? 0,
+                'tx_bytes' => $iface['tx_bytes'] ?? 0,
+            ];
+        }
+    } catch (Exception $e) {
+        $interfaces = [];
+    }
+
     $networkData = [
-        'interfaces' => [
-            [
-                'name' => 'eth0',
-                'ip' => $node['host'] ?? '0.0.0.0',
-                'status' => $node['status'] === 'online' ? 'up' : 'down',
-                'speed' => '1000',
-                'rx_bytes' => $metrics['network_in'] ?? 0,
-                'tx_bytes' => $metrics['network_out'] ?? 0
-            ]
-        ],
+        'interfaces' => $interfaces,
         'ports' => $ports,
         'connections' => []
     ];

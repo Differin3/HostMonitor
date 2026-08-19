@@ -4,10 +4,10 @@ require_once __DIR__ . '/includes/layout.php';
 render_layout_start('Порты нод', 'nodes-ports', '<button class="primary" onclick="scanPorts()"><i data-lucide="scan"></i> Сканировать</button>');
 ?>
     <div class="compact-filters">
-        <select id="nodeFilter" class="compact-select" onchange="return false;">
+        <select id="nodeFilter" class="compact-select">
             <option value="">Все ноды</option>
         </select>
-        <select id="portTypeFilter" class="compact-select" onchange="return false;">
+        <select id="portTypeFilter" class="compact-select">
             <option value="">Все типы</option>
             <option value="tcp">TCP</option>
             <option value="udp">UDP</option>

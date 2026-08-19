@@ -27,13 +27,17 @@ const loadStats = async (silent = false) => { // загрузка агрегир
         const avgCpu = nodes.length > 0 // средняя загрузка CPU
             ? Math.round(nodes.reduce((sum, n) => sum + (parseFloat(n.cpu_usage) || 0), 0) / nodes.length)
             : 0;
-        document.getElementById('total-nodes').textContent = total; // выводим всего
-        document.getElementById('online-nodes').textContent = online; // выводим онлайн
-        document.getElementById('offline-nodes').textContent = offline; // выводим оффлайн
-        document.getElementById('avg-load').textContent = avgCpu + '%'; // выводим средний CPU
-        renderStatsTable(nodes); // рендерим таблицу
-        renderCpuChart(nodes); // рендерим график CPU
-        renderUsageChart(nodes); // рендерим график RAM/диск
+        document.getElementById('total-nodes').textContent = total;
+        document.getElementById('online-nodes').textContent = online;
+        document.getElementById('offline-nodes').textContent = offline;
+        document.getElementById('avg-load').textContent = avgCpu + '%';
+        const onlineCard = document.getElementById('stat-online');
+        const offlineCard = document.getElementById('stat-offline');
+        const loadCard = document.getElementById('stat-load');
+        if (onlineCard) onlineCard.dataset.tone = (offline > 0 && online === 0) ? 'bad' : 'ok';
+        if (offlineCard) offlineCard.dataset.tone = offline === 0 ? 'ok' : (offline > 2 ? 'bad' : 'warn');
+        if (loadCard) loadCard.dataset.tone = avgCpu >= 90 ? 'bad' : (avgCpu >= 75 ? 'warn' : 'ok');
+        renderStatsTable(nodes);
     } catch (error) {
         console.error('Ошибка загрузки статистики:', error); // лог ошибки
         document.getElementById('total-nodes').textContent = '0'; // сброс значений
@@ -64,7 +68,7 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
     
     if (nodes.length === 0) { // если данных нет
         if (tbody.children.length === 0 || !tbody.querySelector('.text-center')) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center">Нет данных</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
         }
         return; // выходим
     }
@@ -85,14 +89,18 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
         }
         
         // Обновляем содержимое строки
+        const cpu = parseFloat(node.cpu_usage) || 0;
+        const ram = parseFloat(node.memory_usage) || 0;
+        const disk = parseFloat(node.disk_usage) || 0;
+        const tone = (v) => v >= 90 ? 'bad' : (v >= 75 ? 'warn' : 'ok');
+        const meter = (v, kind) => `<div class="hm-meter hm-meter-${kind}" data-tone="${tone(v)}"><span style="width:${Math.min(100, v)}%"></span></div><small class="meter-label">${v.toFixed(0)}%</small>`;
         tr.innerHTML = `
             <td>${node.name || '-'}</td>
             <td><span class="status pill ${node.status || 'offline'}">${node.status || 'unknown'}</span></td>
-            <td>${node.cpu_usage || 0}%</td>
-            <td>${node.memory_usage || 0}%</td>
-            <td>${node.disk_usage || 0}%</td>
+            <td class="meter-cell">${meter(cpu, 'cpu')}</td>
+            <td class="meter-cell">${meter(ram, 'ram')}</td>
+            <td class="meter-cell">${meter(disk, 'disk')}</td>
             <td>${formatBytes(node.network_in || 0)} / ${formatBytes(node.network_out || 0)}</td>
-            <td>${node.last_seen ? new Date(node.last_seen).toLocaleString('ru-RU') : '-'}</td>
         `;
     });
     
@@ -253,10 +261,8 @@ const loadHistory = async (range = '1h') => { // загрузка историч
         const res = await fetch(`${METRICS_URL}?${query}`, { credentials: 'include' }); // запрос к API метрик
         if (!res.ok) throw new Error(`HTTP ${res.status}`); // проверка статуса
         const text = await res.text(); // читаем текст
-        const json = text ? JSON.parse(text) : {}; // парсим JSON
-        console.log('nodes_stats history raw response:', json); // лог сырых данных истории
-        const points = Array.isArray(json) ? json : (json.data || json.metrics || []); // нормализуем массив точек
-        console.log('nodes_stats history points:', points); // лог массива точек
+        const json = text ? JSON.parse(text) : {};
+        const points = Array.isArray(json) ? json : (json.data || json.metrics || []);
         if (!points || points.length === 0) { // если нет данных
             clearHistoryCharts(); // очищаем графики
             return; // выходим
@@ -276,155 +282,83 @@ const loadHistory = async (range = '1h') => { // загрузка историч
             return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
         };
         const labels = labelDates.map(formatLabel); // подписи оси X
-        const cpu = points.map(p => p.cpu ?? 0); // CPU
-        const ram = points.map(p => p.ram ?? p.memory ?? 0); // RAM
-        const disk = points.map(p => p.disk ?? 0); // диск
-        const net = points.map(p => (p.network_in ?? 0) + (p.network_out ?? 0)); // сеть
+        const cpu = points.map(p => p.cpu ?? 0);
+        const ram = points.map(p => p.ram ?? p.memory ?? 0);
+        const disk = points.map(p => p.disk ?? 0);
+        const netIn = points.map(p => p.network_in ?? 0);
+        const netOut = points.map(p => p.network_out ?? 0);
 
-        const cpuCtx = document.getElementById('history-cpu-chart'); // холст CPU истории
-        const ramCtx = document.getElementById('history-ram-chart'); // холст RAM истории
-        const diskCtx = document.getElementById('history-disk-chart'); // холст диска истории
-        const netCtx = document.getElementById('history-net-chart'); // холст сети истории
-        if (!cpuCtx || !ramCtx || !diskCtx || !netCtx || typeof Chart === 'undefined') return; // выходим если нет Chart.js
+        const cpuCtx = document.getElementById('history-cpu-chart');
+        const netCtx = document.getElementById('history-net-chart');
+        if (!cpuCtx || !netCtx || typeof Chart === 'undefined') return;
 
-        const baseOptions = { // базовые опции с анимацией
-            type: 'line',
-            options: {
-                responsive: true,
-                animation: {
-                    duration: 600,
-                    easing: 'easeOutCubic'
-                },
-                scales: {
-                    x: { ticks: { maxTicksLimit: 8 } }, // немного больше подписей по оси X
-                    y: { beginAtZero: true }, // форматируем подписи отдельно для каждого графика
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            title: (ctx) => { // всегда полный формат даты/времени в тултипе
-                                const idx = ctx[0].dataIndex;
-                                const d = labelDates[idx];
-                                return d && !isNaN(d.getTime())
-                                    ? d.toLocaleString('ru-RU', {
-                                        day: '2-digit',
-                                        month: '2-digit',
-                                        year: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                    })
-                                    : '';
-                            },
-                            label: (ctx) => {
-                                const name = ctx.dataset.label || '';
-                                const value = ctx.raw ?? 0;
-                                if (name.toLowerCase().includes('сеть')) return `${name}: ${value.toFixed(2)} Б/с`; // сеть
-                                return `${name}: ${value.toFixed(1)} %`; // проценты
-                            },
+        const fill = (hex) => {
+            const n = hex.replace('#', '');
+            return `rgba(${parseInt(n.slice(0, 2), 16)},${parseInt(n.slice(2, 4), 16)},${parseInt(n.slice(4, 6), 16)},0.14)`;
+        };
+        const baseOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true, position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        title: (ctx) => {
+                            const d = labelDates[ctx[0].dataIndex];
+                            return d && !isNaN(d.getTime())
+                                ? d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                                : '';
                         },
                     },
                 },
             },
+            scales: {
+                x: { ticks: { maxTicksLimit: 6 } },
+                y: { beginAtZero: true },
+            },
         };
 
-        if (historyCpuChart) historyCpuChart.destroy(); // пересоздаём CPU
+        if (historyCpuChart) historyCpuChart.destroy();
         historyCpuChart = new Chart(cpuCtx, {
-            ...baseOptions,
+            type: 'line',
             options: {
-                ...baseOptions.options,
-                scales: {
-                    ...baseOptions.options.scales,
-                    y: {
-                        ...baseOptions.options.scales.y,
-                        ticks: { callback: (v) => `${v}%` }, // CPU в процентах
-                    },
-                },
+                ...baseOptions,
+                scales: { ...baseOptions.scales, y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${v}%` } } },
             },
             data: {
                 labels,
-                datasets: [{
-                    label: 'CPU, %',
-                    borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37,99,235,0.2)',
-                    tension: 0.3,
-                    data: cpu,
-                }],
+                datasets: [
+                    { label: 'CPU', data: cpu, borderColor: '#60a5fa', backgroundColor: fill('#60a5fa'), fill: true },
+                    { label: 'RAM', data: ram, borderColor: '#34d399', backgroundColor: fill('#34d399'), fill: true },
+                    { label: 'Диск', data: disk, borderColor: '#fbbf24', backgroundColor: fill('#fbbf24'), fill: true },
+                ],
             },
         });
 
-        if (historyRamChart) historyRamChart.destroy(); // пересоздаём RAM
-        historyRamChart = new Chart(ramCtx, {
-            ...baseOptions,
-            options: {
-                ...baseOptions.options,
-                scales: {
-                    ...baseOptions.options.scales,
-                    y: {
-                        ...baseOptions.options.scales.y,
-                        ticks: { callback: (v) => `${v}%` }, // RAM в процентах
-                    },
-                },
-            },
-            data: {
-                labels,
-                datasets: [{
-                    label: 'RAM, %',
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16,185,129,0.2)',
-                    tension: 0.3,
-                    data: ram,
-                }],
-            },
-        });
-
-        if (historyDiskChart) historyDiskChart.destroy(); // пересоздаём диск
-        historyDiskChart = new Chart(diskCtx, {
-            ...baseOptions,
-            options: {
-                ...baseOptions.options,
-                scales: {
-                    ...baseOptions.options.scales,
-                    y: {
-                        ...baseOptions.options.scales.y,
-                        ticks: { callback: (v) => `${v}%` }, // диск в процентах
-                    },
-                },
-            },
-            data: {
-                labels,
-                datasets: [{
-                    label: 'Диск, %',
-                    borderColor: '#eab308',
-                    backgroundColor: 'rgba(234,179,8,0.2)',
-                    tension: 0.3,
-                    data: disk,
-                }],
-            },
-        });
-
-        if (historyNetChart) historyNetChart.destroy(); // пересоздаём сеть
+        if (historyNetChart) historyNetChart.destroy();
         historyNetChart = new Chart(netCtx, {
-            ...baseOptions,
+            type: 'line',
             options: {
-                ...baseOptions.options,
-                scales: {
-                    ...baseOptions.options.scales,
-                    y: {
-                        ...baseOptions.options.scales.y,
-                        ticks: { callback: (v) => formatBytes(v) }, // сеть в байтах
+                ...baseOptions,
+                scales: { ...baseOptions.scales, y: { beginAtZero: true, ticks: { callback: (v) => formatBytes(v) } } },
+                plugins: {
+                    ...baseOptions.plugins,
+                    tooltip: {
+                        callbacks: {
+                            ...baseOptions.plugins.tooltip.callbacks,
+                            label: (ctx) => `${ctx.dataset.label}: ${formatBytes(ctx.raw)}`,
+                        },
                     },
                 },
             },
             data: {
                 labels,
-                datasets: [{
-                    label: 'Сеть in+out',
-                    borderColor: '#f97316',
-                    backgroundColor: 'rgba(249,115,22,0.2)',
-                    tension: 0.3,
-                    data: net,
-                }],
+                datasets: [
+                    { label: 'Вход', data: netIn, borderColor: '#38bdf8', backgroundColor: fill('#38bdf8'), fill: true },
+                    { label: 'Выход', data: netOut, borderColor: '#818cf8', backgroundColor: fill('#818cf8'), fill: true },
+                ],
             },
         });
     } catch (e) {

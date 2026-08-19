@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/layout.php';
 
-$actions = '<button class="primary" type="button" onclick="addNode()"><i data-lucide="plus"></i> Добавить ноду</button>';
+$actions = '<button class="primary" type="button" onclick="addNode()"><i data-lucide="plus"></i> Создать ноду</button>';
 render_layout_start('Ноды', 'nodes', $actions);
 ?>
     <div class="page-controls">
@@ -114,13 +114,14 @@ render_layout_start('Ноды', 'nodes', $actions);
                     </div>
                     
                     <div class="form-field">
-                        <label class="form-label">Провайдер</label>
+                        <label class="form-label">Провайдер <span class="form-optional">необязательно</span></label>
                         <div class="input-with-icon">
                             <i data-lucide="building" class="input-icon"></i>
                             <select name="provider_name" id="provider-select-create" class="provider-select">
-                                <option value="">Выберите провайдера</option>
+                                <option value="">Нет / домашняя лаборатория</option>
                             </select>
                         </div>
+                        <small class="form-hint-text">Для home lab можно оставить пустым</small>
                     </div>
                     
                     <div class="form-field">
@@ -203,11 +204,11 @@ render_layout_start('Ноды', 'nodes', $actions);
                     </div>
                     
                     <div class="form-field">
-                        <label class="form-label">Провайдер</label>
+                        <label class="form-label">Провайдер <span class="form-optional">необязательно</span></label>
                         <div class="input-with-icon">
                             <i data-lucide="building" class="input-icon"></i>
                             <select name="provider_name" id="provider-select-edit" class="provider-select">
-                                <option value="">Выберите провайдера</option>
+                                <option value="">Нет / домашняя лаборатория</option>
                             </select>
                         </div>
                     </div>

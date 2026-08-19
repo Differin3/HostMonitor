@@ -3,29 +3,19 @@ require_once __DIR__ . '/includes/layout.php';
 
 render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" onclick="addPayment()"><i data-lucide="plus"></i> Добавить платеж</button>');
 ?>
-    <div class="stats-grid">
+    <div class="stats-grid stats-grid-dash">
         <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--info);">
-                <i data-lucide="calendar"></i>
-            </div>
-            <div class="stat-card-content">
-                <h3>Текущая дата</h3>
-                <div class="stat-value" id="current-date"><?= date('d') ?></div>
-                <p class="stat-subtitle"><?= date('F Y', strtotime('now')) ?></p>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--warning);">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
                 <i data-lucide="clock"></i>
             </div>
             <div class="stat-card-content">
-                <h3>Ожидается в <?= date('F') ?></h3>
+                <h3>К оплате</h3>
                 <div class="stat-value" id="pending-nodes">0</div>
-                <p class="stat-subtitle">ноды, ожидающие оплаты</p>
+                <p class="stat-subtitle">ноды в этом месяце</p>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--success);">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
                 <i data-lucide="wallet"></i>
             </div>
             <div class="stat-card-content">
@@ -35,7 +25,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-card-icon" style="background: var(--purple);">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #818cf8, #4f46e5);">
                 <i data-lucide="trending-up"></i>
             </div>
             <div class="stat-card-content">
@@ -174,34 +164,12 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
             <div class="card">
                 <div class="card-header">
                     <div class="card-title">
-                        <i data-lucide="calendar-range"></i>
-                        <span>Платежи по дням (последний месяц)</span>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <canvas id="daily-chart" style="max-height: 260px;"></canvas>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">
                         <i data-lucide="clock"></i>
                         <span>Предстоящие платежи (30 дней)</span>
                     </div>
                 </div>
                 <div class="card-body">
                     <canvas id="upcoming-chart" style="max-height: 260px;"></canvas>
-                </div>
-            </div>
-            <div class="card" style="grid-column: 1 / -1;">
-                <div class="card-header">
-                    <div class="card-title">
-                        <i data-lucide="activity"></i>
-                        <span>История платежей</span>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <canvas id="payments-timeline-chart" style="max-height: 260px;"></canvas>
                 </div>
             </div>
         </div>

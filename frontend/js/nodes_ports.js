@@ -170,6 +170,7 @@ async function closePort(port, nodeId) {
 }
 
 window.closePort = closePort;
+window.scanPorts = scanPorts;
 
 let allPorts = [];
 

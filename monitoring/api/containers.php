@@ -10,7 +10,6 @@ header('Content-Type: application/json; charset=utf-8');
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $pdo = getDbConnection();
 
-// Функция проверки токена ноды (для агентов)
 function validateNodeToken($pdo, $token) {
     if (!$token) return null;
     $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
@@ -18,14 +17,12 @@ function validateNodeToken($pdo, $token) {
     return $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
-// Проверка авторизации: либо сессия пользователя, либо токен ноды
 $isAuthorized = false;
 $nodeInfo = null;
 
 if (isset($_SESSION['user_id'])) {
     $isAuthorized = true;
 } else {
-    // Проверяем токен ноды из заголовка Authorization
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(.+)/i', $authHeader, $matches)) {
         $token = $matches[1];
@@ -42,7 +39,79 @@ if (!$isAuthorized) {
     exit;
 }
 
+function containers_ensure_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    $alters = [
+        "ALTER TABLE containers ADD COLUMN networks TEXT NULL",
+        "ALTER TABLE containers ADD COLUMN ports TEXT NULL",
+        "ALTER TABLE containers ADD COLUMN ipv4 VARCHAR(45) NULL",
+        "ALTER TABLE containers ADD COLUMN network_mode VARCHAR(128) NULL",
+        "ALTER TABLE containers ADD COLUMN raw_status VARCHAR(255) NULL",
+    ];
+    foreach ($alters as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Exception $e) {
+            // column already exists
+        }
+    }
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS docker_networks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        node_id INT NOT NULL,
+        network_id VARCHAR(64) NOT NULL,
+        name VARCHAR(255),
+        driver VARCHAR(64),
+        scope VARCHAR(32),
+        subnet VARCHAR(64),
+        gateway VARCHAR(45),
+        containers TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_node_net (node_id, network_id),
+        INDEX idx_node_id (node_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function containers_decode_json($value): array
+{
+    if (is_array($value)) {
+        return $value;
+    }
+    if (is_string($value) && $value !== '') {
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+    return [];
+}
+
+function containers_format_row(array $row): array
+{
+    $row['networks'] = containers_decode_json($row['networks'] ?? null);
+    $row['ports'] = containers_decode_json($row['ports'] ?? null);
+    $row['cpu_percent'] = isset($row['cpu_percent']) ? (float)$row['cpu_percent'] : 0;
+    $row['memory_percent'] = isset($row['memory_percent']) ? (float)$row['memory_percent'] : 0;
+    return $row;
+}
+
+function containers_valid_id($id): bool
+{
+    return is_string($id) && preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}$/', $id);
+}
+
 try {
+    containers_ensure_schema($pdo);
+
+    if ($method === 'POST' && isset($_GET['action'], $_GET['container_id'], $_GET['node_id'])) {
+        handleContainerAction($pdo);
+        exit;
+    }
+
     switch ($method) {
         case 'GET':
             handleGet($pdo);
@@ -65,196 +134,220 @@ function handleGet($pdo) {
     $logs = isset($_GET['logs']) && $_GET['logs'] == '1';
     $network = isset($_GET['network']) && $_GET['network'] == '1';
     $limit = isset($_GET['limit']) ? max(1, min((int)$_GET['limit'], 10000)) : 200;
-    
-    // Если запрашиваются логи конкретного контейнера
+
     if ($logs && $containerId && $nodeId) {
-        $logsData = getContainerLogs($pdo, $nodeId, $containerId, $limit);
-        echo json_encode(['logs' => $logsData]);
+        echo json_encode(['logs' => getContainerLogs($pdo, $nodeId, $containerId, $limit)]);
         return;
     }
-    
-    // Если запрашиваются данные сети
+
     if ($network && $nodeId) {
-        // Получаем контейнеры для ноды
-        $stmt = $pdo->prepare("SELECT * FROM containers WHERE node_id = ?");
-        $stmt->execute([$nodeId]);
-        $containers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Генерируем тестовые данные сети на основе контейнеров
-        $networks = [];
-        $connections = [];
-        $ports = [];
-        
-        // Создаем сети на основе контейнеров
-        $networkNames = ['bridge', 'host', 'none'];
-        foreach ($networkNames as $netName) {
-            $netContainers = array_slice($containers, 0, rand(1, min(3, count($containers))));
-            $networks[] = [
-                'name' => $netName,
-                'driver' => $netName === 'bridge' ? 'bridge' : ($netName === 'host' ? 'host' : 'null'),
-                'containers' => count($netContainers)
-            ];
-        }
-        
-        // Создаем связи между контейнерами
-        if (count($containers) > 1) {
-            for ($i = 0; $i < min(3, count($containers) - 1); $i++) {
-                $from = $containers[$i]['name'] ?? "container-{$i}";
-                $to = $containers[$i + 1]['name'] ?? "container-" . ($i + 1);
-                $connections[] = [
-                    'from' => $from,
-                    'to' => $to,
-                    'network' => 'bridge'
-                ];
-            }
-        }
-        
-        // Создаем порты на основе контейнеров
-        $portNumbers = [80, 443, 3306, 5432, 6379, 8080, 9000];
-        foreach (array_slice($containers, 0, min(5, count($containers))) as $container) {
-            $portNum = $portNumbers[array_rand($portNumbers)];
-            $ports[] = [
-                'container' => $container['name'] ?? 'unknown',
-                'host' => $portNum,
-                'container_port' => $portNum,
-                'protocol' => 'tcp'
-            ];
-        }
-        
-        echo json_encode([
-            'networks' => $networks,
-            'connections' => $connections,
-            'ports' => $ports
-        ]);
+        echo json_encode(buildNetworkView($pdo, (int)$nodeId));
         return;
     }
-    
+
     if ($nodeId) {
         $stmt = $pdo->prepare("SELECT * FROM containers WHERE node_id = ? ORDER BY name");
         $stmt->execute([$nodeId]);
-        $containers = $stmt->fetchAll();
-        echo json_encode(['containers' => $containers]);
     } else {
         $stmt = $pdo->query("SELECT * FROM containers ORDER BY timestamp DESC");
-        $containers = $stmt->fetchAll();
-        echo json_encode(['containers' => $containers]);
     }
+    $containers = array_map('containers_format_row', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    echo json_encode(['containers' => $containers]);
+}
+
+function buildNetworkView(PDO $pdo, int $nodeId): array
+{
+    $stmt = $pdo->prepare("SELECT * FROM containers WHERE node_id = ? ORDER BY name");
+    $stmt->execute([$nodeId]);
+    $containers = array_map('containers_format_row', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+
+    $netStmt = $pdo->prepare("SELECT * FROM docker_networks WHERE node_id = ? ORDER BY name");
+    $netStmt->execute([$nodeId]);
+    $storedNets = $netStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $networks = [];
+    $attachments = [];
+
+    if ($storedNets) {
+        foreach ($storedNets as $net) {
+            $members = containers_decode_json($net['containers'] ?? null);
+            $networks[] = [
+                'name' => $net['name'],
+                'driver' => $net['driver'] ?: '—',
+                'scope' => $net['scope'] ?: '',
+                'subnet' => $net['subnet'] ?: '—',
+                'gateway' => $net['gateway'] ?: '—',
+                'containers' => count($members),
+                'members' => $members,
+            ];
+            foreach ($members as $member) {
+                $attachments[] = [
+                    'container' => $member['name'] ?? ($member['id'] ?? ''),
+                    'network' => $net['name'],
+                    'ipv4' => $member['ipv4'] ?? '',
+                ];
+            }
+        }
+    } else {
+        $byName = [];
+        foreach ($containers as $c) {
+            foreach ($c['networks'] as $net) {
+                $name = is_string($net) ? $net : ($net['name'] ?? '');
+                if ($name === '') {
+                    continue;
+                }
+                if (!isset($byName[$name])) {
+                    $byName[$name] = [
+                        'name' => $name,
+                        'driver' => '—',
+                        'scope' => '',
+                        'subnet' => '—',
+                        'gateway' => '—',
+                        'containers' => 0,
+                        'members' => [],
+                    ];
+                }
+                $ip = is_array($net) ? ($net['ipv4'] ?? ($c['ipv4'] ?? '')) : ($c['ipv4'] ?? '');
+                $byName[$name]['members'][] = [
+                    'name' => $c['name'],
+                    'ipv4' => $ip,
+                    'id' => $c['container_id'],
+                ];
+                $attachments[] = [
+                    'container' => $c['name'],
+                    'network' => $name,
+                    'ipv4' => $ip,
+                ];
+            }
+        }
+        foreach ($byName as &$net) {
+            $net['containers'] = count($net['members']);
+            $networks[] = $net;
+        }
+        unset($net);
+    }
+
+    $ports = [];
+    foreach ($containers as $c) {
+        foreach ($c['ports'] as $p) {
+            $host = $p['host'] ?? $p['host_port'] ?? null;
+            $cport = $p['container'] ?? $p['container_port'] ?? null;
+            if (!$host && !$cport) {
+                continue;
+            }
+            $ports[] = [
+                'container' => $c['name'],
+                'host' => $host ?: '—',
+                'host_ip' => $p['host_ip'] ?? '',
+                'container_port' => $cport ?: '—',
+                'protocol' => strtolower($p['protocol'] ?? 'tcp'),
+            ];
+        }
+    }
+
+    return [
+        'networks' => $networks,
+        'attachments' => $attachments,
+        'connections' => [],
+        'ports' => $ports,
+    ];
 }
 
 function getContainerLogs($pdo, $nodeId, $containerId, $limit = 200) {
-    $stmt = $pdo->prepare("SELECT name FROM containers WHERE node_id = ? AND container_id = ? LIMIT 1");
-    $stmt->execute([$nodeId, $containerId]);
-    $container = $stmt->fetch(PDO::FETCH_ASSOC);
-    $displayName = $container['name'] ?? substr($containerId, 0, 12);
-    
-    $levels = ['info', 'debug', 'warning', 'error'];
-    $messages = [
-        'Обновление образа завершено',
-        'Контейнер перезапущен',
-        'Завершена проверка готовности',
-        'Получены метрики ресурса',
-        'Выполнено соединение с внешним сервисом',
-        'Очередь задач пуста',
-        'Высокая загрузка CPU внутри контейнера',
-        'Перезапуск приложения внутри контейнера',
-        'Грейсфулл-шатдаун завершён',
-        'Подключение к базе данных успешно'
-    ];
-    
+    $sql = "SELECT level, message, timestamp FROM (
+                SELECT id, level, message, timestamp
+                FROM container_logs
+                WHERE node_id = ? AND (container_id = ? OR container_id LIKE ?)
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+            ) t ORDER BY timestamp ASC, id ASC";
+    $stmt = $pdo->prepare($sql);
+    $like = substr((string)$containerId, 0, 12) . '%';
+    $stmt->bindValue(1, $nodeId, PDO::PARAM_INT);
+    $stmt->bindValue(2, $containerId);
+    $stmt->bindValue(3, $like);
+    $stmt->bindValue(4, (int)$limit, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
     $logs = [];
-    for ($i = 0; $i < $limit; $i++) {
-        $level = $levels[$i % count($levels)];
-        $message = $messages[$i % count($messages)];
+    foreach ($rows as $row) {
         $logs[] = [
-            'timestamp' => date('Y-m-d H:i:s', time() - ($i * 45)),
-            'level' => $level,
-            'message' => sprintf('[%s] %s (container_id=%s)', $displayName, $message, substr($containerId, 0, 12))
+            'timestamp' => $row['timestamp'],
+            'level' => $row['level'] ?: 'info',
+            'message' => $row['message'],
         ];
     }
-    
     return $logs;
 }
 
 function handlePost($pdo) {
     global $nodeInfo;
-    
+
     $raw = file_get_contents('php://input');
     $data = $raw !== '' ? json_decode($raw, true) : null;
-    
+
     if ($data === null && $raw !== '') {
         http_response_code(400);
         echo json_encode(['error' => 'Invalid JSON']);
         return;
     }
-    
-    // Если запрос от агента, используем node_id из токена
-    $nodeId = $nodeInfo ? $nodeInfo['id'] : ($data['node_id'] ?? null);
-    
+
+    $nodeId = $nodeInfo['id'] ?? (is_array($data) ? ($data['node_id'] ?? null) : null);
     if (!$nodeId) {
         http_response_code(400);
         echo json_encode(['error' => 'node_id is required']);
         return;
     }
-    
-    // Поддержка формата от агента (массив контейнеров)
+
     $containers = null;
+    $networks = null;
+    if (is_array($data) && array_key_exists('networks', $data)) {
+        $networks = is_array($data['networks']) ? $data['networks'] : [];
+    }
     if (is_array($data) && isset($data[0]) && isset($data[0]['container_id'])) {
         $containers = $data;
     } elseif (isset($data['containers']) && is_array($data['containers'])) {
         $containers = $data['containers'];
     }
-    
-    // Если агент прислал пустой массив контейнеров — очищаем для ноды и возвращаем 200
-    if (is_array($data) && isset($data[0]) === false && $containers === null) {
-        $deleteStmt = $pdo->prepare("DELETE FROM containers WHERE node_id = ?");
-        $deleteStmt->execute([$nodeId]);
-        echo json_encode(['message' => 'No containers reported', 'count' => 0]);
-        return;
-    }
-    
-    if ($containers && count($containers) > 0) {
-        // Удаляем старые контейнеры для этой ноды
-        $deleteStmt = $pdo->prepare("DELETE FROM containers WHERE node_id = ?");
-        $deleteStmt->execute([$nodeId]);
-        
-        // Вставляем новые контейнеры
-        $stmt = $pdo->prepare("INSERT INTO containers (node_id, container_id, name, image, status, cpu_percent, memory_percent) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        foreach ($containers as $container) {
-            $stmt->execute([
-                $nodeId,
-                $container['container_id'] ?? '',
-                $container['name'] ?? 'unknown',
-                $container['image'] ?? '',
-                $container['status'] ?? 'stopped',
-                $container['cpu_percent'] ?? 0,
-                $container['memory_percent'] ?? 0
-            ]);
+
+    if ($containers !== null) {
+        replaceContainerSnapshot($pdo, (int)$nodeId, $containers);
+        if ($networks !== null) {
+            replaceNetworkSnapshot($pdo, (int)$nodeId, $networks);
         }
-        
         http_response_code(201);
-        echo json_encode(['message' => 'Containers updated', 'count' => count($containers)]);
+        echo json_encode([
+            'message' => 'Containers updated',
+            'count' => count($containers),
+            'networks' => $networks !== null ? count($networks) : null,
+        ]);
         return;
     }
-    
-    // Старый формат (один контейнер)
+
+    if ($networks !== null) {
+        replaceNetworkSnapshot($pdo, (int)$nodeId, $networks);
+        echo json_encode(['message' => 'Networks updated', 'count' => count($networks)]);
+        return;
+    }
+
     $containerId = $data['container_id'] ?? null;
     $name = $data['name'] ?? null;
-    $image = $data['image'] ?? null;
+    $image = $data['image'] ?? '';
     $status = $data['status'] ?? 'stopped';
     $cpuPercent = $data['cpu_percent'] ?? 0;
     $memoryPercent = $data['memory_percent'] ?? 0;
-    
+
     if (!$containerId || !$name) {
         http_response_code(400);
         echo json_encode(['error' => 'container_id and name are required']);
         return;
     }
-    
-    // Проверяем существование контейнера
+
     $checkStmt = $pdo->prepare("SELECT id FROM containers WHERE node_id = ? AND container_id = ?");
     $checkStmt->execute([$nodeId, $containerId]);
     $existing = $checkStmt->fetch();
-    
+
     if ($existing) {
         $updateStmt = $pdo->prepare("UPDATE containers SET name = ?, image = ?, status = ?, cpu_percent = ?, memory_percent = ? WHERE id = ?");
         $updateStmt->execute([$name, $image, $status, $cpuPercent, $memoryPercent, $existing['id']]);
@@ -262,72 +355,135 @@ function handlePost($pdo) {
         $insertStmt = $pdo->prepare("INSERT INTO containers (node_id, container_id, name, image, status, cpu_percent, memory_percent) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $insertStmt->execute([$nodeId, $containerId, $name, $image, $status, $cpuPercent, $memoryPercent]);
     }
-    
+
     http_response_code(201);
     echo json_encode(['message' => 'Container updated']);
 }
 
-// Обработка действий с контейнерами: POST /api/containers.php?node_id={id}&container_id={cid}&action=start
-if ($method === 'POST' && isset($_GET['node_id']) && isset($_GET['container_id']) && isset($_GET['action'])) {
+function replaceContainerSnapshot(PDO $pdo, int $nodeId, array $containers): void
+{
+    $deleteStmt = $pdo->prepare("DELETE FROM containers WHERE node_id = ?");
+    $deleteStmt->execute([$nodeId]);
+    if (!$containers) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO containers
+            (node_id, container_id, name, image, status, cpu_percent, memory_percent, networks, ports, ipv4, network_mode, raw_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    foreach ($containers as $container) {
+        $networks = $container['networks'] ?? [];
+        $ports = $container['ports'] ?? [];
+        $stmt->execute([
+            $nodeId,
+            $container['container_id'] ?? '',
+            $container['name'] ?? 'unknown',
+            $container['image'] ?? '',
+            $container['status'] ?? 'stopped',
+            $container['cpu_percent'] ?? 0,
+            $container['memory_percent'] ?? 0,
+            json_encode(is_array($networks) ? $networks : [], JSON_UNESCAPED_UNICODE),
+            json_encode(is_array($ports) ? $ports : [], JSON_UNESCAPED_UNICODE),
+            $container['ipv4'] ?? '',
+            $container['network_mode'] ?? '',
+            $container['raw_status'] ?? '',
+        ]);
+    }
+}
+
+function replaceNetworkSnapshot(PDO $pdo, int $nodeId, array $networks): void
+{
+    $deleteStmt = $pdo->prepare("DELETE FROM docker_networks WHERE node_id = ?");
+    $deleteStmt->execute([$nodeId]);
+    if (!$networks) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO docker_networks
+            (node_id, network_id, name, driver, scope, subnet, gateway, containers)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    foreach ($networks as $net) {
+        $members = $net['containers'] ?? $net['members'] ?? [];
+        if (!is_array($members)) {
+            $members = [];
+        }
+        $networkId = $net['network_id'] ?? $net['id'] ?? ($net['name'] ?? '');
+        if ($networkId === '') {
+            continue;
+        }
+        $stmt->execute([
+            $nodeId,
+            substr((string)$networkId, 0, 64),
+            $net['name'] ?? '',
+            $net['driver'] ?? '',
+            $net['scope'] ?? '',
+            $net['subnet'] ?? '',
+            $net['gateway'] ?? '',
+            json_encode($members, JSON_UNESCAPED_UNICODE),
+        ]);
+    }
+}
+
+function handleContainerAction($pdo) {
     $nodeId = $_GET['node_id'];
     $containerId = $_GET['container_id'];
-    $action = $_GET['action'];
-    
     $data = json_decode(file_get_contents('php://input'), true) ?: [];
-    $action = $data['action'] ?? $action;
-    
-    if (!in_array($action, ['start', 'stop', 'restart', 'logs'])) {
+    $action = $data['action'] ?? ($_GET['action'] ?? '');
+
+    if (!in_array($action, ['start', 'stop', 'restart', 'logs'], true)) {
         http_response_code(400);
         echo json_encode(['error' => 'Invalid action. Use start, stop, restart, or logs']);
-        exit;
+        return;
     }
-    
-    // Проверяем существование контейнера
+    if (!containers_valid_id((string)$containerId)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid container_id']);
+        return;
+    }
+
     $stmt = $pdo->prepare("SELECT * FROM containers WHERE node_id = ? AND container_id = ?");
     $stmt->execute([$nodeId, $containerId]);
     $container = $stmt->fetch(PDO::FETCH_ASSOC);
-    
     if (!$container) {
         http_response_code(404);
         echo json_encode(['error' => 'Container not found']);
-        exit;
+        return;
     }
-    
-    // Получаем информацию о ноде
-    $nodeStmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
+
+    $nodeStmt = $pdo->prepare("SELECT id FROM nodes WHERE id = ?");
     $nodeStmt->execute([$nodeId]);
-    $node = $nodeStmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$node) {
+    if (!$nodeStmt->fetch()) {
         http_response_code(404);
         echo json_encode(['error' => 'Node not found']);
-        exit;
+        return;
     }
-    
+
     if ($action === 'logs') {
-        // Возвращаем URL для получения логов
-        $logsUrl = "/api/containers.php?node_id={$nodeId}&container_id={$containerId}&logs=1";
+        $command = "docker-logs {$containerId} 200";
+        $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
+        $stmt->execute([$command, $nodeId]);
         echo json_encode([
             'success' => true,
-            'logs_url' => $logsUrl,
-            'container_id' => $containerId
+            'queued' => true,
+            'logs_url' => "/api/containers.php?node_id={$nodeId}&container_id={$containerId}&logs=1",
+            'container_id' => $containerId,
         ]);
-        exit;
+        return;
     }
-    
-    // Сохраняем команду в БД для выполнения агентом
+
     $command = "docker {$action} {$containerId}";
     $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
     $stmt->execute([$command, $nodeId]);
-    
-    // TODO: Реальная реализация через SSH или Docker API
+
     echo json_encode([
         'success' => true,
-        'message' => "Command '{$action}' queued for container",
+        'message' => "Команда «{$action}» поставлена в очередь",
         'node_id' => $nodeId,
         'container_id' => $containerId,
-        'action' => $action
+        'action' => $action,
     ]);
-    exit;
 }
-

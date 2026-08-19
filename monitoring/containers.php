@@ -16,6 +16,7 @@ render_layout_start('Контейнеры', $activeSlug, '<button class="primary
             <option value="running">Запущены</option>
             <option value="stopped">Остановлены</option>
             <option value="paused">Приостановлены</option>
+            <option value="restarting">Перезапуск</option>
         </select>
         <div class="compact-search">
             <input type="text" id="containerSearch" placeholder="Поиск контейнера...">

@@ -1,53 +1,29 @@
-# Развертывание базы данных MySQL
+# База данных панели (MySQL / MariaDB)
 
-## Установка
+Панель **сама создаёт базу и таблицы**. Вручную `CREATE DATABASE` нужен только если у пользователя MySQL нет права CREATE DATABASE.
 
-1. Убедитесь что MySQL установлен и запущен
-2. Создайте базу данных и импортируйте схему:
+## Как это работает
+
+1. `install.sh` / `scripts/install_panel.sh`
+   - поднимает MariaDB
+   - создаёт базу `monitoring` (или `$DB_NAME`)
+   - создаёт пользователя `monitoring` со случайным паролем
+   - применяет `schema_mysql.sql` (таблицы)
+   - пишет `monitoring/data/db.local.php`
+
+2. В браузере открывается `setup.php`
+   - если таблиц ещё нет — применяет схему
+   - создаёт **администратора панели** (это не пользователь MySQL)
+
+Агент базу не создаёт и к MySQL не подключается.
+
+## Ручной импорт (если ставили MySQL сами)
 
 ```bash
-mysql -u root -p < schema_mysql.sql
+sudo mysql --protocol=socket -u root -e "CREATE DATABASE IF NOT EXISTS monitoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+sudo mysql monitoring < schema_mysql.sql
 ```
 
-Или через MySQL Workbench:
-- Откройте `schema_mysql.sql`
-- Выполните скрипт
+Либо откройте панель: мастер первого запуска создаст базу, если у указанного пользователя MySQL есть `CREATE DATABASE`, иначе подключится к уже существующей.
 
-## Настройка подключения
-
-В файле `master/web/includes/database.php` настройте параметры подключения:
-
-```php
-$host = getenv('DB_HOST') ?: 'localhost';
-$port = getenv('DB_PORT') ?: '3306';
-$dbname = getenv('DB_NAME') ?: 'monitoring';
-$username = getenv('DB_USER') ?: 'root';
-$password = getenv('DB_PASSWORD') ?: '';
-```
-
-Или установите переменные окружения:
-- `DB_HOST` - хост MySQL (по умолчанию: localhost)
-- `DB_PORT` - порт MySQL (по умолчанию: 3306)
-- `DB_NAME` - имя базы данных (по умолчанию: monitoring)
-- `DB_USER` - пользователь MySQL (по умолчанию: root)
-- `DB_PASSWORD` - пароль MySQL (по умолчанию: пустой)
-
-## Тестовые данные
-
-После импорта схемы в базе будут:
-- Пользователь: `admin` / пароль: `admin`
-- 3 провайдера (firstbyte.ru, cloud4box.com, my.aeza.net)
-- 3 ноды с биллингом
-- Тестовые платежи, метрики, процессы и контейнеры
-
-## Проверка
-
-После импорта проверьте подключение:
-```php
-<?php
-require_once 'includes/database.php';
-$pdo = getDbConnection();
-echo "Подключение успешно!";
-?>
-```
-
+Администратор панели задаётся только в мастере, не схемой.

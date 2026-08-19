@@ -3,18 +3,36 @@ require_once __DIR__ . '/includes/layout.php';
 
 render_layout_start('Обновления системы', 'updates');
 ?>
-    <div class="stats-grid">
+        <div class="stats-grid stats-grid-dash">
         <div class="stat-card">
-            <h3>Доступно обновлений</h3>
-            <div class="stat-value" id="updates-count">-</div>
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #60a5fa, #2563eb);">
+                <i data-lucide="package"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>Доступно</h3>
+                <div class="stat-value" id="updates-count">—</div>
+                <p class="stat-subtitle">пакетов</p>
+            </div>
         </div>
         <div class="stat-card">
-            <h3>Критических</h3>
-            <div class="stat-value" id="security-updates-count">-</div>
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #f87171, #dc2626);">
+                <i data-lucide="shield-alert"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>Критические</h3>
+                <div class="stat-value" id="security-updates-count">—</div>
+                <p class="stat-subtitle">security</p>
+            </div>
         </div>
         <div class="stat-card">
-            <h3>Последняя проверка</h3>
-            <div class="stat-value" id="last-check">-</div>
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);">
+                <i data-lucide="clock"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>Проверка</h3>
+                <div class="stat-value" id="last-check">—</div>
+                <p class="stat-subtitle">последний запуск</p>
+            </div>
         </div>
     </div>
 

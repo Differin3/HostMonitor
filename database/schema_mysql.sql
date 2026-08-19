@@ -1,4 +1,6 @@
 -- Схема базы данных MySQL
+-- Применяйте scripts/init_db.php или мастер setup.php (только DDL + settings/providers).
+-- Прямой импорт mysql < schema_mysql.sql также вставит демо-ноды — для production используйте init_db.php.
 CREATE DATABASE IF NOT EXISTS monitoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE monitoring;
 
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_command VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     command_status VARCHAR(20) DEFAULT 'pending' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     command_timestamp TIMESTAMP NULL,
+    command_result TEXT NULL,
     INDEX idx_status (status),
     INDEX idx_provider (provider_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -43,17 +46,25 @@ CREATE TABLE IF NOT EXISTS payments (
 
 -- Таблица метрик
 CREATE TABLE IF NOT EXISTS metrics (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     node_id INT,
     cpu_percent FLOAT,
     memory_percent FLOAT,
     disk_percent FLOAT,
     network_in FLOAT,
     network_out FLOAT,
+    memory_used BIGINT NULL,
+    memory_total BIGINT NULL,
+    disk_used BIGINT NULL,
+    disk_total BIGINT NULL,
+    swap_percent FLOAT NULL,
+    load_avg FLOAT NULL,
+    cpu_count SMALLINT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_node_ts (node_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Таблица GPU метрик
@@ -97,9 +108,31 @@ CREATE TABLE IF NOT EXISTS containers (
     status VARCHAR(50),
     cpu_percent FLOAT,
     memory_percent FLOAT,
+    networks TEXT NULL,
+    ports TEXT NULL,
+    ipv4 VARCHAR(45) NULL,
+    network_mode VARCHAR(128) NULL,
+    raw_status VARCHAR(255) NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Docker-сети ноды (снимок docker network inspect)
+CREATE TABLE IF NOT EXISTS docker_networks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NOT NULL,
+    network_id VARCHAR(64) NOT NULL,
+    name VARCHAR(255),
+    driver VARCHAR(64),
+    scope VARCHAR(32),
+    subnet VARCHAR(64),
+    gateway VARCHAR(45),
+    containers TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_node_net (node_id, network_id),
+    INDEX idx_node_id (node_id),
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Таблица пользователей
@@ -140,7 +173,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 -- Таблица логов
 CREATE TABLE IF NOT EXISTS logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     node_id INT,
     level VARCHAR(20) DEFAULT 'info',
     message TEXT NOT NULL,
@@ -150,7 +183,89 @@ CREATE TABLE IF NOT EXISTS logs (
     INDEX idx_node_id (node_id),
     INDEX idx_level (level),
     INDEX idx_timestamp (timestamp),
-    INDEX idx_type (type)
+    INDEX idx_type (type),
+    INDEX idx_node_timestamp (node_id, timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Таблица логов процессов
+CREATE TABLE IF NOT EXISTS process_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT,
+    pid INT NULL,
+    process VARCHAR(255),
+    level VARCHAR(20) DEFAULT 'info',
+    message TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_pid (pid),
+    INDEX idx_process (process),
+    INDEX idx_level (level),
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_node_timestamp (node_id, timestamp),
+    INDEX idx_node_pid (node_id, pid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Таблица настроек системы
+CREATE TABLE IF NOT EXISTS settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_key VARCHAR(100) UNIQUE NOT NULL,
+    setting_value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_key (setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Начальные настройки
+INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
+('log_retention_days', '30'),
+('metrics_retention_days', '14'),
+('alerts_retention_days', '30'),
+('update_history_days', '90'),
+('logs_per_page', '100'),
+('log_max_rows', '1000000'),
+('log_max_rows_per_node', '100000'),
+('collect_interval', '60'),
+('system_name', 'HostMonitor'),
+('timezone', 'Europe/Moscow'),
+('language', 'ru');
+
+-- Таблица логов контейнеров
+CREATE TABLE IF NOT EXISTS container_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT,
+    container_id VARCHAR(255) NOT NULL,
+    level VARCHAR(20) DEFAULT 'info',
+    message TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_container_id (container_id),
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_node_timestamp (node_id, timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Таблица SSH-логов аутентификации (структурированная)
+CREATE TABLE IF NOT EXISTS ssh_auth_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT,
+    level VARCHAR(20) DEFAULT 'info',
+    process VARCHAR(255),
+    username VARCHAR(255),
+    ip_address VARCHAR(45),
+    port INT,
+    success BOOLEAN DEFAULT NULL,
+    message TEXT NOT NULL,      -- краткое человекочитаемое описание (SUCCESS/FAIL ...)
+    raw_message TEXT NULL,      -- исходная строка из лога sshd
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_level (level),
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_ip_address (ip_address),
+    INDEX idx_username (username),
+    INDEX idx_success (success),
+    INDEX idx_node_timestamp (node_id, timestamp),
+    INDEX idx_node_ip (node_id, ip_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Таблица портов
@@ -169,11 +284,7 @@ CREATE TABLE IF NOT EXISTS ports (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Тестовые данные
--- Пароль для admin: admin (хеш bcrypt)
-INSERT INTO users (username, password_hash, role) VALUES 
-('admin', '$2y$10$fs/VkiH4LAjThi91CT.NouK7gmTXsKf.Y7xlsBOofMjHtuQvIbMfC', 'admin')
-ON DUPLICATE KEY UPDATE username=username;
+-- Администратор панели создаётся мастером первого запуска (setup.php), не схемой.
 
 INSERT INTO providers (name, url, favicon_url) VALUES 
 ('firstbyte.ru', 'https://billing.firstbyte.ru', 'https://www.google.com/s2/favicons?domain=firstbyte.ru'),
@@ -433,4 +544,129 @@ CREATE TABLE IF NOT EXISTS node_updates (
     INDEX idx_priority (priority),
     INDEX idx_last_check (last_check)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- UPnP: сетевое оборудование
+CREATE TABLE IF NOT EXISTS upnp_devices (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NULL,
+    udn VARCHAR(255) NOT NULL,
+    friendly_name VARCHAR(255),
+    manufacturer VARCHAR(255),
+    manufacturer_url VARCHAR(500),
+    model_name VARCHAR(255),
+    model_number VARCHAR(100),
+    model_description VARCHAR(500),
+    serial_number VARCHAR(255),
+    device_type VARCHAR(255),
+    presentation_url VARCHAR(500),
+    location_url VARCHAR(1000),
+    host VARCHAR(255),
+    ssdp_st VARCHAR(255),
+    ssdp_server VARCHAR(255),
+    is_igd TINYINT(1) DEFAULT 0,
+    connection_status VARCHAR(50),
+    wan_ip VARCHAR(45),
+    uptime INT DEFAULT 0,
+    link_bitrate_up BIGINT DEFAULT 0,
+    link_bitrate_down BIGINT DEFAULT 0,
+    bytes_sent BIGINT DEFAULT 0,
+    bytes_received BIGINT DEFAULT 0,
+    last_seen TIMESTAMP NULL,
+    software VARCHAR(255) DEFAULT NULL,
+    ports TEXT DEFAULT NULL,
+    hardware_version VARCHAR(255) DEFAULT NULL,
+    wan_link VARCHAR(50) DEFAULT NULL,
+    extra TEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_node_udn (node_id, udn),
+    INDEX idx_node_id (node_id),
+    INDEX idx_last_seen (last_seen),
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS upnp_services (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    device_id INT NOT NULL,
+    service_type VARCHAR(255),
+    service_id VARCHAR(255),
+    control_url VARCHAR(1000),
+    scpd_url VARCHAR(1000),
+    event_url VARCHAR(1000),
+    INDEX idx_device_id (device_id),
+    FOREIGN KEY (device_id) REFERENCES upnp_devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS upnp_port_mappings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    device_id INT NOT NULL,
+    remote_host VARCHAR(255) DEFAULT '',
+    external_port INT,
+    protocol VARCHAR(10),
+    internal_port INT,
+    internal_client VARCHAR(45),
+    enabled TINYINT(1) DEFAULT 1,
+    description VARCHAR(255),
+    lease_duration INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_map (device_id, external_port, protocol, remote_host),
+    INDEX idx_device_id (device_id),
+    FOREIGN KEY (device_id) REFERENCES upnp_devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS network_neighbors (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NOT NULL,
+    ip VARCHAR(45) NOT NULL,
+    mac VARCHAR(32) DEFAULT NULL,
+    iface VARCHAR(100) DEFAULT NULL,
+    family TINYINT DEFAULT 4,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nn_node (node_id),
+    INDEX idx_nn_ip (ip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Наблюдаемые СУБД (панель ходит сама, агент не нужен)
+CREATE TABLE IF NOT EXISTS monitored_databases (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    kind VARCHAR(20) NOT NULL DEFAULT 'custom',
+    engine VARCHAR(20) NOT NULL DEFAULT 'mysql',
+    host VARCHAR(255) NOT NULL,
+    port INT NOT NULL DEFAULT 3306,
+    db_name VARCHAR(100) DEFAULT '',
+    username VARCHAR(255) NOT NULL DEFAULT '',
+    password TEXT,
+    node_id INT NULL,
+    notes VARCHAR(500) DEFAULT '',
+    enabled TINYINT(1) DEFAULT 1,
+    status VARCHAR(20) DEFAULT 'unknown',
+    last_error TEXT NULL,
+    last_seen TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_dbmon_status (status),
+    INDEX idx_dbmon_kind (kind),
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS database_metrics (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    database_id INT NOT NULL,
+    ping_ms INT NULL,
+    uptime_sec BIGINT NULL,
+    threads_connected INT NULL,
+    threads_running INT NULL,
+    max_connections INT NULL,
+    questions BIGINT NULL,
+    qps FLOAT NULL,
+    slow_queries BIGINT NULL,
+    bytes_received BIGINT NULL,
+    bytes_sent BIGINT NULL,
+    data_bytes BIGINT NULL,
+    replica_lag_sec INT NULL,
+    version VARCHAR(80) NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (database_id) REFERENCES monitored_databases(id) ON DELETE CASCADE,
+    INDEX idx_dbm_ts (database_id, timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 

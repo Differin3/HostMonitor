@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HostMonitor · Макеты всех страниц</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="../frontend/css/preview.css">
+    <link rel="stylesheet" href="/frontend/css/preview.css">
+    <link rel="stylesheet" href="../frontend/css/net-gear.css">
+    <link rel="stylesheet" href="/frontend/css/net-gear.css">
+    <link rel="stylesheet" href="../frontend/css/network_map.css">
+    <link rel="stylesheet" href="/frontend/css/network_map.css">
+    <script src="../frontend/js/preview-icons.js"></script>
+    <script src="/frontend/js/preview-icons.js"></script>
+    <script src="../frontend/js/notify.js"></script>
+    <script src="/frontend/js/notify.js"></script>
+    <script src="../frontend/js/net-gear.js"></script>
+    <script src="/frontend/js/net-gear.js"></script>
+</head>
+<body class="preview-body">
+    <header class="pt-topbar">
+        <div class="pt-left">
+            <a class="pt-brand" href="#" data-page="gallery">
+                <span class="pt-mark"><i data-lucide="activity"></i></span>
+                <span>HostMonitor</span>
+            </a>
+            <div class="hm-drop">
+                <button class="pt-pill pt-glass" type="button" data-drop="previewViewMenu">
+                    <i data-lucide="layers"></i>
+                    Мониторинг
+                    <i data-lucide="chevron-down"></i>
+                </button>
+                <div class="hm-menu hidden" id="previewViewMenu">
+                    <a class="hm-menu-item" href="#" data-page="dashboard"><i data-lucide="home"></i><span>Дашборд</span></a>
+                    <a class="hm-menu-item" href="#" data-page="topology"><i data-lucide="share-2"></i><span>Карта сети</span></a>
+                    <a class="hm-menu-item" href="#" data-page="nodes"><i data-lucide="server"></i><span>Сервера</span></a>
+                    <a class="hm-menu-item" href="#" data-page="logs"><i data-lucide="file-text"></i><span>Логи</span></a>
+                    <a class="hm-menu-item" href="#" data-page="settings"><i data-lucide="settings"></i><span>Настройки</span></a>
+                </div>
+            </div>
+        </div>
+        <div class="pt-center">
+            <div class="hm-drop hm-drop-center">
+                <button class="pt-pill pt-glass pt-title" type="button" id="pageTitleBtn" data-drop="previewPageMenu">
+                    HostMonitor / Все экраны
+                    <i data-lucide="chevron-down"></i>
+                </button>
+                <div class="hm-menu hidden" id="previewPageMenu">
+                    <a class="hm-menu-item" href="#gallery" data-page="gallery"><i data-lucide="layout-grid"></i><span>Все экраны</span></a>
+                    <a class="hm-menu-item" href="#dashboard" data-page="dashboard"><i data-lucide="home"></i><span>Дашборд</span></a>
+                    <a class="hm-menu-item" href="#topology" data-page="topology"><i data-lucide="share-2"></i><span>Карта сети</span></a>
+                    <div class="hm-menu-label">Сервера</div>
+                    <a class="hm-menu-item" href="#nodes" data-page="nodes"><i data-lucide="server"></i><span>Управление</span></a>
+                    <a class="hm-menu-item" href="#stats" data-page="stats"><i data-lucide="bar-chart-2"></i><span>Статистика</span></a>
+                    <a class="hm-menu-item" href="#billing" data-page="billing"><i data-lucide="wallet"></i><span>Биллинг</span></a>
+                    <a class="hm-menu-item" href="#traffic" data-page="traffic"><i data-lucide="trending-up"></i><span>Трафик</span></a>
+                    <a class="hm-menu-item" href="#metrics" data-page="metrics"><i data-lucide="activity"></i><span>Метрики</span></a>
+                    <a class="hm-menu-item" href="#ports" data-page="ports"><i data-lucide="network"></i><span>Порты</span></a>
+                    <a class="hm-menu-item" href="#upnp" data-page="upnp"><i data-lucide="radio"></i><span>UPnP</span></a>
+                    <a class="hm-menu-item" href="#databases" data-page="databases"><i data-lucide="database"></i><span>Базы данных</span></a>
+                    <div class="hm-menu-label">Система</div>
+                    <a class="hm-menu-item" href="#processes" data-page="processes"><i data-lucide="cpu"></i><span>Процессы</span></a>
+                    <a class="hm-menu-item" href="#containers" data-page="containers"><i data-lucide="box"></i><span>Контейнеры</span></a>
+                    <a class="hm-menu-item" href="#network" data-page="network"><i data-lucide="globe"></i><span>Сеть контейнеров</span></a>
+                    <a class="hm-menu-item" href="#logs" data-page="logs"><i data-lucide="file-text"></i><span>Логи</span></a>
+                    <a class="hm-menu-item" href="#updates" data-page="updates"><i data-lucide="package"></i><span>Обновления</span></a>
+                    <div class="hm-menu-sep"></div>
+                    <a class="hm-menu-item" href="#settings" data-page="settings"><i data-lucide="settings"></i><span>Настройки</span></a>
+                    <a class="hm-menu-item" href="#profile" data-page="profile"><i data-lucide="user"></i><span>Профиль</span></a>
+                </div>
+            </div>
+        </div>
+        <div class="pt-right">
+            <label class="pt-pill pt-glass pt-search">
+                <i data-lucide="search"></i>
+                <input type="search" placeholder="Поиск узлов...">
+            </label>
+            <div class="pt-avatars">
+                <img src="https://api.dicebear.com/9.x/notionists/svg?seed=Alex&backgroundColor=1e293b" alt="">
+                <img src="https://api.dicebear.com/9.x/notionists/svg?seed=Mia&backgroundColor=1e293b" alt="">
+                <img src="https://api.dicebear.com/9.x/notionists/svg?seed=Ken&backgroundColor=1e293b" alt="">
+            </div>
+            <div class="hm-drop">
+                <button class="pt-pill pt-glass pt-user" type="button" data-drop="previewUserMenu">
+                    <img src="https://api.dicebear.com/9.x/notionists/svg?seed=Admin&backgroundColor=2563eb" alt="">
+                    <span class="online"></span>
+                </button>
+                <div class="hm-menu hidden" id="previewUserMenu">
+                    <a class="hm-menu-item" href="#" data-page="settings"><i data-lucide="settings"></i><span>Настройки</span></a>
+                    <a class="hm-menu-item" href="#" data-page="profile"><i data-lucide="user"></i><span>Профиль</span></a>
+                    <div class="hm-menu-sep"></div>
+                    <a class="hm-menu-item" href="#" data-page="login"><i data-lucide="log-in"></i><span>Выход</span></a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="mk-shell">
+        <nav class="mk-sidebar pt-glass">
+            <ul class="mk-nav">
+                <li><button type="button" class="active" data-page="gallery"><i data-lucide="layout-grid"></i> Все экраны</button></li>
+                <li><button type="button" data-page="login"><i data-lucide="log-in"></i> Вход</button></li>
+                <li><button type="button" data-page="setup"><i data-lucide="database"></i> Первый запуск</button></li>
+                <li><button type="button" data-page="dashboard"><i data-lucide="home"></i> Дашборд</button></li>
+                <li><button type="button" data-page="topology"><i data-lucide="share-2"></i> Карта сети</button></li>
+                <li class="mk-group"><div class="mk-group-label">Сервера</div></li>
+                <li><button type="button" data-page="nodes"><i data-lucide="server"></i> Управление</button></li>
+                <li><button type="button" data-page="stats"><i data-lucide="bar-chart-2"></i> Статистика</button></li>
+                <li><button type="button" data-page="billing"><i data-lucide="wallet"></i> Биллинг</button></li>
+                <li><button type="button" data-page="traffic"><i data-lucide="trending-up"></i> Трафик</button></li>
+                <li><button type="button" data-page="metrics"><i data-lucide="activity"></i> Метрики</button></li>
+                <li><button type="button" data-page="ports"><i data-lucide="network"></i> Порты</button></li>
+                <li><button type="button" data-page="upnp"><i data-lucide="radio"></i> UPnP</button></li>
+                <li><button type="button" data-page="databases"><i data-lucide="database"></i> Базы данных</button></li>
+                <li class="mk-group"><div class="mk-group-label">Система</div></li>
+                <li><button type="button" data-page="processes"><i data-lucide="cpu"></i> Процессы</button></li>
+                <li><button type="button" data-page="containers"><i data-lucide="box"></i> Контейнеры</button></li>
+                <li><button type="button" data-page="network"><i data-lucide="globe"></i> Сеть контейнеров</button></li>
+                <li><button type="button" data-page="logs"><i data-lucide="file-text"></i> Логи</button></li>
+                <li><button type="button" data-page="updates"><i data-lucide="package"></i> Обновления</button></li>
+                <li><button type="button" data-page="settings"><i data-lucide="settings"></i> Настройки</button></li>
+                <li><button type="button" data-page="profile"><i data-lucide="user"></i> Профиль</button></li>
+            </ul>
+        </nav>
+
+        <main class="mk-main">
+            <!-- GALLERY -->
+            <section class="mk-page active" id="page-gallery">
+                <div class="mk-head">
+                    <div>
+                        <h1>Макеты всех страниц</h1>
+                        <p>Кликни карточку, чтобы открыть полный экран</p>
+                    </div>
+                    <a class="mk-btn ghost" href="index.php"><i data-lucide="external-link"></i> Живая панель</a>
+                </div>
+                <div class="mk-gallery">
+                    <button class="mk-thumb" data-page="login"><div class="mk-mini"><span></span><span></span><span></span></div><b>Вход</b><small>Авторизация</small></button>
+                    <button class="mk-thumb" data-page="setup"><div class="mk-mini"><span></span><span></span><span></span></div><b>Первый запуск</b><small>MySQL + администратор, резерв по желанию</small></button>
+                    <button class="mk-thumb" data-page="dashboard"><div class="mk-mini"><span></span><span></span><span></span><span></span></div><b>Дашборд</b><small>Обзор инфраструктуры</small></button>
+                    <button class="mk-thumb" data-page="topology"><div class="mk-mini"><span></span><span></span><span></span></div><b>Карта сети</b><small>инспектор · топология</small></button>
+                    <button class="mk-thumb" data-page="nodes"><div class="mk-mini"><span></span><span></span><span></span><span></span></div><b>Ноды</b><small>Управление серверами</small></button>
+                    <button class="mk-thumb" data-page="stats"><div class="mk-mini"><span></span><span></span><span></span></div><b>Статистика</b><small>Онлайн / оффлайн</small></button>
+                    <button class="mk-thumb" data-page="billing"><div class="mk-mini"><span></span><span></span><span></span></div><b>Биллинг</b><small>Платежи и сроки</small></button>
+                    <button class="mk-thumb" data-page="traffic"><div class="mk-mini"><span></span><span></span><span></span></div><b>Трафик</b><small>In / Out</small></button>
+                    <button class="mk-thumb" data-page="metrics"><div class="mk-mini"><span></span><span></span><span></span></div><b>Метрики</b><small>CPU RAM Disk</small></button>
+                    <button class="mk-thumb" data-page="ports"><div class="mk-mini"><span></span><span></span><span></span></div><b>Порты</b><small>TCP / UDP</small></button>
+                    <button class="mk-thumb" data-page="upnp"><div class="mk-mini"><span></span><span></span><span></span></div><b>UPnP</b><small>шасси по SKU</small></button>
+                    <button class="mk-thumb" data-page="databases"><div class="mk-mini"><span></span><span></span><span></span></div><b>Базы данных</b><small>MySQL / Postgres</small></button>
+                    <button class="mk-thumb" data-page="processes"><div class="mk-mini"><span></span><span></span><span></span></div><b>Процессы</b><small>PID и нагрузка</small></button>
+                    <button class="mk-thumb" data-page="containers"><div class="mk-mini"><span></span><span></span><span></span></div><b>Контейнеры</b><small>Docker</small></button>
+                    <button class="mk-thumb" data-page="network"><div class="mk-mini"><span></span><span></span><span></span></div><b>Сеть</b><small>Сети контейнеров</small></button>
+                    <button class="mk-thumb" data-page="logs"><div class="mk-mini"><span></span><span></span><span></span></div><b>Логи</b><small>Система / SSH / Auth</small></button>
+                    <button class="mk-thumb" data-page="updates"><div class="mk-mini"><span></span><span></span><span></span></div><b>Обновления</b><small>Пакеты</small></button>
+                    <button class="mk-thumb" data-page="settings"><div class="mk-mini"><span></span><span></span><span></span></div><b>Настройки</b><small>Все вкладки панели</small></button>
+                    <button class="mk-thumb" data-page="profile"><div class="mk-mini"><span></span><span></span><span></span></div><b>Профиль</b><small>Администратор</small></button>
+                </div>
+            </section>
+
+            <!-- LOGIN -->
+            <section class="mk-page" id="page-login">
+                <div class="mk-login">
+                    <div class="mk-login-card pt-glass">
+                        <div class="pt-mark" style="margin: 0 auto;"><i data-lucide="activity"></i></div>
+                        <h2>Вход в систему</h2>
+                        <p>Панель управления HostMonitor</p>
+                        <div class="mk-form">
+                            <label>Логин<input value="admin"></label>
+                            <label>Пароль<input type="password" value="••••••••"></label>
+                            <button class="mk-btn" style="width:100%; justify-content:center;"><i data-lucide="log-in"></i> Войти</button>
+                            <p style="margin:12px 0 0;text-align:center"><a href="#" data-page="setup" style="color:#60a5fa;text-decoration:none;font-size:13px">Базы ещё нет — первый запуск</a></p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FIRST RUN SETUP -->
+            <section class="mk-page" id="page-setup">
+                <div class="mk-login">
+                    <div class="mk-login-card mk-setup-card pt-glass">
+                        <div class="pt-mark" style="margin: 0 auto;"><i data-lucide="activity"></i></div>
+                        <h2>Первый запуск</h2>
+                        <p>База данных ещё не настроена. Укажите MySQL и создайте администратора.</p>
+                        <div class="mk-setup-section">
+                            <h3><i data-lucide="database"></i> База данных</h3>
+                            <div class="mk-setup-grid">
+                                <label>Хост<input value="localhost"></label>
+                                <label>Порт<input value="3306"></label>
+                                <label class="span-2">Имя базы<input value="monitoring"></label>
+                                <label>Пользователь MySQL<input value="root"></label>
+                                <label>Пароль MySQL<input type="password" placeholder="Пароль к MySQL"></label>
+                            </div>
+                            <small>Если базы нет — панель попробует создать её.</small>
+                        </div>
+                        <details class="mk-setup-section mk-setup-optional" open>
+                            <summary><i data-lucide="hard-drive"></i> Резервная база (необязательно)</summary>
+                            <small>Если основная MySQL упадёт, панель переключится на эту. Синхронизация — вручную в Настройках или репликацией MySQL.</small>
+                            <label class="mk-setup-check"><input type="checkbox"> Включить резерв</label>
+                            <div class="mk-setup-grid">
+                                <label>Хост резерва<input value="db-standby"></label>
+                                <label>Порт<input value="3306"></label>
+                                <label>Имя базы<input placeholder="как у основной"></label>
+                                <label>Пользователь<input placeholder="как у основной"></label>
+                            </div>
+                        </details>
+                        <div class="mk-setup-section">
+                            <h3><i data-lucide="shield"></i> Администратор панели</h3>
+                            <div class="mk-setup-grid">
+                                <label class="span-2">Логин<input value="admin"></label>
+                                <label>Пароль<input type="password" placeholder="Минимум 6 символов"></label>
+                                <label>Повтор пароля<input type="password" placeholder="Повторите пароль"></label>
+                            </div>
+                        </div>
+                        <button class="mk-btn" data-page="login" style="width:100%;justify-content:center;margin-top:8px"><i data-lucide="check"></i> Создать базу и войти</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- DASHBOARD -->
+            <section class="mk-page" id="page-dashboard">
+                <div class="mk-head">
+                    <div><h1>Дашборд</h1><p>Обзор парка · карточки можно настроить</p></div>
+                    <div class="mk-head-actions">
+                        <button type="button" class="mk-btn ghost" id="preview-dash-reset" hidden><i data-lucide="rotate-ccw"></i> Сбросить</button>
+                        <button type="button" class="mk-btn ghost" data-toast="Дашборд обновлён" data-toast-type="success"><i data-lucide="refresh-cw"></i> Обновить</button>
+                        <button type="button" class="mk-btn" id="preview-dash-edit"><i data-lucide="sliders-horizontal"></i> Настроить</button>
+                    </div>
+                </div>
+                <div class="dash-toolbar">
+                    <div class="dash-ranges" id="preview-dash-ranges">
+                        <button type="button" data-range="15m">15 мин</button>
+                        <button type="button" data-range="1h" class="active">1 час</button>
+                        <button type="button" data-range="6h">6 часов</button>
+                        <button type="button" data-range="24h">сутки</button>
+                    </div>
+                    <p class="dash-hint" id="preview-dash-hint">Клик по карточке открывает раздел. Настроить — порядок, размер и набор виджетов.</p>
+                </div>
+                <div class="dash-board" id="preview-dash-board">
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-nodes" data-span="3" data-page="nodes" data-title="Ноды онлайн">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#34d399,#059669)"><i data-lucide="server"></i></div>
+                        <div><h3>Ноды онлайн</h3><strong>7</strong><small>из 8</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-alerts" data-span="3" data-page="logs" data-title="Алерты">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#fbbf24,#d97706)"><i data-lucide="bell"></i></div>
+                        <div><h3>Алерты</h3><strong>3</strong><small>не закрыты</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-cpu" data-span="3" data-page="metrics" data-title="CPU">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div>
+                        <div><h3>CPU</h3><strong>23%</strong><small>среднее · 5 мин</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-ram" data-span="3" data-page="metrics" data-title="RAM">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#34d399,#059669)"><i data-lucide="activity"></i></div>
+                        <div><h3>RAM</h3><strong>41%</strong><small>среднее · 5 мин</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-disk" data-span="3" data-page="metrics" data-title="Диск">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#fbbf24,#d97706)"><i data-lucide="hard-drive"></i></div>
+                        <div><h3>Диск</h3><strong>48%</strong><small>среднее · 5 мин</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-proc" data-span="3" data-page="processes" data-title="Процессы">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#818cf8,#4f46e5)"><i data-lucide="cpu"></i></div>
+                        <div><h3>Процессы</h3><strong>214</strong><small>активных</small></div>
+                    </article>
+                    <article class="dash-widget mk-stat pt-glass" data-widget="stat-ct" data-span="3" data-page="containers" data-title="Контейнеры">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <div class="mk-ico" style="background:linear-gradient(180deg,#38bdf8,#0284c7)"><i data-lucide="box"></i></div>
+                        <div><h3>Контейнеры</h3><strong>12</strong><small>running</small></div>
+                    </article>
+                    <article class="dash-widget mk-card pt-glass" data-widget="chart-res" data-span="6" data-title="Ресурсы">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <h3>Ресурсы · <span data-range-label data-base="CPU RAM диск">CPU RAM диск</span></h3>
+                        <div class="mk-chart"><svg viewBox="0 0 300 80" preserveAspectRatio="none"><polyline fill="none" stroke="#60a5fa" stroke-width="2.5" points="0,60 40,48 80,52 120,30 160,36 200,22 240,28 300,18"/><polyline fill="none" stroke="#34d399" stroke-width="2.5" points="0,50 40,46 80,44 120,40 160,42 200,38 240,36 300,34"/><polyline fill="none" stroke="#fbbf24" stroke-width="2.5" points="0,55 40,54 80,52 120,50 160,49 200,48 240,47 300,46"/></svg></div>
+                    </article>
+                    <article class="dash-widget mk-card pt-glass" data-widget="chart-net" data-span="6" data-title="Сеть">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <h3>Сеть · <span data-range-label data-base="вход / выход">вход / выход</span></h3>
+                        <div class="mk-chart"><svg viewBox="0 0 300 80" preserveAspectRatio="none"><polyline fill="none" stroke="#38bdf8" stroke-width="2.5" points="0,40 40,55 80,20 120,48 160,18 200,50 240,22 300,40"/><polyline fill="none" stroke="#818cf8" stroke-width="2.5" points="0,58 40,50 80,62 120,44 160,52 200,38 240,48 300,42"/></svg></div>
+                    </article>
+                    <article class="dash-widget mk-card pt-glass" data-widget="list-nodes" data-span="6" data-page="nodes" data-title="Список нод">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <h3>Ноды <a href="#" data-page="nodes">Все ноды</a></h3>
+                        <ul class="mk-list">
+                            <li data-page="nodes"><span>edge-gw<div class="mk-bar"><span style="width:8%"></span></div></span><span class="mk-badge bad">offline</span></li>
+                            <li data-page="nodes"><span>k8s-node-3<div class="mk-bar"><span style="width:86%"></span></div></span><span class="mk-badge warn">hot</span></li>
+                            <li data-page="nodes"><span>db-01<div class="mk-bar"><span style="width:41%"></span></div></span><span class="mk-badge ok">online</span></li>
+                            <li data-page="nodes"><span>web-pixelz-1<div class="mk-bar"><span style="width:18%"></span></div></span><span class="mk-badge ok">online</span></li>
+                        </ul>
+                    </article>
+                    <article class="dash-widget mk-card pt-glass" data-widget="list-alerts" data-span="6" data-page="logs" data-title="Список алертов">
+                        <div class="dash-widget-bar"><span class="dash-grip"><i data-lucide="grip-vertical"></i></span><div class="dash-span-btns"><button type="button" data-span="3">S</button><button type="button" data-span="6">M</button><button type="button" data-span="12">L</button></div><button type="button" class="dash-hide" data-hide><i data-lucide="eye-off"></i></button></div>
+                        <h3>Алерты <a href="#" data-page="logs">Все алерты</a></h3>
+                        <ul class="mk-list">
+                            <li data-page="logs"><span>CPU &gt; 85% на k8s-node-3</span><span class="mk-badge warn">warn</span></li>
+                            <li data-page="logs"><span>edge-gw не отвечает 4 мин</span><span class="mk-badge bad">crit</span></li>
+                            <li data-page="logs"><span>Диск /var 91% на db-01</span><span class="mk-badge warn">warn</span></li>
+                        </ul>
+                    </article>
+                </div>
+                <div class="dash-catalog" id="preview-dash-catalog" hidden>
+                    <h4>Скрытые виджеты</h4>
+                    <p>Нажмите, чтобы вернуть на доску</p>
+                    <div class="dash-catalog-list" id="preview-dash-catalog-list"></div>
+                </div>
+            </section>
+
+
+            <!-- NETWORK MAP -->
+            <section class="mk-page" id="page-topology">
+                <div class="mk-head">
+                    <div><h1>Карта сети</h1><p>Инспектор: устройство, связи и проблемы — без симуляции</p></div>
+                    <a class="mk-btn" href="network_map.php"><i data-lucide="external-link"></i> Живая карта</a>
+                </div>
+                <div class="mk-topo">
+                    <div class="netmap">
+                        <aside class="netmap-tools">
+                            <button class="netmap-tool active" type="button" data-tool="select" title="Выбор"><i data-lucide="mouse-pointer-2"></i></button>
+                            <button class="netmap-tool" type="button" data-tool="pan" title="Перемещение"><i data-lucide="move"></i></button>
+                            <button class="netmap-tool" type="button" id="netmap-zoom-in" title="Приблизить"><i data-lucide="zoom-in"></i></button>
+                            <button class="netmap-tool" type="button" id="netmap-zoom-out" title="Отдалить"><i data-lucide="zoom-out"></i></button>
+                            <button class="netmap-tool" type="button" id="netmap-fit" title="Вписать"><i data-lucide="maximize"></i></button>
+                            <button class="netmap-tool" type="button" id="netmap-reset" title="Сбросить"><i data-lucide="rotate-ccw"></i></button>
+                            <button class="netmap-tool" type="button" id="netmap-pause" title="Пауза анимации трафика"><i data-lucide="pause"></i></button>
+                        </aside>
+                        <div class="netmap-stage" id="netmap-stage">
+                            <svg class="netmap-links" id="netmap-links"></svg>
+                            <div class="netmap-nodes" id="netmap-nodes"></div>
+                            <div class="netmap-empty hidden" id="netmap-empty">
+                                <i data-lucide="share-2"></i>
+                                <h3>Нет узлов</h3>
+                                <p>Добавьте ноды, чтобы построить карту сети</p>
+                            </div>
+                        </div>
+                        <aside class="netmap-panel" data-collapsible="netmap-inspector">
+                        <div class="netmap-panel-head hm-panel-head">
+                            <h2>Инспектор</h2>
+                        </div>
+                        <div class="netmap-stats" id="netmap-stats"></div>
+                        <div class="netmap-block netmap-block-main" data-collapsible="netmap-selected">
+                            <div class="hm-panel-head"><h3>Устройство</h3></div>
+                            <div class="netmap-selected" id="netmap-selected">
+                                <p class="muted">Выберите узел на карте</p>
+                            </div>
+                        </div>
+                        <div class="netmap-block" data-collapsible="netmap-neighbors">
+                            <div class="hm-panel-head"><h3>Связи</h3></div>
+                            <div class="netmap-neighbors" id="netmap-neighbors"></div>
+                        </div>
+                        <div class="netmap-block" data-collapsible="netmap-alerts">
+                            <div class="hm-panel-head"><h3>Проблемы</h3></div>
+                            <div class="netmap-alerts" id="netmap-alerts"></div>
+                        </div>
+                    </aside>
+                    </div>
+                </div>
+            </section>
+
+            <!-- NODES -->
+            <section class="mk-page" id="page-nodes">
+                <div class="mk-head">
+                    <div><h1>Ноды</h1><p>Управление серверами</p></div>
+                    <button type="button" class="mk-btn" data-page="node-create"><i data-lucide="plus"></i> Создать ноду</button>
+                </div>
+                <div class="mk-filters pt-glass">
+                    <input placeholder="Поиск по нодам..." value="">
+                    <select><option>По имени</option><option>По статусу</option></select>
+                </div>
+                <div class="mk-card pt-glass" style="padding:0;overflow:auto">
+                    <table class="mk-table">
+                        <thead><tr><th></th><th>Имя</th><th>Хост</th><th>Провайдер</th><th>Статус</th><th>Uptime</th><th>Ping</th><th>CPU</th></tr></thead>
+                        <tbody>
+                            <tr><td><input type="checkbox" checked></td><td>web-pixelz-1</td><td>192.168.21.2</td><td>Hetzner</td><td><span class="mk-badge ok">online</span></td><td>42д 6ч</td><td>12 ms</td><td>18%</td></tr>
+                            <tr><td><input type="checkbox"></td><td>db-01</td><td>10.10.0.14</td><td>Selectel</td><td><span class="mk-badge ok">online</span></td><td>18д 2ч</td><td>8 ms</td><td>41%</td></tr>
+                            <tr><td><input type="checkbox"></td><td>cache-01</td><td>10.10.0.22</td><td>Selectel</td><td><span class="mk-badge warn">warning</span></td><td>9д 11ч</td><td>31 ms</td><td>72%</td></tr>
+                            <tr><td><input type="checkbox"></td><td>k8s-node-3</td><td>10.8.1.30</td><td>Timeweb</td><td><span class="mk-badge ok">online</span></td><td>5д 3ч</td><td>19 ms</td><td>86%</td></tr>
+                            <tr><td><input type="checkbox"></td><td>edge-gw</td><td>185.22.11.8</td><td>Aeza</td><td><span class="mk-badge bad">offline</span></td><td>—</td><td>timeout</td><td>—</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- NODE CREATE -->
+            <section class="mk-page" id="page-node-create">
+                <div class="mk-head">
+                    <div>
+                        <h1>Создать ноду</h1>
+                        <p>Секретный ключ, хост и конфиг агента — как в живой панели</p>
+                    </div>
+                    <button type="button" class="mk-btn ghost" data-page="nodes"><i data-lucide="arrow-left"></i> К списку</button>
+                </div>
+                <form class="mk-card pt-glass mk-node-create" id="preview-node-create">
+                    <div class="mk-form">
+                        <label class="full">Секретный ключ (SECRET_KEY)
+                            <span class="mk-secret">
+                                <input id="preview-secret-key" type="text" readonly value="7f3c9a2e8b14d6c0a5e91b47c2d83f06">
+                                <button type="button" class="mk-icon-btn" id="preview-copy-key" title="Копировать"><i data-lucide="copy"></i></button>
+                                <button type="button" class="mk-icon-btn" id="preview-refresh-key" title="Сгенерировать новый"><i data-lucide="refresh-cw"></i></button>
+                            </span>
+                        </label>
+                        <label>Внутреннее имя *
+                            <input name="name" required placeholder="например, RU-MSK-Узел-01" value="lab-node-02">
+                        </label>
+                        <label>Страна
+                            <select name="country">
+                                <option value="">Выберите страну</option>
+                                <option value="RU" selected>Россия</option>
+                                <option value="NL">Нидерланды</option>
+                                <option value="DE">Германия</option>
+                                <option value="US">США</option>
+                                <option value="FI">Финляндия</option>
+                            </select>
+                        </label>
+                        <label>Домен или IP-адрес *
+                            <input name="host" required value="10.21.0.48">
+                        </label>
+                        <label>Порт узла *
+                            <input name="port" type="number" min="1" max="65535" required value="2222">
+                        </label>
+                        <label class="full">Провайдер <small class="mk-optional">необязательно</small>
+                            <select name="provider">
+                                <option value="" selected>Нет / домашняя лаборатория</option>
+                                <option>Hetzner</option>
+                                <option>Selectel</option>
+                                <option>Timeweb</option>
+                                <option>Aeza</option>
+                            </select>
+                        </label>
+                        <label class="full">Конфигурация агента
+                            <textarea id="preview-node-conf" class="mk-code mk-code-edit" readonly rows="7">NODE_NAME=lab-node-02
+MASTER_URL=https://panel.example.com
+SECRET_KEY=7f3c9a2e8b14d6c0a5e91b47c2d83f06
+COLLECT_INTERVAL=60
+UPNP_ENABLED=1</textarea>
+                        </label>
+                    </div>
+                    <small class="mk-hint">В живой панели конфиг собирается после создания ноды. Здесь — пример `node.conf` для агента.</small>
+                    <div class="mk-form-actions">
+                        <button type="button" class="mk-btn ghost" data-page="nodes">Отмена</button>
+                        <button type="button" class="mk-btn ghost" id="preview-copy-conf"><i data-lucide="copy"></i> Копировать конфиг</button>
+                        <button type="submit" class="mk-btn"><i data-lucide="check"></i> Создать ноду</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- STATS -->
+            <section class="mk-page" id="page-stats">
+                <div class="mk-head"><div><h1>Статистика нод</h1><p>Нагрузка серверов</p></div></div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#2563eb"><i data-lucide="server"></i></div><div><h3>Всего</h3><strong>8</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="activity"></i></div><div><h3>Онлайн</h3><strong>7</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#dc2626"><i data-lucide="alert-circle"></i></div><div><h3>Оффлайн</h3><strong>1</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="cpu"></i></div><div><h3>CPU</h3><strong>34%</strong></div></div>
+                </div>
+                <div class="mk-card pt-glass">
+                    <h3>Нагрузка по нодам</h3>
+                    <table class="mk-table">
+                        <thead><tr><th>Нода</th><th>CPU</th><th>RAM</th><th>Disk</th></tr></thead>
+                        <tbody>
+                            <tr><td>web-pixelz-1</td><td><div class="mk-bar"><span style="width:18%"></span></div></td><td><div class="mk-bar"><span style="width:44%"></span></div></td><td><div class="mk-bar"><span style="width:31%"></span></div></td></tr>
+                            <tr><td>db-01</td><td><div class="mk-bar"><span style="width:41%"></span></div></td><td><div class="mk-bar"><span style="width:78%"></span></div></td><td><div class="mk-bar"><span style="width:91%"></span></div></td></tr>
+                            <tr><td>k8s-node-3</td><td><div class="mk-bar"><span style="width:86%"></span></div></td><td><div class="mk-bar"><span style="width:62%"></span></div></td><td><div class="mk-bar"><span style="width:48%"></span></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- BILLING -->
+            <section class="mk-page" id="page-billing">
+                <div class="mk-head"><div><h1>Биллинг</h1><p>Платежи и сроки аренды</p></div><button class="mk-btn"><i data-lucide="plus"></i> Добавить платеж</button></div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="clock"></i></div><div><h3>К оплате</h3><strong>3</strong><small>ноды в этом месяце</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="wallet"></i></div><div><h3>В августе</h3><strong>48 900 ₽</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#7c3aed"><i data-lucide="trending-up"></i></div><div><h3>Всего</h3><strong>612 400 ₽</strong></div></div>
+                </div>
+                <div class="mk-tabs" data-ptabs>
+                    <button type="button" class="mk-tab active" data-ptab="nodes">Биллинг</button>
+                    <button type="button" class="mk-tab" data-ptab="payments">История платежей</button>
+                    <button type="button" class="mk-tab" data-ptab="providers">Провайдеры</button>
+                </div>
+                <div class="mk-stab active" data-ptab="nodes">
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Нода</th><th>Провайдер</th><th>Срок</th><th>Сумма</th><th>Статус</th></tr></thead>
+                            <tbody>
+                                <tr><td>web-pixelz-1</td><td>Hetzner</td><td>03.09.2026</td><td>4 290 ₽</td><td><span class="mk-badge ok">оплачено</span></td></tr>
+                                <tr><td>db-01</td><td>Selectel</td><td>21.08.2026</td><td>8 700 ₽</td><td><span class="mk-badge warn">скоро</span></td></tr>
+                                <tr><td>edge-gw</td><td>Aeza</td><td>18.08.2026</td><td>1 190 ₽</td><td><span class="mk-badge bad">просрочено</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="mk-stab" data-ptab="payments">
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Дата</th><th>Нода</th><th>Сумма</th><th>Способ</th></tr></thead>
+                            <tbody>
+                                <tr><td>03.08.2026</td><td>web-pixelz-1</td><td>4 290 ₽</td><td>карта</td></tr>
+                                <tr><td>21.07.2026</td><td>db-01</td><td>8 700 ₽</td><td>счёт</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="mk-stab" data-ptab="providers">
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Провайдер</th><th>Ноды</th><th>Валюта</th></tr></thead>
+                            <tbody>
+                                <tr><td>Hetzner</td><td>1</td><td>EUR</td></tr>
+                                <tr><td>Selectel</td><td>2</td><td>RUB</td></tr>
+                                <tr><td>Aeza</td><td>1</td><td>RUB</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TRAFFIC -->
+            <section class="mk-page" id="page-traffic">
+                <div class="mk-head"><div><h1>Расход трафика</h1><p>In / Out за всё время</p></div></div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#0284c7"><i data-lucide="download"></i></div><div><h3>Вход</h3><strong>1.42 ТБ</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#4f46e5"><i data-lucide="upload"></i></div><div><h3>Выход</h3><strong>860 ГБ</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="activity"></i></div><div><h3>Всего</h3><strong>2.28 ТБ</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="server"></i></div><div><h3>Онлайн</h3><strong>7</strong></div></div>
+                </div>
+                <div class="mk-card pt-glass">
+                    <h3>По нодам</h3>
+                    <table class="mk-table">
+                        <thead><tr><th>Нода</th><th>Вход</th><th>Выход</th></tr></thead>
+                        <tbody>
+                            <tr><td>db-01</td><td>820 ГБ</td><td>210 ГБ</td></tr>
+                            <tr><td>web-pixelz-1</td><td>410 ГБ</td><td>380 ГБ</td></tr>
+                            <tr><td>k8s-node-3</td><td>190 ГБ</td><td>270 ГБ</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- METRICS -->
+            <section class="mk-page" id="page-metrics">
+                <div class="mk-head"><div><h1>Метрики нод</h1><p>web-pixelz-1</p></div></div>
+                <div class="mk-filters pt-glass">
+                    <select><option>web-pixelz-1</option><option>db-01</option></select>
+                </div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#2563eb"><i data-lucide="cpu"></i></div><div><h3>CPU</h3><strong>18%</strong><div class="mk-bar"><span style="width:18%"></span></div></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="activity"></i></div><div><h3>RAM</h3><strong>44%</strong><div class="mk-bar"><span style="width:44%"></span></div></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="hard-drive"></i></div><div><h3>Диск</h3><strong>31%</strong><div class="mk-bar"><span style="width:31%"></span></div></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#0284c7"><i data-lucide="radio"></i></div><div><h3>Статус</h3><strong>online</strong><small>240 МБ ↓ · 81 МБ ↑</small></div></div>
+                </div>
+            </section>
+
+            <!-- PORTS -->
+            <section class="mk-page" id="page-ports">
+                <div class="mk-head"><div><h1>Порты</h1><p>Открытые TCP / UDP</p></div><button class="mk-btn"><i data-lucide="scan"></i> Сканировать</button></div>
+                <div class="mk-tabs" data-ptabs>
+                    <button type="button" class="mk-tab active" data-ptab="listen"><i data-lucide="network"></i> Порты</button>
+                    <button type="button" class="mk-tab" data-ptab="ifaces"><i data-lucide="server"></i> Интерфейсы</button>
+                </div>
+                <div class="mk-stab active" data-ptab="listen">
+                    <div class="mk-filters pt-glass">
+                        <select><option>Все ноды</option></select>
+                        <select><option>TCP</option><option>UDP</option></select>
+                        <input placeholder="Поиск порта...">
+                    </div>
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Порт</th><th>Тип</th><th>Нода</th><th>Процесс</th><th>PID</th><th>Статус</th></tr></thead>
+                            <tbody>
+                                <tr><td>22</td><td>TCP</td><td>web-pixelz-1</td><td>sshd</td><td>812</td><td><span class="mk-badge ok">listen</span></td></tr>
+                                <tr><td>80</td><td>TCP</td><td>web-pixelz-1</td><td>nginx</td><td>1402</td><td><span class="mk-badge ok">listen</span></td></tr>
+                                <tr><td>443</td><td>TCP</td><td>web-pixelz-1</td><td>nginx</td><td>1402</td><td><span class="mk-badge ok">listen</span></td></tr>
+                                <tr><td>5432</td><td>TCP</td><td>db-01</td><td>postgres</td><td>990</td><td><span class="mk-badge warn">internal</span></td></tr>
+                                <tr><td>6379</td><td>TCP</td><td>cache-01</td><td>redis</td><td>441</td><td><span class="mk-badge ok">listen</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="mk-stab" data-ptab="ifaces">
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Интерфейс</th><th>Нода</th><th>IPv4</th><th>Статус</th></tr></thead>
+                            <tbody>
+                                <tr><td>eth0</td><td>web-pixelz-1</td><td>10.21.0.20</td><td><span class="mk-badge ok">up</span></td></tr>
+                                <tr><td>eth0</td><td>db-01</td><td>10.21.0.14</td><td><span class="mk-badge ok">up</span></td></tr>
+                                <tr><td>wg0</td><td>edge-gw</td><td>10.8.0.1</td><td><span class="mk-badge bad">down</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- UPNP -->
+            <section class="mk-page" id="page-upnp">
+                <div class="mk-head">
+                    <div><h1>UPnP</h1><p>Реальные устройства из SSDP · шасси по модели</p></div>
+                    <div style="display:flex;gap:8px">
+                        <button class="mk-btn ghost"><i data-lucide="radio"></i> Скан LAN панели</button>
+                        <button class="mk-btn"><i data-lucide="refresh-cw"></i> Скан через агент</button>
+                    </div>
+                </div>
+                <div class="mk-filters pt-glass">
+                    <input id="preview-upnp-search" placeholder="Поиск устройства, модели, IP...">
+                    <select id="preview-upnp-vendor">
+                        <option value="">Все вендоры</option>
+                    </select>
+                    <select id="preview-upnp-type">
+                        <option value="">Все типы</option>
+                        <option value="igd">Шлюзы IGD</option>
+                        <option value="switch">Коммутаторы</option>
+                        <option value="other">Прочие</option>
+                    </select>
+                </div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#2563eb"><i data-lucide="router"></i></div><div><h3>Устройства</h3><strong id="preview-upnp-count">0</strong><small>обнаружено по UPnP</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="globe"></i></div><div><h3>Шлюзы IGD</h3><strong id="preview-upnp-igd">0</strong><small>роутеры / NAT</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#0284c7"><i data-lucide="network"></i></div><div><h3>Пробросы</h3><strong id="preview-upnp-maps">0</strong><small>port mappings</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="activity"></i></div><div><h3>Онлайн</h3><strong id="preview-upnp-online">0</strong><small>видели &lt; 3 мин</small></div></div>
+                </div>
+                <div class="gear-grid" id="preview-gear-grid"></div>
+            </section>
+
+            <section class="mk-page" id="page-databases">
+                <div class="mk-head">
+                    <div><h1>Базы данных</h1><p>Опрос с панели · без агента на СУБД</p></div>
+                    <div style="display:flex;gap:8px">
+                        <button class="mk-btn ghost"><i data-lucide="refresh-cw"></i> Опросить</button>
+                        <button class="mk-btn"><i data-lucide="plus"></i> Добавить базу</button>
+                    </div>
+                </div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#2563eb"><i data-lucide="database"></i></div><div><h3>Базы</h3><strong>3</strong><small>в мониторинге</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="check-circle"></i></div><div><h3>Онлайн</h3><strong>2</strong><small>отвечают на запрос</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#0284c7"><i data-lucide="users"></i></div><div><h3>Сессии</h3><strong>41</strong><small>подключений сейчас</small></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#d97706"><i data-lucide="hard-drive"></i></div><div><h3>Данные</h3><strong>18.4 ГиБ</strong><small>суммарный размер</small></div></div>
+                </div>
+                <div class="dbmon-grid">
+                    <article class="card dbmon-card" data-tone="ok">
+                        <div class="dbmon-top"><div><h3>Панель</h3><p class="dbmon-host">127.0.0.1:3306 · monitoring</p></div><span class="mk-badge ok">online</span></div>
+                        <div class="dbmon-meta"><span class="mk-badge">панель</span><span>10.11.10-MariaDB</span></div>
+                        <div class="dbmon-kpis">
+                            <div><small>пинг</small><strong>2 мс</strong></div>
+                            <div><small>сессии</small><strong>8 / 151</strong></div>
+                            <div><small>QPS</small><strong>12.4</strong></div>
+                            <div><small>размер</small><strong>420 МиБ</strong></div>
+                            <div><small>uptime</small><strong>12д 4ч</strong></div>
+                            <div><small>slow</small><strong>3</strong></div>
+                        </div>
+                    </article>
+                    <article class="card dbmon-card" data-tone="ok">
+                        <div class="dbmon-top"><div><h3>billing-db</h3><p class="dbmon-host">10.0.8.12:3306 · billing</p></div><span class="mk-badge ok">online</span></div>
+                        <div class="dbmon-meta"><span class="mk-badge">MySQL</span><span>8.0.36</span></div>
+                        <div class="dbmon-kpis">
+                            <div><small>пинг</small><strong>9 мс</strong></div>
+                            <div><small>сессии</small><strong>27 / 200</strong></div>
+                            <div><small>QPS</small><strong>184</strong></div>
+                            <div><small>размер</small><strong>11.2 ГиБ</strong></div>
+                            <div><small>uptime</small><strong>41д 2ч</strong></div>
+                            <div><small>slow</small><strong>18</strong></div>
+                        </div>
+                    </article>
+                    <article class="card dbmon-card" data-tone="bad">
+                        <div class="dbmon-top"><div><h3>analytics</h3><p class="dbmon-host">db-pg.internal:5432 · warehouse</p></div><span class="mk-badge bad">offline</span></div>
+                        <div class="dbmon-meta"><span class="mk-badge">PostgreSQL</span><span>нет версии</span></div>
+                        <p class="dbmon-error">SQLSTATE[08006] connection timed out</p>
+                    </article>
+                </div>
+            </section>
+
+            <!-- PROCESSES -->
+            <section class="mk-page" id="page-processes">
+                <div class="mk-head"><div><h1>Процессы</h1><p>web-pixelz-1</p></div><button class="mk-btn"><i data-lucide="refresh-cw"></i> Обновить</button></div>
+                <div class="mk-filters pt-glass">
+                    <select><option>web-pixelz-1</option></select>
+                    <select><option>Запущены</option><option>Все статусы</option></select>
+                    <input placeholder="Поиск процесса...">
+                </div>
+                <div class="mk-card pt-glass" style="padding:0">
+                    <table class="mk-table">
+                        <thead><tr><th>PID</th><th>Имя</th><th>CPU %</th><th>Память %</th><th>Статус</th><th></th></tr></thead>
+                        <tbody>
+                            <tr><td>1402</td><td>nginx</td><td>2.1</td><td>4.8</td><td><span class="mk-badge ok">running</span></td><td><button class="mk-btn ghost">Логи</button></td></tr>
+                            <tr><td>2210</td><td>php-fpm</td><td>11.4</td><td>18.2</td><td><span class="mk-badge ok">running</span></td><td><button class="mk-btn ghost">Логи</button></td></tr>
+                            <tr><td>812</td><td>sshd</td><td>0.1</td><td>0.4</td><td><span class="mk-badge ok">running</span></td><td><button class="mk-btn ghost">Логи</button></td></tr>
+                            <tr><td>88</td><td>systemd</td><td>0.0</td><td>0.8</td><td><span class="mk-badge info">sleeping</span></td><td><button class="mk-btn ghost">Логи</button></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- CONTAINERS -->
+            <section class="mk-page" id="page-containers">
+                <div class="mk-head"><div><h1>Контейнеры</h1><p>Docker на web-pixelz-1</p></div><button class="mk-btn"><i data-lucide="refresh-cw"></i> Обновить</button></div>
+                <div class="mk-filters pt-glass">
+                    <select><option>web-pixelz-1</option></select>
+                    <select><option>Запущены</option></select>
+                    <input placeholder="Поиск контейнера...">
+                </div>
+                <div class="mk-containers">
+                    <div class="mk-box pt-glass"><h4>nginx-edge</h4><span class="mk-badge ok">running</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">0.4 CPU · 64 MB · :80/:443</p></div>
+                    <div class="mk-box pt-glass"><h4>app-api</h4><span class="mk-badge ok">running</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">1.2 CPU · 312 MB · :8080</p></div>
+                    <div class="mk-box pt-glass"><h4>redis</h4><span class="mk-badge ok">running</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">0.1 CPU · 48 MB · :6379</p></div>
+                    <div class="mk-box pt-glass"><h4>worker-mail</h4><span class="mk-badge warn">restarting</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">0.0 CPU · 22 MB</p></div>
+                    <div class="mk-box pt-glass"><h4>old-proxy</h4><span class="mk-badge bad">exited</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">остановлен 2ч назад</p></div>
+                    <div class="mk-box pt-glass"><h4>grafana</h4><span class="mk-badge ok">running</span><p style="color:#9aa3b2;font-size:12px;margin:8px 0 0">0.3 CPU · 180 MB · :3000</p></div>
+                </div>
+            </section>
+
+            <!-- NETWORK -->
+            <section class="mk-page" id="page-network">
+                <div class="mk-head"><div><h1>Сеть контейнеров</h1><p>Реальный снимок docker network inspect</p></div></div>
+                <div class="mk-card pt-glass" style="padding:0">
+                    <table class="mk-table">
+                        <thead><tr><th>Сеть</th><th>Driver</th><th>Subnet</th><th>Шлюз</th><th>Контейнеры</th></tr></thead>
+                        <tbody>
+                            <tr><td>bridge</td><td>bridge</td><td>172.17.0.0/16</td><td>172.17.0.1</td><td>4</td></tr>
+                            <tr><td>frontend</td><td>bridge</td><td>172.20.0.0/24</td><td>172.20.0.1</td><td>2</td></tr>
+                            <tr><td>backend</td><td>overlay</td><td>10.0.1.0/24</td><td>10.0.1.1</td><td>5</td></tr>
+                            <tr><td>host</td><td>host</td><td>—</td><td>—</td><td>1</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mk-card pt-glass" style="padding:0;margin-top:16px">
+                    <table class="mk-table">
+                        <thead><tr><th>Контейнер</th><th>Сеть</th><th>IPv4</th></tr></thead>
+                        <tbody>
+                            <tr><td>nginx-edge</td><td>frontend</td><td>172.20.0.10</td></tr>
+                            <tr><td>app-api</td><td>backend</td><td>10.0.1.12</td></tr>
+                            <tr><td>redis</td><td>backend</td><td>10.0.1.13</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- LOGS -->
+            <section class="mk-page" id="page-logs">
+                <div class="mk-head"><div><h1>Логи</h1><p>Система · Auth · SSH</p></div><button type="button" class="mk-btn" data-toast="Экспорт логов запущен" data-toast-type="info"><i data-lucide="download"></i> Экспорт</button></div>
+                <div class="mk-tabs" data-ptabs>
+                    <button type="button" class="mk-tab active" data-ptab="system"><i data-lucide="file-text"></i> Системные</button>
+                    <button type="button" class="mk-tab" data-ptab="auth"><i data-lucide="shield"></i> Авторизация панели</button>
+                    <button type="button" class="mk-tab" data-ptab="ssh"><i data-lucide="lock"></i> SSH</button>
+                </div>
+
+                <div class="mk-stab active" data-ptab="system">
+                    <div class="mk-filters pt-glass">
+                        <select data-log-node>
+                            <option value="">Выберите ноду</option>
+                            <option value="web-pixelz-1" selected>web-pixelz-1</option>
+                            <option value="db-01">db-01</option>
+                            <option value="edge-gw">edge-gw</option>
+                        </select>
+                        <select data-log-level>
+                            <option value="">Все уровни</option>
+                            <option value="error">Ошибки</option>
+                            <option value="warn">Предупреждения</option>
+                            <option value="info">Информация</option>
+                        </select>
+                        <input data-log-search placeholder="Поиск в логах...">
+                    </div>
+                    <div class="mk-card pt-glass">
+                        <div class="mk-logs">
+                            <div class="mk-log" data-level="info" data-node="web-pixelz-1"><span>10:28:11</span><span class="mk-badge ok">info</span><span>nginx: worker process started</span></div>
+                            <div class="mk-log" data-level="warn" data-node="web-pixelz-1"><span>10:28:44</span><span class="mk-badge warn">warn</span><span>php-fpm: slow request /api/metrics 1.8s</span></div>
+                            <div class="mk-log" data-level="info" data-node="web-pixelz-1"><span>10:29:02</span><span class="mk-badge info">info</span><span>cron: cleanup_logs.php finished, 12k rows</span></div>
+                            <div class="mk-log" data-level="error" data-node="edge-gw"><span>10:31:17</span><span class="mk-badge bad">error</span><span>edge-gw: agent timeout after 120s</span></div>
+                            <div class="mk-log" data-level="info" data-node="web-pixelz-1"><span>10:32:01</span><span class="mk-badge ok">info</span><span>kernel: EXT4-fs (sda1): mounted filesystem</span></div>
+                            <div class="mk-log" data-level="error" data-node="db-01"><span>10:33:18</span><span class="mk-badge bad">error</span><span>postgres: checkpoint request timed out</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-ptab="auth">
+                    <div class="mk-filters pt-glass">
+                        <select data-log-event>
+                            <option value="">Все события</option>
+                            <option value="login">Вход</option>
+                            <option value="logout">Выход</option>
+                            <option value="failed">Неудачные попытки</option>
+                        </select>
+                        <input data-log-search placeholder="Поиск по пользователю или IP...">
+                    </div>
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Время</th><th>Пользователь</th><th>IP</th><th>Событие</th><th>Результат</th></tr></thead>
+                            <tbody>
+                                <tr data-event="login"><td>10:12:04</td><td>admin</td><td>10.21.0.40</td><td>Вход</td><td><span class="mk-badge ok">успешно</span></td></tr>
+                                <tr data-event="failed"><td>09:58:22</td><td>root</td><td>185.22.11.90</td><td>Неудачная попытка</td><td><span class="mk-badge bad">ошибка</span></td></tr>
+                                <tr data-event="logout"><td>09:41:10</td><td>admin</td><td>10.21.0.40</td><td>Выход</td><td><span class="mk-badge info">ok</span></td></tr>
+                                <tr data-event="login"><td>08:02:51</td><td>ops</td><td>10.0.0.12</td><td>Вход</td><td><span class="mk-badge ok">успешно</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-ptab="ssh">
+                    <div class="mk-filters pt-glass">
+                        <select data-log-node>
+                            <option value="">Выберите ноду</option>
+                            <option value="web-pixelz-1" selected>web-pixelz-1</option>
+                            <option value="db-01">db-01</option>
+                        </select>
+                        <select data-log-level>
+                            <option value="">Все уровни</option>
+                            <option value="error">Ошибки</option>
+                            <option value="info">Информация</option>
+                        </select>
+                        <input data-log-search placeholder="Поиск по пользователю или сообщению...">
+                    </div>
+                    <div class="mk-card pt-glass" style="padding:0">
+                        <table class="mk-table">
+                            <thead><tr><th>Время</th><th>Результат</th><th>Пользователь</th><th>IP</th><th>Сообщение</th></tr></thead>
+                            <tbody>
+                                <tr data-node="web-pixelz-1" data-level="info"><td>10:32:01</td><td><span class="mk-badge ok">успех</span></td><td>deploy</td><td>10.21.0.40</td><td>Accepted publickey for deploy</td></tr>
+                                <tr data-node="web-pixelz-1" data-level="error"><td>10:19:44</td><td><span class="mk-badge bad">отказ</span></td><td>root</td><td>45.12.8.3</td><td>Failed password for root</td></tr>
+                                <tr data-node="db-01" data-level="info"><td>09:55:12</td><td><span class="mk-badge ok">успех</span></td><td>backup</td><td>10.21.0.14</td><td>Accepted publickey for backup</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- UPDATES -->
+            <section class="mk-page" id="page-updates">
+                <div class="mk-head"><div><h1>Обновления</h1><p>Пакеты на нодах</p></div></div>
+                <div class="mk-stats">
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#2563eb"><i data-lucide="package"></i></div><div><h3>Доступно</h3><strong>27</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#dc2626"><i data-lucide="shield"></i></div><div><h3>Критических</h3><strong>4</strong></div></div>
+                    <div class="mk-stat pt-glass"><div class="mk-ico" style="background:#059669"><i data-lucide="clock"></i></div><div><h3>Проверка</h3><strong>10:15</strong></div></div>
+                </div>
+                <div class="mk-card pt-glass" style="padding:0">
+                    <table class="mk-table">
+                        <thead><tr><th>Пакет</th><th>Нода</th><th>Текущая</th><th>Новая</th><th>Приоритет</th></tr></thead>
+                        <tbody>
+                            <tr><td>openssl</td><td>web-pixelz-1</td><td>3.0.13</td><td>3.0.15</td><td><span class="mk-badge bad">security</span></td></tr>
+                            <tr><td>nginx</td><td>web-pixelz-1</td><td>1.24.0</td><td>1.26.2</td><td><span class="mk-badge warn">important</span></td></tr>
+                            <tr><td>linux-image</td><td>db-01</td><td>6.1.90</td><td>6.1.102</td><td><span class="mk-badge bad">security</span></td></tr>
+                            <tr><td>curl</td><td>cache-01</td><td>8.5.0</td><td>8.9.1</td><td><span class="mk-badge info">normal</span></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- SETTINGS -->
+            <section class="mk-page" id="page-settings">
+                <div class="mk-head"><div><h1>Настройки</h1><p>Параметры панели, логов, уведомлений и базы</p></div><button class="mk-btn">Сохранить</button></div>
+                <p class="mk-settings-lead">Параметры панели пишутся в базу. Резерв MySQL — на вкладке «База данных».</p>
+                <div class="mk-tabs" id="preview-settings-tabs">
+                    <button class="mk-tab active" type="button" data-stab="general">Общие</button>
+                    <button class="mk-tab" type="button" data-stab="upnp">UPnP</button>
+                    <button class="mk-tab" type="button" data-stab="logs">Логи</button>
+                    <button class="mk-tab" type="button" data-stab="notifications">Уведомления</button>
+                    <button class="mk-tab" type="button" data-stab="security">Безопасность</button>
+                    <button class="mk-tab" type="button" data-stab="api">API</button>
+                    <button class="mk-tab" type="button" data-stab="database">База данных</button>
+                </div>
+
+                <div class="mk-stab active" data-stab="general">
+                    <div class="mk-card pt-glass">
+                        <div class="mk-form">
+                            <label>Название системы<input value="HostMonitor"></label>
+                            <label>Часовой пояс<select><option>Europe/Moscow (MSK)</option><option>UTC</option></select></label>
+                            <label>Язык интерфейса<select><option>Русский</option><option>English</option></select></label>
+                            <label>Интервал агентов, сек<input type="number" value="60"></label>
+                        </div>
+                        <small class="mk-hint">COLLECT_INTERVAL попадает в node.conf при скачивании конфига агента.</small>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="upnp">
+                    <div class="mk-card pt-glass">
+                        <small class="mk-hint">Значения пишутся в node.conf. Уже установленные агенты нужно обновить.</small>
+                        <label class="mk-check"><input type="checkbox" checked> UPnP-скан на агенте (UPNP_ENABLED)</label>
+                        <div class="mk-form">
+                            <label>UPNP_INTERVAL_CYCLES<input type="number" value="2"></label>
+                            <label>UPNP_MX<input type="number" value="3"></label>
+                            <label>UPNP_TIMEOUT<input type="number" value="8"></label>
+                            <label>UPNP_GENA_PORT<input type="number" value="0"></label>
+                        </div>
+                        <pre class="mk-code">UPNP_ENABLED=true
+UPNP_INTERVAL_CYCLES=2
+UPNP_MX=3
+UPNP_TIMEOUT=8
+UPNP_GENA_PORT=0</pre>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="logs">
+                    <div class="mk-card pt-glass">
+                        <div class="mk-form">
+                            <label>Логи, дней<input type="number" value="30"></label>
+                            <label>Метрики, дней<input type="number" value="14"></label>
+                            <label>Закрытые алерты, дней<input type="number" value="30"></label>
+                            <label>Записей на страницу<input type="number" value="100"></label>
+                            <label>Максимум в таблице<input type="number" value="1000000"></label>
+                            <label>Максимум на ноду<input type="number" value="100000"></label>
+                        </div>
+                        <p class="mk-hint">Ночная очистка в 03:15. Метрики 14 дней покрывают график «7 дней» без раздувания БД.</p>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="notifications">
+                    <div class="mk-card pt-glass">
+                        <label class="mk-check"><input type="checkbox" checked> Email уведомления</label>
+                        <div class="mk-form">
+                            <label>Email<input value="admin@example.com"></label>
+                            <label>SMTP-хост<input value="smtp.example.com"></label>
+                            <label>SMTP-порт<input value="587"></label>
+                            <label>SMTP-пользователь<input value="notify"></label>
+                            <label class="full">From<input value="hostmonitor@example.com"></label>
+                        </div>
+                        <label class="mk-check"><input type="checkbox"> Telegram уведомления</label>
+                        <div class="mk-form">
+                            <label>Токен бота<input type="password" value="••••••••"></label>
+                            <label>Chat ID<input value="-100123456"></label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="security">
+                    <div class="mk-card pt-glass">
+                        <div class="mk-form">
+                            <label>Минимальная длина пароля<input type="number" value="8"></label>
+                            <label>Таймаут сессии, мин<input type="number" value="60"></label>
+                        </div>
+                        <small class="mk-hint">Простой дольше таймаута — повторный вход.</small>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="api">
+                    <div class="mk-card pt-glass">
+                        <small class="mk-hint">Агенты: Authorization: Bearer &lt;node_token&gt;. Общего ключа панели нет.</small>
+                        <div class="mk-form">
+                            <label class="full">Базовый URL API<input value="https://panel.example/api" readonly></label>
+                            <label>Лимит запросов / мин<input type="number" value="100"></label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mk-stab" data-stab="database">
+                    <div class="mk-card pt-glass">
+                        <p class="mk-hint">Резерв необязателен. Если основная MySQL недоступна, панель переключается на запасную. Разовое копирование таблиц — кнопками, постоянная синхронизация — репликация MySQL.</p>
+                        <div class="mk-ha-pills">
+                            <span class="ok">Активная: основная</span>
+                            <span class="ok">Основная: 4 мс</span>
+                            <span>Резерв: выключен</span>
+                        </div>
+                        <div class="mk-form">
+                            <label>Хост основной<input value="localhost"></label>
+                            <label>Порт<input value="3306"></label>
+                            <label>Имя базы<input value="monitoring"></label>
+                            <label>Пользователь<input value="monitor"></label>
+                            <label class="full">Пароль основной<input type="password" placeholder="не менять"></label>
+                        </div>
+                        <label class="mk-check"><input type="checkbox"> Включить резервную базу</label>
+                        <label class="mk-check"><input type="checkbox" checked> Автовозврат на основную</label>
+                        <div class="mk-form" style="opacity:.45">
+                            <label>Хост резерва<input placeholder="db-standby"></label>
+                            <label>Порт<input value="3306"></label>
+                        </div>
+                        <div class="mk-ha-actions">
+                            <button class="mk-btn">Сохранить подключения</button>
+                            <button class="mk-btn ghost">Проверить</button>
+                            <button class="mk-btn ghost">Основная → резерв</button>
+                            <button class="mk-btn ghost">Резерв → основная</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PROFILE -->
+            <section class="mk-page" id="page-profile">
+                <div class="mk-head"><div><h1>Профиль</h1><p>Администратор</p></div></div>
+                <div class="mk-card pt-glass">
+                    <div class="mk-form">
+                        <label>Имя пользователя<input value="admin" readonly></label>
+                        <label>Роль<input value="Администратор" readonly></label>
+                        <label>Email<input value="admin@hostmonitor.local"></label>
+                        <label>Тема<select><option>Тёмная</option><option>Светлая</option></select></label>
+                        <label>Новый пароль<input type="password" placeholder="••••••••"></label>
+                        <label>Повтор пароля<input type="password" placeholder="••••••••"></label>
+                    </div>
+                    <div style="margin-top:16px"><button class="mk-btn">Сохранить профиль</button></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        window.NETMAP_TOPOLOGY = {
+            nodes: [
+                { id: 'wan', kind: 'wan', vendor: 'generic', name: 'WAN', host: '', status: 'online', subnet: '', detail: 'Интернет / ISP' },
+                { id: 'upnp-1', kind: 'core', vendor: 'mikrotik', name: 'EDGE-CCR', host: '10.0.0.1', wan_ip: '185.22.11.1', status: 'online', subnet: '10.0.0.0/24', is_igd: 1, manufacturer: 'MikroTik', model_name: 'CCR2004-1G-12S+2XS', detail: 'MikroTik CCR2004-1G-12S+2XS', ports_up: 8, wan_link: 'Up', connection_status: 'Connected', lan_ips: [{ ip: '10.0.0.1' }] },
+                { id: 'upnp-2', kind: 'router', vendor: 'cisco', name: 'BRANCH-RTR-01', host: '10.21.0.1', wan_ip: '10.0.0.20', gateway: '10.0.0.1', status: 'online', subnet: '10.21.0.0/24', is_igd: 1, manufacturer: 'Cisco', model_name: 'ISR4331/K9', detail: 'Cisco ISR4331/K9', ports_up: 4, connection_status: 'Connected', lan_ips: [{ ip: '10.21.0.1' }] },
+                { id: 'upnp-3', kind: 'router', vendor: 'huawei', name: 'HQ-GW-01', host: '192.168.88.1', wan_ip: '10.0.0.30', gateway: '10.0.0.1', status: 'online', subnet: '192.168.88.0/24', is_igd: 1, manufacturer: 'Huawei', model_name: 'AR6120-S', detail: 'Huawei AR6120-S', ports_up: 6, wan_link: 'Up', connection_status: 'Connected', lan_ips: [{ ip: '192.168.88.1' }] },
+                { id: 'upnp-4', kind: 'switch', vendor: 'cisco', name: 'SW-ACC-01', host: '10.21.0.2', status: 'online', subnet: '10.21.0.0/24', manufacturer: 'Cisco', model_name: 'C9200L-24P-4G', detail: 'Cisco C9200L-24P-4G', ports_up: 12, lan_ips: [{ ip: '10.21.0.2' }] },
+                { id: 'upnp-5', kind: 'switch', vendor: 'huawei', name: 'SW-CORE-01', host: '192.168.88.2', status: 'online', subnet: '192.168.88.0/24', manufacturer: 'Huawei', model_name: 'S5735-L24P4X-A', detail: 'Huawei S5735-L24P4X-A', ports_up: 10, lan_ips: [{ ip: '192.168.88.2' }] },
+                { id: 'upnp-6', kind: 'device', vendor: 'mikrotik', name: 'LAB-RB4011', host: '10.0.0.10', status: 'offline', subnet: '10.0.0.0/24', manufacturer: 'MikroTik', model_name: 'RB4011iGS+RM', detail: 'MikroTik RB4011iGS+RM', ports_up: 0 },
+                { id: 'node-1', kind: 'server', vendor: 'generic', name: 'web-pixelz-1', host: '10.21.0.20', gateway: '10.21.0.1', status: 'online', subnet: '10.21.0.0/24', cpu_usage: 18, memory_usage: 42, disk_usage: 31, detail: 'Агент HostMonitor', network_in: 240000, network_out: 81000, ifaces_up: 1, lan_ips: [{ ip: '10.21.0.20' }] },
+                { id: 'node-2', kind: 'server', vendor: 'generic', name: 'db-01', host: '10.21.0.14', gateway: '10.21.0.1', status: 'online', subnet: '10.21.0.0/24', cpu_usage: 41, memory_usage: 68, disk_usage: 91, detail: 'Агент HostMonitor', network_in: 1800000, network_out: 420000, ifaces_up: 1, lan_ips: [{ ip: '10.21.0.14' }] },
+                { id: 'node-3', kind: 'server', vendor: 'generic', name: 'cache-01', host: '192.168.88.22', gateway: '192.168.88.1', status: 'online', subnet: '192.168.88.0/24', cpu_usage: 72, memory_usage: 55, disk_usage: 48, detail: 'Агент HostMonitor', network_in: 920000, network_out: 110000, ifaces_up: 1, lan_ips: [{ ip: '192.168.88.22' }] },
+                { id: 'node-4', kind: 'server', vendor: 'generic', name: 'k8s-node-3', host: '10.0.0.40', gateway: '10.0.0.1', status: 'online', subnet: '10.0.0.0/24', cpu_usage: 86, memory_usage: 61, disk_usage: 48, detail: 'Агент HostMonitor', network_in: 640000, network_out: 210000, ifaces_up: 2, lan_ips: [{ ip: '10.0.0.40' }] },
+                { id: 'node-5', kind: 'server', vendor: 'generic', name: 'edge-gw', host: '185.22.11.8', status: 'offline', subnet: '', detail: 'Агент HostMonitor', network_in: 0, network_out: 0, ifaces_up: 0 }
+            ],
+            links: [
+                { from: 'wan', to: 'upnp-1', label: 'WAN 185.22.11.1', kind: 'wan', busy: true, activity: 'busy' },
+                { from: 'upnp-1', to: 'upnp-2', label: '10.0.0.20 → 10.0.0.1', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-1', to: 'upnp-3', label: '10.0.0.30 → 10.0.0.1', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-2', to: 'upnp-4', label: '10.21.0.0/24', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-3', to: 'upnp-5', label: '192.168.88.0/24', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-1', to: 'upnp-6', label: '10.0.0.0/24', kind: 'lan', busy: false, activity: 'down' },
+                { from: 'upnp-4', to: 'node-1', label: '10.21.0.0/24 · L2', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-4', to: 'node-2', label: '10.21.0.0/24 · L2', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-5', to: 'node-3', label: '192.168.88.0/24 · L2', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'upnp-1', to: 'node-4', label: 'gw 10.0.0.1', kind: 'lan', busy: true, activity: 'busy' },
+                { from: 'wan', to: 'node-5', label: '185.22.11.8', kind: 'wan', busy: false, activity: 'down' }
+            ]
+        };
+    </script>
+    <div class="toast-host" id="toast-host" aria-live="polite"></div>
+    <script src="../frontend/js/panels.js"></script>
+    <script src="/frontend/js/panels.js"></script>
+    <script src="../frontend/js/selects.js"></script>
+    <script src="/frontend/js/selects.js"></script>
+    <script src="../frontend/js/network_map.js"></script>
+    <script src="/frontend/js/network_map.js"></script>
+    <script>
+        const titles = {
+            gallery: 'Все экраны',
+            login: 'Вход',
+            setup: 'Первый запуск',
+            dashboard: 'Дашборд',
+            topology: 'Карта сети',
+            nodes: 'Ноды',
+            'node-create': 'Создать ноду',
+            stats: 'Статистика',
+            billing: 'Биллинг',
+            traffic: 'Трафик',
+            metrics: 'Метрики',
+            ports: 'Порты',
+            upnp: 'UPnP',
+            databases: 'Базы данных',
+            processes: 'Процессы',
+            containers: 'Контейнеры',
+            network: 'Сеть контейнеров',
+            logs: 'Логи',
+            updates: 'Обновления',
+            settings: 'Настройки',
+            profile: 'Профиль'
+        };
+
+        function paintIcons() {
+            if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+        }
+
+        function showPage(id) {
+            const page = document.getElementById('page-' + id);
+            if (!page) return;
+            document.querySelectorAll('.mk-page').forEach((el) => el.classList.toggle('active', el.id === 'page-' + id));
+            document.querySelectorAll('.mk-nav button[data-page]').forEach((el) => {
+                el.classList.toggle('active', el.dataset.page === id);
+            });
+            const titleBtn = document.getElementById('pageTitleBtn');
+            if (titleBtn) {
+                titleBtn.innerHTML = `HostMonitor / ${titles[id] || id} <i data-lucide="chevron-down"></i>`;
+            }
+            document.body.classList.toggle('login-mode', id === 'login' || id === 'setup');
+            paintIcons();
+            history.replaceState(null, '', '#' + id);
+            if (id === 'topology' && window.HostMonitorNetmap) {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => window.HostMonitorNetmap.relayout());
+                });
+            }
+        }
+
+        function showSettingsTab(id) {
+            document.querySelectorAll('#preview-settings-tabs .mk-tab').forEach((el) => {
+                el.classList.toggle('active', el.dataset.stab === id);
+            });
+            document.querySelectorAll('#page-settings .mk-stab').forEach((el) => {
+                el.classList.toggle('active', el.dataset.stab === id);
+            });
+            const saveBtn = document.querySelector('#page-settings .mk-head .mk-btn');
+            if (saveBtn) saveBtn.style.display = id === 'database' ? 'none' : '';
+        }
+
+        function showLocalTab(tabBtn) {
+            const id = tabBtn.dataset.ptab;
+            const tabs = tabBtn.closest('[data-ptabs]');
+            const page = tabBtn.closest('.mk-page');
+            if (!id || !page) return;
+            tabs?.querySelectorAll('.mk-tab[data-ptab]').forEach((el) => el.classList.toggle('active', el.dataset.ptab === id));
+            page.querySelectorAll(':scope > .mk-stab[data-ptab]').forEach((el) => el.classList.toggle('active', el.dataset.ptab === id));
+            filterPreviewLogs(page);
+        }
+
+        function filterPreviewLogs(page) {
+            if (!page || page.id !== 'page-logs') return;
+            const panel = page.querySelector('.mk-stab.active');
+            if (!panel) return;
+            const q = (panel.querySelector('[data-log-search]')?.value || '').toLowerCase();
+            const node = panel.querySelector('[data-log-node]')?.value || '';
+            const level = panel.querySelector('[data-log-level]')?.value || '';
+            const eventType = panel.querySelector('[data-log-event]')?.value || '';
+            panel.querySelectorAll('.mk-log, tbody tr').forEach((row) => {
+                const text = row.textContent.toLowerCase();
+                const okQ = !q || text.includes(q);
+                const okNode = !node || !row.dataset.node || row.dataset.node === node;
+                const okLevel = !level || row.dataset.level === level;
+                const okEvent = !eventType || row.dataset.event === eventType;
+                row.style.display = okQ && okNode && okLevel && okEvent ? '' : 'none';
+            });
+        }
+
+        document.addEventListener('click', (e) => {
+            const pageLink = e.target.closest('[data-page]');
+            if (pageLink && pageLink.dataset.page) {
+                if (document.getElementById('page-dashboard')?.classList.contains('is-editing') && pageLink.closest('.dash-widget')) {
+                    e.preventDefault();
+                    return;
+                }
+                e.preventDefault();
+                showPage(pageLink.dataset.page);
+                return;
+            }
+            const settingsTab = e.target.closest('#preview-settings-tabs .mk-tab[data-stab]');
+            if (settingsTab) {
+                e.preventDefault();
+                e.stopPropagation();
+                showSettingsTab(settingsTab.dataset.stab);
+                return;
+            }
+            const localTab = e.target.closest('.mk-tab[data-ptab]');
+            if (localTab) {
+                e.preventDefault();
+                showLocalTab(localTab);
+                return;
+            }
+            const toastBtn = e.target.closest('[data-toast]');
+            if (toastBtn) {
+                e.preventDefault();
+                window.showToast?.(toastBtn.dataset.toast, toastBtn.dataset.toastType || 'info');
+            }
+        });
+
+        document.getElementById('page-logs')?.addEventListener('input', (e) => {
+            if (e.target.closest('[data-log-search], [data-log-node], [data-log-level], [data-log-event]')) {
+                filterPreviewLogs(document.getElementById('page-logs'));
+            }
+        });
+        document.getElementById('page-logs')?.addEventListener('change', (e) => {
+            if (e.target.closest('[data-log-search], [data-log-node], [data-log-level], [data-log-event]')) {
+                filterPreviewLogs(document.getElementById('page-logs'));
+            }
+        });
+
+        if (window.HostMonitorGear) {
+            const gearGrid = document.getElementById('preview-gear-grid');
+            const paintUpnp = () => {
+                const all = HostMonitorGear.previewDevices || [];
+                const vendorSel = document.getElementById('preview-upnp-vendor');
+                if (vendorSel && !vendorSel.dataset.filled) {
+                    const found = HostMonitorGear.listVendors(all);
+                    vendorSel.innerHTML = '<option value="">Все вендоры</option>' + found.map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
+                    vendorSel.dataset.filled = '1';
+                }
+                const q = (document.getElementById('preview-upnp-search')?.value || '').toLowerCase();
+                const vendor = document.getElementById('preview-upnp-vendor')?.value || '';
+                const type = document.getElementById('preview-upnp-type')?.value || '';
+                const list = all.filter((d) => {
+                    const v = HostMonitorGear.detectVendor(d);
+                    const k = HostMonitorGear.detectKind(d);
+                    if (vendor && v !== vendor) return false;
+                    if (type === 'igd' && Number(d.is_igd) !== 1) return false;
+                    if (type === 'switch' && k !== 'switch') return false;
+                    if (type === 'other' && (Number(d.is_igd) === 1 || k === 'switch' || k === 'core' || k === 'router')) return false;
+                    if (!q) return true;
+                    return `${d.friendly_name} ${d.model_name} ${d.host} ${d.wan_ip} ${d.manufacturer}`.toLowerCase().includes(q);
+                });
+                const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = String(n); };
+                set('preview-upnp-count', list.length);
+                set('preview-upnp-igd', list.filter((d) => Number(d.is_igd) === 1).length);
+                set('preview-upnp-maps', list.reduce((s, d) => s + (d.port_mappings || []).length, 0));
+                set('preview-upnp-online', list.filter((d) => d.online).length);
+                if (gearGrid) gearGrid.innerHTML = list.map((d) => HostMonitorGear.cardHtml(d, { variant: 'panel' })).join('');
+                paintIcons();
+            };
+            ['preview-upnp-search', 'preview-upnp-vendor', 'preview-upnp-type'].forEach((id) => {
+                document.getElementById(id)?.addEventListener('input', paintUpnp);
+                document.getElementById(id)?.addEventListener('change', paintUpnp);
+            });
+            paintUpnp();
+        }
+        paintIcons();
+        (function wireNodeCreate() {
+            const form = document.getElementById('preview-node-create');
+            const keyInput = document.getElementById('preview-secret-key');
+            const conf = document.getElementById('preview-node-conf');
+            if (!form || !keyInput || !conf) return;
+
+            const syncConf = () => {
+                const name = form.querySelector('[name="name"]')?.value.trim() || 'new-node';
+                const host = form.querySelector('[name="host"]')?.value.trim() || '0.0.0.0';
+                conf.value = [
+                    `NODE_NAME=${name}`,
+                    `NODE_HOST=${host}`,
+                    'MASTER_URL=https://panel.example.com',
+                    `SECRET_KEY=${keyInput.value}`,
+                    'COLLECT_INTERVAL=60',
+                    'UPNP_ENABLED=1'
+                ].join('\n');
+            };
+
+            const copyText = async (text, okMsg) => {
+                try {
+                    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+                    window.showToast?.(okMsg, 'success');
+                } catch {
+                    window.showToast?.('Не удалось скопировать', 'error');
+                }
+            };
+
+            form.addEventListener('input', syncConf);
+            form.addEventListener('change', syncConf);
+            document.getElementById('preview-copy-key')?.addEventListener('click', () => {
+                copyText(keyInput.value, 'SECRET_KEY скопирован');
+            });
+            document.getElementById('preview-refresh-key')?.addEventListener('click', () => {
+                const bytes = new Uint8Array(16);
+                (window.crypto || window.msCrypto).getRandomValues(bytes);
+                keyInput.value = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+                syncConf();
+                paintIcons();
+                window.showToast?.('Новый ключ сгенерирован', 'info');
+            });
+            document.getElementById('preview-copy-conf')?.addEventListener('click', () => {
+                copyText(conf.value, 'Конфиг агента скопирован');
+            });
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = form.querySelector('[name="name"]')?.value.trim();
+                const host = form.querySelector('[name="host"]')?.value.trim();
+                if (!name || !host) {
+                    window.showToast?.('Укажите имя и хост ноды', 'warning');
+                    return;
+                }
+                window.showToast?.(`Нода ${name} создана в превью`, 'success');
+                showPage('nodes');
+            });
+        })();
+        document.querySelector('#page-profile .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Профиль сохранён', 'success');
+        });
+        document.querySelector('#page-login .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Неверный логин или пароль', 'error');
+        });
+        document.querySelector('#page-settings .mk-head .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Настройки сохранены', 'success');
+        });
+        document.querySelector('#page-ports .mk-head .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Сканирование портов запущено', 'info');
+        });
+        document.querySelector('#page-billing .mk-head .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Форма платежа открыта', 'info');
+        });
+        document.querySelector('#page-processes .mk-head .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Список процессов обновлён', 'success');
+        });
+        document.querySelector('#page-containers .mk-head .mk-btn')?.addEventListener('click', () => {
+            window.showToast?.('Контейнеры обновлены', 'success');
+        });
+        document.querySelectorAll('#page-processes .mk-btn.ghost, #page-upnp .mk-btn').forEach((btn) => {
+            if (btn.dataset.toast) return;
+            btn.addEventListener('click', () => {
+                const label = (btn.textContent || '').trim();
+                if (/логи/i.test(label)) window.showToast?.('Просмотр логов процесса', 'info');
+                else if (/скан/i.test(label)) window.showToast?.('Сканирование UPnP запущено', 'info');
+            });
+        });
+        function initPreviewDashboard() {
+            const page = document.getElementById('page-dashboard');
+            const board = document.getElementById('preview-dash-board');
+            if (!page || !board) return;
+            const KEY = 'hm-preview-dashboard-v1';
+            const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'сутки' };
+            const DEFAULT = {
+                order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'chart-res', 'chart-net', 'list-nodes', 'list-alerts'],
+                hidden: ['stat-disk', 'stat-proc', 'stat-ct'],
+                spans: {
+                    'stat-nodes': 3, 'stat-alerts': 3, 'stat-cpu': 3, 'stat-ram': 3,
+                    'stat-disk': 3, 'stat-proc': 3, 'stat-ct': 3,
+                    'chart-res': 6, 'chart-net': 6, 'list-nodes': 6, 'list-alerts': 6,
+                },
+                range: '1h',
+            };
+            let layout;
+            try {
+                layout = { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || 'null') };
+                layout.order = Array.isArray(layout.order) ? layout.order : DEFAULT.order.slice();
+                layout.hidden = Array.isArray(layout.hidden) ? layout.hidden : DEFAULT.hidden.slice();
+                layout.spans = { ...DEFAULT.spans, ...(layout.spans || {}) };
+            } catch (err) {
+                layout = JSON.parse(JSON.stringify(DEFAULT));
+            }
+            if (!RANGE_LABEL[layout.range]) layout.range = '1h';
+            let editing = false;
+            let dragged = null;
+            const save = () => localStorage.setItem(KEY, JSON.stringify(layout));
+            const widgets = () => [...board.querySelectorAll('[data-widget]')];
+            const catalog = document.getElementById('preview-dash-catalog');
+            const catalogList = document.getElementById('preview-dash-catalog-list');
+
+            const apply = () => {
+                const map = new Map(widgets().map((el) => [el.dataset.widget, el]));
+                const order = layout.order.filter((id) => map.has(id));
+                map.forEach((_, id) => { if (!order.includes(id)) order.push(id); });
+                layout.order = order;
+                order.forEach((id) => {
+                    const el = map.get(id);
+                    if (!el) return;
+                    const span = Number(layout.spans[id] || el.dataset.span || 6);
+                    el.dataset.span = String([3, 6, 12].includes(span) ? span : 6);
+                    el.classList.toggle('is-hidden', layout.hidden.includes(id));
+                    el.querySelectorAll('.dash-span-btns button').forEach((btn) => {
+                        btn.classList.toggle('active', Number(btn.dataset.span) === Number(el.dataset.span));
+                    });
+                    board.appendChild(el);
+                });
+                const hidden = widgets().filter((el) => layout.hidden.includes(el.dataset.widget));
+                if (catalog) catalog.hidden = !editing || hidden.length === 0;
+                if (catalogList) {
+                    catalogList.innerHTML = hidden.map((el) => `<button type="button" class="dash-catalog-item" data-restore="${el.dataset.widget}">${el.dataset.title || el.dataset.widget}</button>`).join('');
+                }
+                const label = RANGE_LABEL[layout.range] || layout.range;
+                page.querySelectorAll('[data-range-label]').forEach((el) => {
+                    el.textContent = `${el.dataset.base || ''} · ${label}`;
+                });
+                page.querySelectorAll('#preview-dash-ranges [data-range]').forEach((btn) => {
+                    btn.classList.toggle('active', btn.dataset.range === layout.range);
+                });
+                paintIcons();
+            };
+
+            const setEditing = (on) => {
+                editing = on;
+                page.classList.toggle('is-editing', on);
+                const editBtn = document.getElementById('preview-dash-edit');
+                const resetBtn = document.getElementById('preview-dash-reset');
+                const hint = document.getElementById('preview-dash-hint');
+                if (editBtn) editBtn.innerHTML = on ? '<i data-lucide="check"></i> Готово' : '<i data-lucide="sliders-horizontal"></i> Настроить';
+                if (resetBtn) resetBtn.hidden = !on;
+                if (hint) {
+                    hint.textContent = on
+                        ? 'Перетаскивайте карточки, меняйте ширину S/M/L или скрывайте лишние.'
+                        : 'Клик по карточке открывает раздел. Настроить — порядок, размер и набор виджетов.';
+                }
+                apply();
+            };
+
+            board.addEventListener('mousedown', (e) => {
+                const widget = e.target.closest('[data-widget]');
+                if (!widget) return;
+                widget.draggable = editing && !!e.target.closest('.dash-grip, .dash-widget-bar');
+            });
+            board.addEventListener('dragstart', (e) => {
+                const widget = e.target.closest('[data-widget]');
+                if (!editing || !widget?.draggable) { e.preventDefault(); return; }
+                dragged = widget;
+                widget.classList.add('is-dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', widget.dataset.widget);
+            });
+            board.addEventListener('dragend', () => {
+                dragged?.classList.remove('is-dragging');
+                dragged = null;
+                layout.order = widgets().map((el) => el.dataset.widget);
+                save();
+            });
+            board.addEventListener('dragover', (e) => {
+                if (!editing || !dragged) return;
+                e.preventDefault();
+                const over = e.target.closest('[data-widget]');
+                if (!over || over === dragged) return;
+                const rect = over.getBoundingClientRect();
+                const before = e.clientX < rect.left + rect.width / 2;
+                board.insertBefore(dragged, before ? over : over.nextSibling);
+            });
+
+            page.addEventListener('click', (e) => {
+                const restore = e.target.closest('[data-restore]');
+                if (restore) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    layout.hidden = layout.hidden.filter((id) => id !== restore.dataset.restore);
+                    save(); apply(); return;
+                }
+                const hideBtn = e.target.closest('[data-hide]');
+                if (hideBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const widget = hideBtn.closest('[data-widget]');
+                    if (widget && !layout.hidden.includes(widget.dataset.widget)) layout.hidden.push(widget.dataset.widget);
+                    save(); apply(); return;
+                }
+                const spanBtn = e.target.closest('.dash-span-btns button');
+                if (spanBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const widget = spanBtn.closest('[data-widget]');
+                    if (!widget) return;
+                    layout.spans[widget.dataset.widget] = Number(spanBtn.dataset.span);
+                    save(); apply();
+                }
+            });
+
+            document.getElementById('preview-dash-ranges')?.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-range]');
+                if (!btn) return;
+                layout.range = btn.dataset.range;
+                save(); apply();
+                window.showToast?.(`Графики: ${RANGE_LABEL[layout.range]}`, 'info');
+            });
+            document.getElementById('preview-dash-edit')?.addEventListener('click', () => {
+                setEditing(!editing);
+                if (!editing) window.showToast?.('Раскладка сохранена', 'success');
+            });
+            document.getElementById('preview-dash-reset')?.addEventListener('click', () => {
+                layout = JSON.parse(JSON.stringify(DEFAULT));
+                save(); apply();
+                window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
+            });
+            apply();
+        }
+
+        initPreviewDashboard();
+        window.addEventListener('hashchange', () => {
+            const id = location.hash.replace('#', '');
+            if (id && titles[id]) showPage(id);
+        });
+        const initial = location.hash.replace('#', '');
+        if (initial && titles[initial]) showPage(initial);
+        filterPreviewLogs(document.getElementById('page-logs'));
+    </script>
+</body>
+</html>
