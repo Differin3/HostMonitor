@@ -1,5 +1,5 @@
 #!/bin/bash
-# Установка панели HostMonitor: репозиторий, MySQL, nginx или Python-сервер.
+# Установка панели HostMonitor: репозиторий, MySQL (локально или внешняя), nginx/Python-сервер.
 set -euo pipefail
 
 REPO_URL="${1:-https://github.com/Differin3/HostMonitor}"
@@ -26,25 +26,71 @@ read -r -p "Порт веб-интерфейса [${DEFAULT_PORT}]: " WEB_PORT
 WEB_PORT="${WEB_PORT:-${DEFAULT_PORT}}"
 echo "Сервер: ${WEB_SERVER}, порт: ${WEB_PORT}"
 echo "=========================================="
-echo ""
 
-echo "[install_panel] Пакеты..."
-sudo apt-get update -y
-if [[ "${WEB_SERVER}" == "nginx" ]]; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        git curl openssl python3 python3-venv python3-pip \
-        nginx php-fpm php-cli php-mysql php-mbstring php-xml php-curl \
-        mariadb-server mariadb-client
+# ---- Выбор типа базы данных ----
+echo "Тип базы данных:"
+echo "  1) Установить MariaDB локально (автоматически)"
+echo "  2) Использовать уже существующую удалённую/локальную БД"
+read -r -p "Ваш выбор [1]: " DB_CHOICE
+DB_CHOICE="${DB_CHOICE:-1}"
+
+DB_INSTALL_LOCAL=0
+if [[ "$DB_CHOICE" == "1" ]]; then
+    DB_INSTALL_LOCAL=1
+    # Параметры по умолчанию (можно переопределить через переменные окружения)
+    DB_HOST="${DB_HOST:-localhost}"
+    DB_PORT="${DB_PORT:-3306}"
+    DB_NAME="${DB_NAME:-monitoring}"
+    DB_USER="${DB_USER:-monitoring}"
+    # Пароль сгенерирует install.sh, если не задан
 else
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        git curl openssl python3 python3-venv python3-pip \
-        php-cli php-cgi php-mysql php-mbstring php-xml php-curl \
-        mariadb-server mariadb-client
+    # Удалённая / существующая БД – запрашиваем параметры
+    read -r -p "Хост БД [localhost]: " input_host
+    DB_HOST="${input_host:-localhost}"
+    read -r -p "Порт БД [3306]: " input_port
+    DB_PORT="${input_port:-3306}"
+    read -r -p "Имя базы данных [monitoring]: " input_name
+    DB_NAME="${input_name:-monitoring}"
+    read -r -p "Пользователь БД [monitoring]: " input_user
+    DB_USER="${input_user:-monitoring}"
+    read -r -s -p "Пароль пользователя БД: " DB_PASSWORD
+    echo
+    if [[ -z "$DB_PASSWORD" ]]; then
+        echo "Пароль не может быть пустым." >&2
+        exit 1
+    fi
+fi
+echo "=========================================="
+
+# ----------------------------------------------------------------------
+echo "[install_panel] Установка базовых пакетов..."
+sudo apt-get update -y
+
+# Общие пакеты (всегда нужны)
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    git curl openssl python3 python3-venv python3-pip \
+    php-cli php-mysql php-mbstring php-xml php-curl
+
+# Дополнительные пакеты для веб-сервера
+if [[ "${WEB_SERVER}" == "nginx" ]]; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx php-fpm
+else
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y php-cgi
 fi
 
-sudo systemctl enable --now mariadb
+# Установка MariaDB только если выбрана локальная БД
+if [[ "$DB_INSTALL_LOCAL" == "1" ]]; then
+    echo "[install_panel] Установка MariaDB (локальная БД)"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client
+    sudo systemctl enable --now mariadb
+else
+    echo "[install_panel] Пропускаем установку MariaDB (используется внешняя БД)"
+    # Для удалённой БД можно установить только клиент (опционально)
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client || true
+fi
 
-echo "[install_panel] Репозиторий → ${INSTALL_DIR}"
+# ----------------------------------------------------------------------
+echo "[install_panel] Клонирование репозитория → ${INSTALL_DIR}"
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
     sudo git -C "${INSTALL_DIR}" fetch --all --prune
     sudo git -C "${INSTALL_DIR}" checkout "${BRANCH}"
@@ -58,10 +104,20 @@ fi
 cd "${INSTALL_DIR}"
 chmod +x install.sh scripts/install_web_debian.sh scripts/install_agent.sh 2>/dev/null || true
 
-echo "[install_panel] MySQL + схема + Python venv"
-sudo ./install.sh
+# ----------------------------------------------------------------------
+echo "[install_panel] Запуск install.sh с параметрами БД"
 
-echo "[install_panel] Пользователь monitoring"
+# Экспортируем переменные, чтобы install.sh не задавал вопросы
+export DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_INSTALL_LOCAL
+
+# Запускаем install.sh с правами sudo, сохраняя окружение
+sudo -E env "DB_HOST=$DB_HOST" "DB_PORT=$DB_PORT" "DB_NAME=$DB_NAME" \
+          "DB_USER=$DB_USER" "DB_PASSWORD=$DB_PASSWORD" \
+          "DB_INSTALL_LOCAL=$DB_INSTALL_LOCAL" \
+          ./install.sh
+
+# ----------------------------------------------------------------------
+echo "[install_panel] Настройка пользователя monitoring"
 if ! id "monitoring" &>/dev/null; then
     sudo useradd -r -s /usr/sbin/nologin -d "${INSTALL_DIR}" monitoring 2>/dev/null || \
         sudo useradd -r -s /bin/bash -d "${INSTALL_DIR}" monitoring 2>/dev/null || true
@@ -76,12 +132,13 @@ else
     SERVICE_USER="root"
 fi
 
+# ----------------------------------------------------------------------
 if [[ "${WEB_SERVER}" == "nginx" ]]; then
-    echo "[install_panel] nginx + PHP-FPM"
+    echo "[install_panel] Настройка nginx + PHP-FPM"
     export WEB_PORT
     sudo -E scripts/install_web_debian.sh
 else
-    echo "[install_panel] systemd monitoring-web (Python)"
+    echo "[install_panel] Настройка systemd monitoring-web (Python)"
     if [[ -f systemd/monitoring-web.service ]]; then
         sudo cp systemd/monitoring-web.service /etc/systemd/system/monitoring-web.service
         sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|g" /etc/systemd/system/monitoring-web.service
@@ -94,6 +151,7 @@ else
         else
             sudo sed -i "/^\[Service\]/a User=${SERVICE_USER}" /etc/systemd/system/monitoring-web.service
         fi
+        # Подставляем параметры БД из учётных, если есть
         if [[ -f "${INSTALL_DIR}/.db-credentials" ]]; then
             while IFS='=' read -r key val; do
                 [[ "${key}" == DB_* ]] || continue
@@ -120,7 +178,8 @@ else
     fi
 fi
 
-echo "[install_panel] Cron очистки истории (03:15) и опроса БД (каждые 5 мин)"
+# ----------------------------------------------------------------------
+echo "[install_panel] Настройка cron"
 PHP_BIN="$(command -v php || echo /usr/bin/php)"
 sudo tee /etc/cron.d/hostmonitor-cleanup >/dev/null <<EOF
 15 3 * * * root ${PHP_BIN} ${INSTALL_DIR}/scripts/cleanup_logs.php >/var/log/hostmonitor-cleanup.log 2>&1
@@ -134,7 +193,14 @@ echo "=========================================="
 echo "Панель установлена."
 echo "  http://${HOST_IP}:${WEB_PORT}"
 echo ""
-echo "База MySQL создана автоматически (install.sh)."
+echo "База данных:"
+if [[ "$DB_INSTALL_LOCAL" == "1" ]]; then
+    echo "  Локальная MariaDB (создана автоматически)."
+else
+    echo "  Внешняя БД (${DB_HOST}:${DB_PORT}) — убедитесь, что она доступна."
+fi
+echo "  Имя: ${DB_NAME}, пользователь: ${DB_USER}"
+echo ""
 echo "Откройте адрес в браузере и задайте логин администратора панели."
 echo "Агент на этом же сервере не включается — его ставят на ноды: scripts/install_agent.sh"
 echo "=========================================="
