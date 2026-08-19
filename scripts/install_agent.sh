@@ -11,6 +11,22 @@ sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     git python3 python3-pip iproute2 procps
 
+# Проверяем, доступен ли модуль venv
+if python3 -c "import venv" &>/dev/null; then
+    echo "[install_agent] Модуль venv доступен, будем использовать его."
+else
+    echo "[install_agent] Модуль venv не найден. Пытаемся установить python3-venv..."
+    if sudo apt-get install -y python3-venv 2>/dev/null; then
+        echo "[install_agent] python3-venv установлен."
+    else
+        echo "[install_agent] Не удалось установить python3-venv. Используем virtualenv через pipx..."
+        sudo apt-get install -y pipx
+        pipx ensurepath
+        pipx install virtualenv
+        export PATH="$PATH:$HOME/.local/bin"
+    fi
+fi
+
 echo "[install_agent] Репозиторий → ${INSTALL_DIR}"
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
     sudo git -C "${INSTALL_DIR}" fetch --all --prune
