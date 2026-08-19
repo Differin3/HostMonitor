@@ -11,22 +11,6 @@ sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     git python3 python3-pip iproute2 procps
 
-# Проверяем, доступен ли модуль venv
-if python3 -c "import venv" &>/dev/null; then
-    echo "[install_agent] Модуль venv доступен, будем использовать его."
-else
-    echo "[install_agent] Модуль venv не найден. Пытаемся установить python3-venv..."
-    if sudo apt-get install -y python3-venv 2>/dev/null; then
-        echo "[install_agent] python3-venv установлен."
-    else
-        echo "[install_agent] Не удалось установить python3-venv. Используем virtualenv через pipx..."
-        sudo apt-get install -y pipx
-        pipx ensurepath
-        pipx install virtualenv
-        export PATH="$PATH:$HOME/.local/bin"
-    fi
-fi
-
 echo "[install_agent] Репозиторий → ${INSTALL_DIR}"
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
     sudo git -C "${INSTALL_DIR}" fetch --all --prune
@@ -41,16 +25,37 @@ fi
 cd "${INSTALL_DIR}"
 
 echo "[install_agent] Python venv"
-if [[ ! -d ".venv" ]]; then
+# Функция создания venv
+create_venv() {
     if python3 -c "import venv" &>/dev/null; then
-        python3 -m venv .venv
-    elif command -v virtualenv &>/dev/null; then
-        virtualenv .venv
+        if python3 -m venv .venv --without-pip 2>/dev/null; then
+            # Если создался без pip, установим pip через ensurepip или get-pip
+            .venv/bin/python3 -m ensurepip --upgrade 2>/dev/null || {
+                echo "[install_agent] ensurepip не работает, устанавливаем pip через get-pip.py"
+                curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python3
+            }
+            return 0
+        else
+            echo "[install_agent] Создание venv через python3 -m venv не удалось (возможно отсутствует ensurepip)."
+            return 1
+        fi
     else
-        echo "[install_agent] Не удалось создать venv: нет ни venv, ни virtualenv" >&2
-        exit 1
+        return 1
     fi
+}
+
+if ! create_venv; then
+    echo "[install_agent] Используем virtualenv через pipx..."
+    sudo apt-get install -y pipx
+    pipx ensurepath
+    export PATH="$PATH:$HOME/.local/bin"
+    if ! command -v virtualenv &>/dev/null; then
+        pipx install virtualenv
+    fi
+    virtualenv .venv
 fi
+
+# Активируем venv и ставим зависимости
 source .venv/bin/activate
 REQ="${INSTALL_DIR}/agent/requirements.txt"
 if [[ ! -f "${REQ}" ]]; then
@@ -62,6 +67,7 @@ if [[ -f "${REQ}" ]]; then
 fi
 deactivate
 
+# Создание пользователя monitoring
 if ! id "monitoring" &>/dev/null; then
     echo "[install_agent] Пользователь monitoring"
     sudo useradd -r -s /usr/sbin/nologin -d "${INSTALL_DIR}" monitoring 2>/dev/null || \
@@ -84,6 +90,7 @@ else
     SERVICE_USER="root"
 fi
 
+# Установка systemd-сервиса
 UNIT_SRC="${INSTALL_DIR}/systemd/monitoring-agent.service"
 UNIT_DST="/etc/systemd/system/monitoring-agent.service"
 sudo cp "${UNIT_SRC}" "${UNIT_DST}"
@@ -98,18 +105,45 @@ fi
 sudo systemctl daemon-reload
 
 NODE_CONF="${INSTALL_DIR}/agent/node.conf"
+
+# Если конфиг передан через переменную окружения – копируем
 if [[ -n "${NODE_CONF_SRC:-}" && -f "${NODE_CONF_SRC}" ]]; then
     sudo cp "${NODE_CONF_SRC}" "${NODE_CONF}"
     sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${NODE_CONF}"
     sudo chmod 640 "${NODE_CONF}"
 fi
 
+# Если конфига нет – предлагаем создать интерактивно
+if [[ ! -f "${NODE_CONF}" ]]; then
+    echo ""
+    echo "=========================================="
+    echo "Файл конфигурации агента не найден: ${NODE_CONF}"
+    echo "Создадим его сейчас."
+    echo "=========================================="
+    read -r -p "Введите URL панели (например, http://192.168.1.100:5443): " MASTER_URL
+    read -r -p "Введите токен ноды (скопируйте из панели): " NODE_TOKEN
+    read -r -p "Введите порт для агента (по умолчанию 2222): " PORT
+    PORT="${PORT:-2222}"
+
+    sudo mkdir -p "$(dirname "${NODE_CONF}")"
+    sudo tee "${NODE_CONF}" >/dev/null <<EOF
+MASTER_URL=${MASTER_URL}
+NODE_TOKEN=${NODE_TOKEN}
+PORT=${PORT}
+EOF
+    sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${NODE_CONF}"
+    sudo chmod 640 "${NODE_CONF}"
+    echo "[install_agent] Конфиг создан: ${NODE_CONF}"
+fi
+
+# Запускаем сервис, если конфиг есть
 if [[ -f "${NODE_CONF}" ]]; then
     echo "[install_agent] Найден ${NODE_CONF} — включаю сервис"
     sudo systemctl enable --now monitoring-agent
     sudo systemctl --no-pager --full status monitoring-agent || true
 else
     echo "[install_agent] Сервис установлен, но не запущен: нет ${NODE_CONF}"
+    echo "Создайте конфиг вручную или запустите скрипт снова, указав параметры."
 fi
 
 echo ""
@@ -117,7 +151,7 @@ echo "=========================================="
 echo "Агент не использует MySQL — он шлёт JSON на панель."
 echo ""
 echo "1. В панели: Ноды → Создать ноду → скопировать конфиг"
-echo "2. sudo nano ${NODE_CONF}"
-echo "3. sudo systemctl enable --now monitoring-agent"
-echo "4. sudo systemctl status monitoring-agent"
+echo "2. При необходимости отредактируйте конфиг: sudo nano ${NODE_CONF}"
+echo "3. Перезапустите агент: sudo systemctl restart monitoring-agent"
+echo "4. Статус: sudo systemctl status monitoring-agent"
 echo "=========================================="
