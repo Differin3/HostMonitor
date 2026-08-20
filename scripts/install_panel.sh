@@ -54,14 +54,11 @@ DB_CHOICE="${DB_CHOICE:-1}"
 DB_INSTALL_LOCAL=0
 if [[ "$DB_CHOICE" == "1" ]]; then
     DB_INSTALL_LOCAL=1
-    # Параметры по умолчанию (можно переопределить через переменные окружения)
     DB_HOST="${DB_HOST:-localhost}"
     DB_PORT="${DB_PORT:-3306}"
     DB_NAME="${DB_NAME:-monitoring}"
     DB_USER="${DB_USER:-monitoring}"
-    # Пароль сгенерирует install.sh, если не задан
 else
-    # Удалённая / существующая БД – запрашиваем параметры
     read -r -p "Хост БД [localhost]: " input_host
     DB_HOST="${input_host:-localhost}"
     read -r -p "Порт БД [3306]: " input_port
@@ -83,26 +80,22 @@ echo "=========================================="
 echo "[install_panel] Установка базовых пакетов..."
 sudo apt-get update -y
 
-# Общие пакеты (всегда нужны)
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     git curl openssl python3 python3-venv python3-pip \
     php-cli php-mysql php-mbstring php-xml php-curl
 
-# Дополнительные пакеты для веб-сервера
 if [[ "${WEB_SERVER}" == "nginx" ]]; then
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx php-fpm
 else
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y php-cgi
 fi
 
-# Установка MariaDB только если выбрана локальная БД
 if [[ "$DB_INSTALL_LOCAL" == "1" ]]; then
     echo "[install_panel] Установка MariaDB (локальная БД)"
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client
     sudo systemctl enable --now mariadb
 else
     echo "[install_panel] Пропускаем установку MariaDB (используется внешняя БД)"
-    # Для удалённой БД можно установить только клиент (опционально)
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-client || true
 fi
 
@@ -123,11 +116,7 @@ chmod +x install.sh scripts/install_web_debian.sh scripts/install_agent.sh 2>/de
 
 # ----------------------------------------------------------------------
 echo "[install_panel] Запуск install.sh с параметрами БД"
-
-# Экспортируем переменные, чтобы install.sh не задавал вопросы
 export DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DB_INSTALL_LOCAL
-
-# Запускаем install.sh с правами sudo, сохраняя окружение
 sudo -E env "DB_HOST=$DB_HOST" "DB_PORT=$DB_PORT" "DB_NAME=$DB_NAME" \
           "DB_USER=$DB_USER" "DB_PASSWORD=$DB_PASSWORD" \
           "DB_INSTALL_LOCAL=$DB_INSTALL_LOCAL" \
@@ -152,7 +141,7 @@ fi
 # ----------------------------------------------------------------------
 if [[ "${WEB_SERVER}" == "nginx" ]]; then
     echo "[install_panel] Настройка nginx + PHP-FPM"
-    export WEB_PORT
+    export WEB_PORT WEB_HOST
     sudo -E scripts/install_web_debian.sh
 else
     echo "[install_panel] Настройка systemd monitoring-web (Python)"
@@ -161,14 +150,14 @@ else
         sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|g" /etc/systemd/system/monitoring-web.service
         sudo sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/.venv/bin/python3 ${INSTALL_DIR}/scripts/python_web_server.py|g" /etc/systemd/system/monitoring-web.service
         sudo sed -i "s|Environment=\"WEB_PORT=.*\"|Environment=\"WEB_PORT=${WEB_PORT}\"|g" /etc/systemd/system/monitoring-web.service
-        sudo sed -i "s|Environment=\"WEB_HOST=.*\"|Environment=\"WEB_HOST=0.0.0.0\"|g" /etc/systemd/system/monitoring-web.service
+        # Используем выбранный хост вместо 0.0.0.0
+        sudo sed -i "s|Environment=\"WEB_HOST=.*\"|Environment=\"WEB_HOST=${WEB_HOST}\"|g" /etc/systemd/system/monitoring-web.service
         sudo sed -i "s|Environment=\"PATH=.*\"|Environment=\"PATH=${INSTALL_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin\"|g" /etc/systemd/system/monitoring-web.service
         if grep -q "^User=" /etc/systemd/system/monitoring-web.service; then
             sudo sed -i "s|^User=.*|User=${SERVICE_USER}|g" /etc/systemd/system/monitoring-web.service
         else
             sudo sed -i "/^\[Service\]/a User=${SERVICE_USER}" /etc/systemd/system/monitoring-web.service
         fi
-        # Подставляем параметры БД из учётных, если есть
         if [[ -f "${INSTALL_DIR}/.db-credentials" ]]; then
             while IFS='=' read -r key val; do
                 [[ "${key}" == DB_* ]] || continue
@@ -184,7 +173,12 @@ else
             sudo sed -i "s|Environment=\"DB_PASSWORD=.*\"|Environment=\"DB_PASSWORD=${DB_PASSWORD}\"|g" /etc/systemd/system/monitoring-web.service
             sudo sed -i "s|Environment=\"DB_HOST=.*\"|Environment=\"DB_HOST=${DB_HOST:-localhost}\"|g" /etc/systemd/system/monitoring-web.service
         fi
-        SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+        # Формируем MASTER_URL для агента, если нужно – используем WEB_HOST и WEB_PORT
+        if [[ "${WEB_HOST}" == "0.0.0.0" ]]; then
+            SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+        else
+            SERVER_IP="${WEB_HOST}"
+        fi
         if [[ -n "${SERVER_IP}" ]]; then
             if grep -q 'Environment="MASTER_URL=' /etc/systemd/system/monitoring-web.service; then
                 sudo sed -i "s|Environment=\"MASTER_URL=.*\"|Environment=\"MASTER_URL=http://${SERVER_IP}:${WEB_PORT}\"|g" /etc/systemd/system/monitoring-web.service
