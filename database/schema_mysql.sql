@@ -1,9 +1,8 @@
 -- Схема базы данных MySQL
 -- Применяйте scripts/init_db.php или мастер setup.php (только DDL + settings/providers).
 -- Прямой импорт mysql < schema_mysql.sql также вставит демо-ноды — для production используйте init_db.php.
-CREATE DATABASE IF NOT EXISTS monitoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS monitoring;
 USE monitoring;
-
 -- Таблица нод
 CREATE TABLE IF NOT EXISTS nodes (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14,22 +13,22 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_seen TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     secret_key TEXT,
-    country VARCHAR(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    node_token VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    provider_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    provider_url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    country VARCHAR(2),
+    node_token VARCHAR(255),
+    provider_name VARCHAR(255),
+    provider_url VARCHAR(500),
     billing_amount DECIMAL(10, 2),
-    billing_currency VARCHAR(3) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'RUB',    billing_period INT DEFAULT 30,
+    billing_currency VARCHAR(3) DEFAULT 'RUB',
+    billing_period INT DEFAULT 30,
     last_payment_date DATE,
     next_payment_date DATE,
-    last_command VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    command_status VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+    last_command VARCHAR(255),
+    command_status VARCHAR(20) DEFAULT 'pending',
     command_timestamp TIMESTAMP NULL,
     command_result TEXT NULL,
     INDEX idx_status (status),
     INDEX idx_provider (provider_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица платежей
 CREATE TABLE IF NOT EXISTS payments (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,7 +41,6 @@ CREATE TABLE IF NOT EXISTS payments (
     INDEX idx_node_id (node_id),
     INDEX idx_payment_date (payment_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица метрик
 CREATE TABLE IF NOT EXISTS metrics (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -65,7 +63,6 @@ CREATE TABLE IF NOT EXISTS metrics (
     INDEX idx_timestamp (timestamp),
     INDEX idx_node_ts (node_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица GPU метрик
 CREATE TABLE IF NOT EXISTS gpu_metrics (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -82,7 +79,6 @@ CREATE TABLE IF NOT EXISTS gpu_metrics (
     INDEX idx_node_id (node_id),
     INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица процессов
 CREATE TABLE IF NOT EXISTS processes (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -96,7 +92,6 @@ CREATE TABLE IF NOT EXISTS processes (
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица контейнеров
 CREATE TABLE IF NOT EXISTS containers (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,7 +111,6 @@ CREATE TABLE IF NOT EXISTS containers (
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Docker-сети ноды (снимок docker network inspect)
 CREATE TABLE IF NOT EXISTS docker_networks (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -133,7 +127,6 @@ CREATE TABLE IF NOT EXISTS docker_networks (
     INDEX idx_node_id (node_id),
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица пользователей
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -143,17 +136,15 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица провайдеров
 CREATE TABLE IF NOT EXISTS providers (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-    favicon_url VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    url VARCHAR(500),
+    favicon_url VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица алертов
 CREATE TABLE IF NOT EXISTS alerts (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -169,7 +160,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     INDEX idx_resolved (resolved),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица логов
 CREATE TABLE IF NOT EXISTS logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -185,7 +175,6 @@ CREATE TABLE IF NOT EXISTS logs (
     INDEX idx_type (type),
     INDEX idx_node_timestamp (node_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица логов процессов
 CREATE TABLE IF NOT EXISTS process_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -204,7 +193,6 @@ CREATE TABLE IF NOT EXISTS process_logs (
     INDEX idx_node_timestamp (node_id, timestamp),
     INDEX idx_node_pid (node_id, pid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица настроек системы
 CREATE TABLE IF NOT EXISTS settings (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -213,7 +201,6 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_key (setting_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Начальные настройки
 INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
 ('log_retention_days', '30'),
@@ -227,7 +214,6 @@ INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
 ('system_name', 'HostMonitor'),
 ('timezone', 'Europe/Moscow'),
 ('language', 'ru');
-
 -- Таблица логов контейнеров
 CREATE TABLE IF NOT EXISTS container_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -242,7 +228,6 @@ CREATE TABLE IF NOT EXISTS container_logs (
     INDEX idx_timestamp (timestamp),
     INDEX idx_node_timestamp (node_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица SSH-логов аутентификации (структурированная)
 CREATE TABLE IF NOT EXISTS ssh_auth_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -253,8 +238,8 @@ CREATE TABLE IF NOT EXISTS ssh_auth_logs (
     ip_address VARCHAR(45),
     port INT,
     success BOOLEAN DEFAULT NULL,
-    message TEXT NOT NULL,      -- краткое человекочитаемое описание (SUCCESS/FAIL ...)
-    raw_message TEXT NULL,      -- исходная строка из лога sshd
+    message TEXT NOT NULL,
+    raw_message TEXT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     INDEX idx_node_id (node_id),
@@ -266,7 +251,6 @@ CREATE TABLE IF NOT EXISTS ssh_auth_logs (
     INDEX idx_node_timestamp (node_id, timestamp),
     INDEX idx_node_ip (node_id, ip_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица портов
 CREATE TABLE IF NOT EXISTS ports (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -282,10 +266,8 @@ CREATE TABLE IF NOT EXISTS ports (
     INDEX idx_port (port),
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Администратор панели создаётся мастером первого запуска (setup.php), не схемой.
-
-INSERT INTO providers (name, url, favicon_url) VALUES 
+INSERT INTO providers (name, url, favicon_url) VALUES
 ('firstbyte.ru', 'https://billing.firstbyte.ru', 'https://www.google.com/s2/favicons?domain=firstbyte.ru'),
 ('cloud4box.com', 'https://client.cloud4box.com', 'https://www.google.com/s2/favicons?domain=cloud4box.com'),
 ('my.aeza.net', 'https://my.aeza.net', 'https://www.google.com/s2/favicons?domain=aeza.net'),
@@ -295,17 +277,15 @@ INSERT INTO providers (name, url, favicon_url) VALUES
 ('Google Cloud', 'https://cloud.google.com', 'https://www.google.com/s2/favicons?domain=cloud.google.com'),
 ('Hetzner', 'https://www.hetzner.com', 'https://www.google.com/s2/favicons?domain=hetzner.com')
 ON DUPLICATE KEY UPDATE name=name;
-
 -- Вставляем ноды, используя IGNORE чтобы избежать ошибок при повторном запуске
-INSERT IGNORE INTO nodes (name, host, port, status, country, provider_name, provider_url, billing_amount, billing_currency, billing_period, next_payment_date, secret_key, node_token) VALUES 
+INSERT IGNORE INTO nodes (name, host, port, status, country, provider_name, provider_url, billing_amount, billing_currency, billing_period, next_payment_date, secret_key, node_token) VALUES
 ('node-1', '192.168.1.10', 2222, 'online', 'RU', 'firstbyte.ru', 'https://billing.firstbyte.ru', 500.00, 'RUB', 30, DATE_ADD(CURDATE(), INTERVAL 30 DAY), SHA2(CONCAT('key1', NOW()), 256), SHA2(CONCAT('token1', NOW()), 256)),
 ('node-2', '192.168.1.11', 2222, 'online', 'NL', 'cloud4box.com', 'https://client.cloud4box.com', 750.00, 'RUB', 30, DATE_ADD(CURDATE(), INTERVAL 25 DAY), SHA2(CONCAT('key2', NOW()), 256), SHA2(CONCAT('token2', NOW()), 256)),
 ('node-3', '192.168.1.12', 2222, 'offline', 'DE', 'my.aeza.net', 'https://my.aeza.net', 300.00, 'RUB', 30, DATE_ADD(CURDATE(), INTERVAL 20 DAY), SHA2(CONCAT('key3', NOW()), 256), SHA2(CONCAT('token3', NOW()), 256)),
 ('node-4', '192.168.1.13', 2222, 'online', 'US', 'DigitalOcean', 'https://www.digitalocean.com', 1200.00, 'USD', 30, DATE_ADD(CURDATE(), INTERVAL 15 DAY), SHA2(CONCAT('key4', NOW()), 256), SHA2(CONCAT('token4', NOW()), 256)),
 ('node-5', '192.168.1.14', 2222, 'online', 'SG', 'Google Cloud', 'https://cloud.google.com', 800.00, 'USD', 30, DATE_ADD(CURDATE(), INTERVAL 10 DAY), SHA2(CONCAT('key5', NOW()), 256), SHA2(CONCAT('token5', NOW()), 256));
-
 -- Вставляем платежи, используя подзапрос для получения ID нод по имени
-INSERT IGNORE INTO payments (node_id, amount, currency, payment_date) 
+INSERT IGNORE INTO payments (node_id, amount, currency, payment_date)
 SELECT id, 500.00, 'RUB', DATE_SUB(CURDATE(), INTERVAL 5 DAY) FROM nodes WHERE name = 'node-1'
 UNION ALL
 SELECT id, 750.00, 'RUB', DATE_SUB(CURDATE(), INTERVAL 10 DAY) FROM nodes WHERE name = 'node-2'
@@ -321,9 +301,8 @@ UNION ALL
 SELECT id, 500.00, 'RUB', DATE_SUB(CURDATE(), INTERVAL 35 DAY) FROM nodes WHERE name = 'node-1'
 UNION ALL
 SELECT id, 1200.00, 'USD', DATE_SUB(CURDATE(), INTERVAL 33 DAY) FROM nodes WHERE name = 'node-4';
-
 -- Добавляем метрики за последние 24 часа для каждой ноды
-INSERT INTO metrics (node_id, cpu_percent, memory_percent, disk_percent, network_in, network_out, timestamp) VALUES 
+INSERT INTO metrics (node_id, cpu_percent, memory_percent, disk_percent, network_in, network_out, timestamp) VALUES
 (1, 15.3, 45.2, 32.1, 1024000, 2048000, DATE_SUB(NOW(), INTERVAL 0 HOUR)),
 (1, 18.5, 47.8, 33.2, 1056000, 2100000, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 (1, 12.1, 43.5, 31.8, 980000, 1950000, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
@@ -345,8 +324,7 @@ INSERT INTO metrics (node_id, cpu_percent, memory_percent, disk_percent, network
 (5, 25.9, 52.6, 44.1, 1650000, 3300000, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 (5, 33.7, 59.5, 48.9, 2100000, 4200000, DATE_SUB(NOW(), INTERVAL 3 HOUR))
 ON DUPLICATE KEY UPDATE id=id;
-
-INSERT INTO processes (node_id, pid, name, cpu_percent, memory_percent, status) VALUES 
+INSERT INTO processes (node_id, pid, name, cpu_percent, memory_percent, status) VALUES
 (1, 1234, 'nginx', 5.2, 12.3, 'running'),
 (1, 1235, 'mysql', 8.1, 25.4, 'running'),
 (1, 1236, 'php-fpm', 3.5, 8.2, 'running'),
@@ -368,8 +346,7 @@ INSERT INTO processes (node_id, pid, name, cpu_percent, memory_percent, status) 
 (5, 5680, 'redis', 2.5, 6.1, 'running'),
 (5, 5681, 'python', 8.7, 18.3, 'running')
 ON DUPLICATE KEY UPDATE id=id;
-
-INSERT INTO containers (node_id, container_id, name, image, status, cpu_percent, memory_percent) VALUES 
+INSERT INTO containers (node_id, container_id, name, image, status, cpu_percent, memory_percent) VALUES
 (1, 'abc123def456', 'web-server', 'nginx:latest', 'running', 15.3, 22.5),
 (1, 'def456ghi789', 'database', 'postgres:15', 'running', 8.7, 45.2),
 (1, 'ghi789jkl012', 'redis-cache', 'redis:7', 'running', 2.1, 5.8),
@@ -391,14 +368,12 @@ INSERT INTO containers (node_id, container_id, name, image, status, cpu_percent,
 (5, 'cde567fgh890', 'python-api', 'python:3.11', 'running', 7.5, 14.2),
 (5, 'fgh890ijk123', 'nginx-frontend', 'nginx:alpine', 'running', 3.1, 5.8)
 ON DUPLICATE KEY UPDATE id=id;
-
-INSERT INTO alerts (node_id, level, title, message, resolved) VALUES 
+INSERT INTO alerts (node_id, level, title, message, resolved) VALUES
 (1, 'warning', 'Высокая загрузка CPU', 'CPU загрузка превышает 80%', FALSE),
 (2, 'info', 'Нода перезапущена', 'Нода была перезапущена успешно', FALSE)
 ON DUPLICATE KEY UPDATE id=id;
-
 -- Добавляем логи для каждой ноды (по 20 записей)
-INSERT INTO logs (node_id, level, message, timestamp) VALUES 
+INSERT INTO logs (node_id, level, message, timestamp) VALUES
 (1, 'info', 'Система мониторинга запущена', DATE_SUB(NOW(), INTERVAL 0 HOUR)),
 (1, 'info', 'Нода node-1 подключена', DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 (1, 'warning', 'Высокая загрузка CPU на node-1: 85%', DATE_SUB(NOW(), INTERVAL 2 HOUR)),
@@ -500,8 +475,7 @@ INSERT INTO logs (node_id, level, message, timestamp) VALUES
 (5, 'debug', 'Анализ производительности запросов', DATE_SUB(NOW(), INTERVAL 18 HOUR)),
 (5, 'info', 'Система работает оптимально', DATE_SUB(NOW(), INTERVAL 19 HOUR))
 ON DUPLICATE KEY UPDATE id=id;
-
-INSERT INTO ports (node_id, port, type, process_name, pid, status) VALUES 
+INSERT INTO ports (node_id, port, type, process_name, pid, status) VALUES
 (1, 80, 'tcp', 'nginx', 1234, 'open'),
 (1, 443, 'tcp', 'nginx', 1234, 'open'),
 (1, 3306, 'tcp', 'mysql', 1235, 'open'),
@@ -509,7 +483,6 @@ INSERT INTO ports (node_id, port, type, process_name, pid, status) VALUES
 (2, 8080, 'tcp', 'node', 2346, 'open'),
 (3, 22, 'tcp', 'sshd', 1000, 'open')
 ON DUPLICATE KEY UPDATE id=id;
-
 -- Таблица истории обновлений
 CREATE TABLE IF NOT EXISTS update_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -524,7 +497,6 @@ CREATE TABLE IF NOT EXISTS update_history (
     INDEX idx_node_id (node_id),
     INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Таблица доступных обновлений
 CREATE TABLE IF NOT EXISTS node_updates (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -543,7 +515,6 @@ CREATE TABLE IF NOT EXISTS node_updates (
     INDEX idx_priority (priority),
     INDEX idx_last_check (last_check)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- UPnP: сетевое оборудование
 CREATE TABLE IF NOT EXISTS upnp_devices (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -582,7 +553,6 @@ CREATE TABLE IF NOT EXISTS upnp_devices (
     INDEX idx_last_seen (last_seen),
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS upnp_services (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,
@@ -594,7 +564,6 @@ CREATE TABLE IF NOT EXISTS upnp_services (
     INDEX idx_device_id (device_id),
     FOREIGN KEY (device_id) REFERENCES upnp_devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS upnp_port_mappings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,
@@ -611,7 +580,6 @@ CREATE TABLE IF NOT EXISTS upnp_port_mappings (
     INDEX idx_device_id (device_id),
     FOREIGN KEY (device_id) REFERENCES upnp_devices(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS network_neighbors (
     id INT AUTO_INCREMENT PRIMARY KEY,
     node_id INT NOT NULL,
@@ -623,7 +591,6 @@ CREATE TABLE IF NOT EXISTS network_neighbors (
     INDEX idx_nn_node (node_id),
     INDEX idx_nn_ip (ip)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Наблюдаемые СУБД (панель ходит сама, агент не нужен)
 CREATE TABLE IF NOT EXISTS monitored_databases (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -646,7 +613,6 @@ CREATE TABLE IF NOT EXISTS monitored_databases (
     INDEX idx_dbmon_kind (kind),
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS database_metrics (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     database_id INT NOT NULL,
@@ -667,5 +633,3 @@ CREATE TABLE IF NOT EXISTS database_metrics (
     FOREIGN KEY (database_id) REFERENCES monitored_databases(id) ON DELETE CASCADE,
     INDEX idx_dbm_ts (database_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
