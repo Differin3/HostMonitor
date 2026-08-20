@@ -8,6 +8,7 @@
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,26 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "monitoring"
 FRONTEND_ROOT = PROJECT_ROOT / "frontend"
+DATA_DIR = WEB_ROOT / "data"
+
+
+def _load_web_config_from_php() -> dict:
+    """Пытается прочитать настройки из monitoring/data/web.local.php, если он существует."""
+    cfg_path = DATA_DIR / "web.local.php"
+    cfg = {}
+    if not cfg_path.exists():
+        return cfg
+    try:
+        text = cfg_path.read_text(encoding="utf-8", errors="ignore")
+        host_match = re.search(r"'host'\s*=>\s*'([^']*)'", text)
+        port_match = re.search(r"'port'\s*=>\s*'([^']*)'", text)
+        if host_match:
+            cfg["host"] = host_match.group(1)
+        if port_match:
+            cfg["port"] = port_match.group(1)
+    except Exception:
+        pass
+    return cfg
 # Пробуем найти php-cgi в разных местах
 PHP_CGI = os.environ.get("PHP_CGI")
 if not PHP_CGI:
@@ -286,14 +307,16 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
 
 
 def main():
-    # Читаем порт из переменной окружения или используем значение по умолчанию
-    default_port = int(os.environ.get("WEB_PORT", "8080"))
+    # Загружаем конфиг из web.local.php (если есть), затем переопределяем env, затем args
+    php_cfg = _load_web_config_from_php()
+    default_host = os.environ.get("WEB_HOST") or php_cfg.get("host") or "0.0.0.0"
+    default_port = int(os.environ.get("WEB_PORT") or php_cfg.get("port") or "8080")
     
     parser = argparse.ArgumentParser(
         description="Простой Python HTTP сервер для каталога monitoring/"
     )
-    parser.add_argument("--host", default=os.environ.get("WEB_HOST", "0.0.0.0"), help="Адрес прослушивания (default: 0.0.0.0 или из WEB_HOST)")
-    parser.add_argument("--port", type=int, default=default_port, help=f"Порт (default: {default_port} или из WEB_PORT)")
+    parser.add_argument("--host", default=default_host, help=f"Адрес прослушивания (default: {default_host})")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Порт (default: {default_port})")
     args = parser.parse_args()
 
     # Проверяем что можем перейти в директорию

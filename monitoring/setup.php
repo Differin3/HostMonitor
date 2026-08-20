@@ -10,11 +10,23 @@ require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/database.php';
 
 if (!db_needs_setup()) {
-    header('Location: login.php');
-    exit;
+    try {
+        $pdo = getDbConnection();
+        if ($pdo) {
+            $pdo->query('SELECT 1');
+            if (db_has_users($pdo)) {
+                header('Location: login.php');
+                exit;
+            }
+        }
+    } catch (Throwable $e) {
+        // БД сконфигурирована но упала - оставляем пользователя на setup.php
+        // (вдруг он хочет перенастроить конфиг)
+    }
 }
 
 $cfg = db_config_load();
+$webCfg = web_config_load();
 $error = '';
 
 $oldReplica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
@@ -24,6 +36,9 @@ $old = [
     'name' => $_POST['name'] ?? $cfg['name'] ?? 'monitoring',
     'user' => $_POST['user'] ?? $cfg['user'] ?? 'root',
     'username' => $_POST['username'] ?? 'admin',
+    'web_host' => $_POST['web_host'] ?? $webCfg['host'] ?? '0.0.0.0',
+    'web_port' => $_POST['web_port'] ?? $webCfg['port'] ?? '8080',
+    'public_url' => $_POST['public_url'] ?? $webCfg['public_url'] ?? '',
     'replica_enabled' => ($_SERVER['REQUEST_METHOD'] === 'POST')
         ? isset($_POST['replica_enabled'])
         : !empty($cfg['replica_enabled']),
@@ -109,6 +124,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         db_config_save($next);
+
+        $webHost = trim((string)($_POST['web_host'] ?? '0.0.0.0'));
+        $webPort = trim((string)($_POST['web_port'] ?? '8080'));
+        $publicUrl = trim((string)($_POST['public_url'] ?? ''));
+        if ($webHost === '') $webHost = '0.0.0.0';
+        if ($webPort === '' || !preg_match('/^\d+$/', $webPort) || (int)$webPort < 1 || (int)$webPort > 65535) $webPort = '8080';
+        if ($publicUrl !== '' && substr($publicUrl, -1) === '/') $publicUrl = substr($publicUrl, 0, -1);
+        web_config_save([
+            'host' => $webHost,
+            'port' => $webPort,
+            'public_url' => $publicUrl,
+        ]);
+
         getDbConnection(true);
         $pdo = db_pdo($next, $name);
         db_apply_schema($pdo);
@@ -230,6 +258,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     </div>
                 </details>
+
+                <div class="setup-section">
+                    <h2><i data-lucide="server"></i> Веб-сервер панели</h2>
+                    <div class="setup-grid">
+                        <div class="form-field span-2">
+                            <label class="form-label">Адрес прослушивания</label>
+                            <select name="web_host" id="web_host">
+                                <option value="0.0.0.0" <?= $old['web_host'] === '0.0.0.0' ? 'selected' : '' ?>>0.0.0.0 — все интерфейсы (локальный + публичный)</option>
+                                <option value="127.0.0.1" <?= $old['web_host'] === '127.0.0.1' ? 'selected' : '' ?>>127.0.0.1 — только локально</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Порт веб-интерфейса</label>
+                            <input type="number" name="web_port" value="<?= htmlspecialchars((string)$old['web_port']) ?>" min="1" max="65535" required>
+                        </div>
+                        <div class="form-field span-2">
+                            <label class="form-label">Публичный URL (необязательно)</label>
+                            <input type="text" name="public_url" value="<?= htmlspecialchars((string)$old['public_url']) ?>" placeholder="https://monitoring.example.com">
+                            <p class="setup-hint">Если панель доступна по домену или внешнему IP — укажите URL. Используется для ссылок в уведомлениях.</p>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="setup-section">
                     <h2><i data-lucide="shield"></i> Администратор панели</h2>

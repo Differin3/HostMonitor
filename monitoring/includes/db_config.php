@@ -220,8 +220,25 @@ function db_has_users(PDO $pdo): bool
     }
 }
 
+function db_is_configured(): bool
+{
+    $cfg = db_config_load();
+    if (!empty($cfg['from_file'])) {
+        return true;
+    }
+    if (!empty($cfg['from_env'])) {
+        $name = trim((string)($cfg['name'] ?? ''));
+        $user = trim((string)($cfg['user'] ?? ''));
+        return $name !== '' && $user !== '';
+    }
+    return false;
+}
+
 function db_needs_setup(): bool
 {
+    if (!db_is_configured()) {
+        return true;
+    }
     try {
         $pdo = getDbConnection();
         $pdo->query('SELECT 1');
@@ -231,8 +248,216 @@ function db_needs_setup(): bool
             return true;
         }
     } catch (Throwable $e) {
-        return true;
+        return false;
     }
+}
+
+function db_connection_status(): array
+{
+    $cfg = db_config_load();
+    $status = [
+        'configured' => db_is_configured(),
+        'replica_enabled' => db_replica_enabled($cfg),
+        'primary' => null,
+        'replica' => null,
+        'active_role' => null,
+        'last_error' => null,
+    ];
+    if (!$status['configured']) {
+        return $status;
+    }
+    $primaryEp = db_endpoint($cfg, 'primary');
+    $GLOBALS['_db_ep_primary_host'] = $primaryEp['host'];
+    $GLOBALS['_db_ep_primary_name'] = $primaryEp['name'];
+    try {
+        $status['primary'] = db_ping_endpoint($primaryEp, 3);
+    } catch (Throwable $e) {
+        $status['primary'] = ['ok' => false, 'ms' => 0, 'error' => $e->getMessage()];
+    }
+    $status['primary']['host'] = $primaryEp['host'];
+    $status['primary']['port'] = $primaryEp['port'];
+    $status['primary']['name'] = $primaryEp['name'];
+    $status['primary']['user'] = $primaryEp['user'];
+
+    if ($status['replica_enabled']) {
+        $replicaEp = db_endpoint($cfg, 'replica');
+        $GLOBALS['_db_ep_replica_host'] = $replicaEp['host'];
+        $GLOBALS['_db_ep_replica_name'] = $replicaEp['name'];
+        try {
+            $status['replica'] = db_ping_endpoint($replicaEp, 3);
+        } catch (Throwable $e) {
+            $status['replica'] = ['ok' => false, 'ms' => 0, 'error' => $e->getMessage()];
+        }
+        $status['replica']['host'] = $replicaEp['host'];
+        $status['replica']['port'] = $replicaEp['port'];
+        $status['replica']['name'] = $replicaEp['name'];
+        $status['replica']['user'] = $replicaEp['user'];
+    }
+    try {
+        $status['active_role'] = db_active_role();
+    } catch (Throwable $e) {
+    }
+    $anyOk = ($status['primary']['ok'] ?? false) || ($status['replica']['ok'] ?? false);
+    if (!$anyOk) {
+        $errors = [];
+        if (!empty($status['primary']['error'])) $errors[] = 'Основная: ' . $status['primary']['error'];
+        if (!empty($status['replica']['error'])) $errors[] = 'Резервная: ' . $status['replica']['error'];
+        $status['last_error'] = implode('; ', $errors) ?: 'Не удалось подключиться к базам данных';
+    }
+    return $status;
+}
+
+function db_render_error_page(array $status): void
+{
+    $title = 'Ошибка подключения к базе данных';
+    $brandName = 'HostMonitor';
+    $primary = $status['primary'];
+    $replica = $status['replica'];
+    $replicaEnabled = !empty($status['replica_enabled']);
+    $lastError = $status['last_error'] ?? 'Неизвестная ошибка';
+    header('HTTP/1.1 503 Service Unavailable');
+    header('Retry-After: 60');
+    ?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= htmlspecialchars($title) ?> · <?= htmlspecialchars($brandName) ?></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #0b1220; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .card { background: #111827; border: 1px solid rgba(239,68,68,0.25); border-radius: 14px; max-width: 640px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.35); overflow: hidden; }
+        .card-head { background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(234,179,8,0.08)); padding: 28px 28px 12px; border-bottom: 1px solid rgba(148,163,184,0.08); display: flex; align-items: flex-start; gap: 16px; }
+        .icon { flex: 0 0 auto; width: 48px; height: 48px; border-radius: 12px; background: rgba(239,68,68,0.15); display: flex; align-items: center; justify-content: center; color: #f87171; }
+        .icon svg { width: 26px; height: 26px; stroke-width: 2; stroke: currentColor; fill: none; }
+        .card-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: #fecaca; }
+        .card-sub { margin: 0; font-size: 14px; color: #cbd5e1; line-height: 1.5; }
+        .card-body { padding: 24px 28px; }
+        .section-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #94a3b8; margin: 0 0 12px; }
+        .endpoints { display: grid; gap: 12px; margin-bottom: 22px; }
+        .endpoint { background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.08); border-radius: 10px; padding: 14px 16px; }
+        .ep-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .ep-name { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #f1f5f9; }
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .badge.ok { background: rgba(16,185,129,0.15); color: #34d399; }
+        .badge.err { background: rgba(239,68,68,0.15); color: #f87171; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .badge.ok .dot { background: #34d399; box-shadow: 0 0 0 4px rgba(16,185,129,0.12); }
+        .badge.err .dot { background: #f87171; box-shadow: 0 0 0 4px rgba(239,68,68,0.12); }
+        .ep-meta { font-size: 13px; color: #94a3b8; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+        .ep-meta span strong { color: #e2e8f0; font-weight: 500; }
+        .ep-error { margin-top: 10px; font-size: 13px; color: #fca5a5; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.15); border-radius: 8px; padding: 10px 12px; line-height: 1.5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-word; }
+        .hint-box { background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18); border-radius: 10px; padding: 14px 16px; color: #bfdbfe; font-size: 13.5px; line-height: 1.6; }
+        .hint-box strong { color: #dbeafe; }
+        .actions { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; }
+        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 14px; text-decoration: none; border: none; cursor: pointer; transition: 150ms; }
+        .btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
+        .btn-primary:hover { filter: brightness(1.07); }
+        .btn-secondary { background: rgba(148,163,184,0.08); color: #e2e8f0; border: 1px solid rgba(148,163,184,0.15); }
+        .btn-secondary:hover { background: rgba(148,163,184,0.14); }
+        .foot { margin-top: 18px; text-align: center; font-size: 12px; color: #64748b; }
+        .retry-tip { display: inline-block; margin-left: 8px; color: #64748b; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-head">
+            <div class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div>
+                <h1 class="card-title"><?= htmlspecialchars($title) ?></h1>
+                <p class="card-sub">Панель временно не может работать с базой данных. Уже настроенная конфигурация сохранена — пожалуйста, проверьте сервер MySQL/MariaDB.</p>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="section-title">Состояние подключений</div>
+            <div class="endpoints">
+                <div class="endpoint">
+                    <div class="ep-head">
+                        <div class="ep-name">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#60a5fa"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+                            Основная база
+                        </div>
+                        <?php if (($primary['ok'] ?? false) === true): ?>
+                            <span class="badge ok"><span class="dot"></span>ОК (<?= (int)($primary['ms'] ?? 0) ?> мс)</span>
+                        <?php else: ?>
+                            <span class="badge err"><span class="dot"></span>Недоступна</span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="ep-meta">
+                        <span>Хост: <strong><?= htmlspecialchars((string)($primary['host'] ?? $GLOBALS['_db_ep_primary_host'] ?? '—')) ?></strong></span>
+                        <span>База: <strong><?= htmlspecialchars((string)($primary['name'] ?? $GLOBALS['_db_ep_primary_name'] ?? '—')) ?></strong></span>
+                    </div>
+                    <?php if (!empty($primary['error'])): ?>
+                        <div class="ep-error"><?= htmlspecialchars((string)$primary['error']) ?></div>
+                    <?php endif; ?>
+                </div>
+                <?php if ($replicaEnabled): ?>
+                <div class="endpoint">
+                    <div class="ep-head">
+                        <div class="ep-name">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#34d399"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            Резервная база
+                        </div>
+                        <?php if (($replica['ok'] ?? false) === true): ?>
+                            <span class="badge ok"><span class="dot"></span>ОК (<?= (int)($replica['ms'] ?? 0) ?> мс)</span>
+                        <?php else: ?>
+                            <span class="badge err"><span class="dot"></span>Недоступна</span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="ep-meta">
+                        <span>Хост: <strong><?= htmlspecialchars((string)($replica['host'] ?? $GLOBALS['_db_ep_replica_host'] ?? '—')) ?></strong></span>
+                        <span>База: <strong><?= htmlspecialchars((string)($replica['name'] ?? $GLOBALS['_db_ep_replica_name'] ?? '—')) ?></strong></span>
+                    </div>
+                    <?php if (!empty($replica['error'])): ?>
+                        <div class="ep-error"><?= htmlspecialchars((string)$replica['error']) ?></div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="hint-box">
+                <strong>Что можно сделать:</strong><br>
+                1. Проверьте запущен ли сервер MySQL/MariaDB (systemctl status mariadb / mysqld)<br>
+                2. Убедитесь, что учётные данные и хосты в конфигурации корректны (monitoring/data/db.local.php)<br>
+                3. Если база временно перегружена — подождите 1–2 минуты и повторите попытку.<br>
+                <?php if (!$replicaEnabled): ?>
+                    <br>💡 Совет: включите резервную копию БД в разделе настроек — это позволит панели работать при падении основной.
+                <?php else: ?>
+                    <br>Реплика <strong>включена</strong>, но сейчас обе базы недоступны — проблема скорее всего в сети или на общем сервере БД.
+                <?php endif; ?>
+            </div>
+
+            <div class="actions">
+                <button type="button" class="btn btn-primary" onclick="location.reload()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Повторить подключение
+                </button>
+                <a href="setup.php" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Перейти к настройкам (перенастроить)
+                </a>
+                <?php if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION)): ?>
+                    <a href="logout.php" class="btn btn-secondary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        Выйти
+                    </a>
+                <?php endif; ?>
+            </div>
+            <div class="foot">HostMonitor · страница будет автоматически обновлена через 60 секунд<span class="retry-tip">(или нажмите кнопку выше)</span></div>
+        </div>
+    </div>
+    <script>
+        setTimeout(function(){ location.reload(); }, 60000);
+    </script>
+</body>
+</html>
+    <?php
 }
 
 function db_replica_enabled(array $cfg): bool
@@ -457,10 +682,65 @@ function db_copy_database(PDO $src, PDO $dst): array
     return ['tables' => $copied, 'table_count' => count($copied), 'row_count' => array_sum($copied)];
 }
 
+function web_config_path(): string
+{
+    $dataDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
+    return $dataDir . DIRECTORY_SEPARATOR . 'web.local.php';
+}
+
+function web_config_load(): array
+{
+    $file = [];
+    $path = web_config_path();
+    if (is_file($path)) {
+        $loaded = include $path;
+        if (is_array($loaded)) {
+            $file = $loaded;
+        }
+    }
+    return [
+        'host' => (string)(getenv('WEB_HOST') ?: ($file['host'] ?? '0.0.0.0')),
+        'port' => (string)(getenv('WEB_PORT') ?: ($file['port'] ?? '8080')),
+        'public_url' => (string)(getenv('MASTER_URL') ?: ($file['public_url'] ?? '')),
+        'from_file' => is_file($path),
+        'from_env' => (bool)(getenv('WEB_HOST') || getenv('WEB_PORT') || getenv('MASTER_URL')),
+    ];
+}
+
+function web_config_save(array $cfg): void
+{
+    $dir = dirname(web_config_path());
+    if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
+        throw new RuntimeException('Не удалось создать каталог data/ для конфига веб-сервера');
+    }
+    $prev = [];
+    $path = web_config_path();
+    if (is_file($path)) {
+        $loaded = include $path;
+        if (is_array($loaded)) {
+            $prev = $loaded;
+        }
+    }
+    $export = var_export([
+        'host' => (string)($cfg['host'] ?? $prev['host'] ?? '0.0.0.0'),
+        'port' => (string)($cfg['port'] ?? $prev['port'] ?? '8080'),
+        'public_url' => (string)($cfg['public_url'] ?? $prev['public_url'] ?? ''),
+    ], true);
+    $php = "<?php\n// Сгенерировано панелью. Не коммить.\nreturn {$export};\n";
+    if (file_put_contents($path, $php, LOCK_EX) === false) {
+        throw new RuntimeException('Не удалось записать data/web.local.php — проверьте права');
+    }
+    @chmod($path, 0600);
+}
+
 function settings_defaults(): array
 {
+    $web = web_config_load();
     return [
         'system_name' => 'HostMonitor',
+        'web_host' => $web['host'],
+        'web_port' => $web['port'],
+        'public_url' => $web['public_url'],
         'timezone' => 'Europe/Moscow',
         'language' => 'ru',
         'collect_interval' => '60',
@@ -557,6 +837,26 @@ function settings_normalize(string $key, $value): string
                 return 'HostMonitor';
             }
             return function_exists('mb_substr') ? mb_substr($raw, 0, 80) : substr($raw, 0, 80);
+        case 'web_host':
+            if ($raw === '') {
+                return '0.0.0.0';
+            }
+            if ($raw !== '0.0.0.0' && $raw !== '127.0.0.1' && !filter_var($raw, FILTER_VALIDATE_IP)) {
+                throw new InvalidArgumentException('web_host: должен быть 0.0.0.0, 127.0.0.1 или корректный IP');
+            }
+            return $raw;
+        case 'web_port':
+            $n = (int)$raw;
+            if ($n < 1 || $n > 65535) {
+                throw new InvalidArgumentException('web_port: 1–65535');
+            }
+            return (string)$n;
+        case 'public_url':
+            if ($raw !== '' && !filter_var($raw, FILTER_VALIDATE_URL)) {
+                throw new InvalidArgumentException('public_url: некорректный URL (оставьте пустым для авто)');
+            }
+            return rtrim($raw, '/');
+            break;
         case 'timezone':
             return $raw !== '' ? $raw : 'Europe/Moscow';
         case 'language':
@@ -684,6 +984,8 @@ function settings_upsert(PDO $pdo, array $pairs): array
     );
     $saved = [];
     $current = settings_load_map();
+    $webKeys = ['web_host', 'web_port', 'public_url'];
+    $webToUpdate = [];
     foreach ($pairs as $key => $value) {
         if (!array_key_exists($key, settings_defaults())) {
             throw new InvalidArgumentException('Неизвестный ключ настройки: ' . $key);
@@ -695,6 +997,22 @@ function settings_upsert(PDO $pdo, array $pairs): array
         $stmt->execute([(string)$key, $norm]);
         $saved[$key] = in_array($key, settings_secret_keys(), true) ? '' : $norm;
         $current[$key] = $norm;
+        if (in_array($key, $webKeys, true)) {
+            $webToUpdate[$key] = $norm;
+        }
+    }
+    if ($webToUpdate !== []) {
+        $existing = web_config_load();
+        $merged = [
+            'host' => $webToUpdate['web_host'] ?? $existing['host'],
+            'port' => $webToUpdate['web_port'] ?? $existing['port'],
+            'public_url' => $webToUpdate['public_url'] ?? $existing['public_url'],
+        ];
+        try {
+            web_config_save($merged);
+        } catch (Throwable $e) {
+            error_log('Failed to save web.local.php: ' . $e->getMessage());
+        }
     }
     settings_load_map(true);
     return $saved;

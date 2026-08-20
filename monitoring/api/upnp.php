@@ -403,7 +403,8 @@ try {
 
         $svcStmt = $pdo->prepare("SELECT * FROM upnp_services WHERE device_id = ?");
         $mapStmt = $pdo->prepare("SELECT * FROM upnp_port_mappings WHERE device_id = ? ORDER BY external_port");
-        $clean = [];
+
+        $rowsByDevice = [];
         foreach ($devices as $row) {
             $device = $row;
             $svcStmt->execute([$device['id']]);
@@ -424,8 +425,49 @@ try {
             if (preg_match('/WANDevice|WANConnectionDevice|LANDevice/i', $dt) && (int)($device['is_igd'] ?? 0) !== 1) {
                 continue;
             }
-            $clean[] = $device;
+
+            $host = trim((string)($device['host'] ?? ''));
+            $udn = trim((string)($device['udn'] ?? ''));
+            $dedupKey = $nodeId ? (string)$device['id'] : ($udn !== '' ? 'udn:' . $udn : 'host:' . $host);
+
+            if (!isset($rowsByDevice[$dedupKey])) {
+                $device['seen_from_nodes'] = [];
+                if (!empty($device['node_name'])) {
+                    $device['seen_from_nodes'][] = $device['node_name'];
+                }
+                $rowsByDevice[$dedupKey] = $device;
+            } else {
+                $existing = &$rowsByDevice[$dedupKey];
+                if (!empty($device['node_name']) && !in_array($device['node_name'], $existing['seen_from_nodes'], true)) {
+                    $existing['seen_from_nodes'][] = $device['node_name'];
+                }
+                $currLast = $existing['last_seen'] ? strtotime((string)$existing['last_seen']) : 0;
+                $newLast = $device['last_seen'] ? strtotime((string)$device['last_seen']) : 0;
+                if ($newLast > $currLast) {
+                    foreach ($device as $k => $v) {
+                        if ($k === 'id' || $k === 'node_id' || $k === 'node_name' || $k === 'seen_from_nodes') {
+                            continue;
+                        }
+                        if ($v !== null && $v !== '' && $v !== [] && $v !== 0 && $v !== '0') {
+                            $existing[$k] = $v;
+                        }
+                    }
+                }
+                $existing['online'] = !empty($existing['online']) || !empty($device['online']);
+                unset($existing);
+            }
         }
+
+        $clean = array_values($rowsByDevice);
+        usort($clean, static function ($a, $b) {
+            $iga = (int)($a['is_igd'] ?? 0);
+            $igb = (int)($b['is_igd'] ?? 0);
+            if ($iga !== $igb) return $igb - $iga;
+            $la = $a['last_seen'] ? strtotime((string)$a['last_seen']) : 0;
+            $lb = $b['last_seen'] ? strtotime((string)$b['last_seen']) : 0;
+            if ($la !== $lb) return $lb - $la;
+            return strcasecmp((string)($a['friendly_name'] ?? ''), (string)($b['friendly_name'] ?? ''));
+        });
 
         echo json_encode(['devices' => $clean]);
         exit;

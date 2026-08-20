@@ -24,7 +24,24 @@ fi
 
 read -r -p "Порт веб-интерфейса [${DEFAULT_PORT}]: " WEB_PORT
 WEB_PORT="${WEB_PORT:-${DEFAULT_PORT}}"
-echo "Сервер: ${WEB_SERVER}, порт: ${WEB_PORT}"
+
+echo ""
+echo "Адрес прослушивания (bind):"
+echo "  1) 0.0.0.0  — все интерфейсы (локальный + публичный IP)"
+echo "  2) 127.0.0.1 — только локально (без доступа из сети)"
+echo "  3) Указать конкретный IP вручную"
+read -r -p "Ваш выбор [1]: " BIND_CHOICE
+BIND_CHOICE="${BIND_CHOICE:-1}"
+case "${BIND_CHOICE}" in
+    1) WEB_HOST="0.0.0.0" ;;
+    2) WEB_HOST="127.0.0.1" ;;
+    3)
+        read -r -p "Введите IP-адрес для прослушивания: " WEB_HOST_INPUT
+        WEB_HOST="${WEB_HOST_INPUT:-0.0.0.0}"
+        ;;
+    *) WEB_HOST="0.0.0.0" ;;
+esac
+echo "Сервер: ${WEB_SERVER}, хост: ${WEB_HOST}, порт: ${WEB_PORT}"
 echo "=========================================="
 
 # ---- Выбор типа базы данных ----

@@ -7,6 +7,7 @@ render_layout_start('Настройки', 'settings');
         <p class="settings-lead">Параметры панели пишутся в базу. Резерв MySQL — на вкладке «База данных», отдельно от остальных полей.</p>
         <div class="settings-tabs">
             <button class="tab-btn active" type="button" data-tab="general">Общие</button>
+            <button class="tab-btn" type="button" data-tab="web">Веб-сервер</button>
             <button class="tab-btn" type="button" data-tab="upnp">UPnP</button>
             <button class="tab-btn" type="button" data-tab="logs">Логи</button>
             <button class="tab-btn" type="button" data-tab="notifications">Уведомления</button>
@@ -49,6 +50,34 @@ render_layout_start('Настройки', 'settings');
                         <input type="number" id="collect-interval" value="60" min="10" max="300">
                         <small>Попадает в node.conf как COLLECT_INTERVAL (от 10 до 300 секунд). Меньший интервал — больше нагрузка на БД.</small>
                         <div id="collect-interval-warning" class="settings-warn hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="web-tab">
+                <div class="settings-section">
+                    <h3>Веб-сервер панели</h3>
+                    <p class="form-hint-text">Эти параметры также записываются в <code>monitoring/data/web.local.php</code> — их подхватывает Python-сервер при следующем перезапуске (<code>systemctl restart monitoring-web</code>). Если панель работает за nginx — изменения применяются в конфиге nginx.</p>
+                    <div class="form-field">
+                        <label for="web_host">Адрес прослушивания (bind)</label>
+                        <select id="web_host">
+                            <option value="0.0.0.0">0.0.0.0 — все интерфейсы (локальный + публичный IP)</option>
+                            <option value="127.0.0.1">127.0.0.1 — только локально (127.0.0.1 / localhost)</option>
+                        </select>
+                        <small>0.0.0.0 — доступно из всей сети; 127.0.0.1 — только с этого сервера (например, если стоит за nginx или туннелем)</small>
+                    </div>
+                    <div class="form-field">
+                        <label for="web_port">Порт веб-интерфейса</label>
+                        <input type="number" id="web_port" min="1" max="65535">
+                        <small>Для production (nginx) обычно 80 или 443; для standalone Python-сервера — 8080, 8000 и т.п. Требуется перезапуск сервиса.</small>
+                    </div>
+                    <div class="form-field">
+                        <label for="public_url">Публичный URL панели (необязательно)</label>
+                        <input type="text" id="public_url" placeholder="https://monitoring.example.com">
+                        <small>Если панель доступна по домену или внешнему IP — укажите URL. Используется для ссылок в письмах/telegram-уведомлениях.</small>
+                    </div>
+                    <div class="ha-actions" style="margin-top:8px">
+                        <small class="settings-warn">💡 Изменения хоста/порта применятся только после перезапуска веб-сервиса панели.</small>
                     </div>
                 </div>
             </div>

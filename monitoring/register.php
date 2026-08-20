@@ -5,11 +5,30 @@ require_once __DIR__ . '/includes/database.php';
 
 $error = '';
 
-try {
-    if (db_needs_setup()) {
-        header('Location: setup.php');
+if (db_needs_setup()) {
+    header('Location: setup.php');
+    exit;
+}
+
+if (db_is_configured()) {
+    $dbOk = false;
+    try {
+        $pdo = getDbConnection();
+        if ($pdo) {
+            $pdo->query('SELECT 1');
+            $dbOk = true;
+        }
+    } catch (Throwable $e) {
+        $dbOk = false;
+    }
+    if (!$dbOk) {
+        $status = db_connection_status();
+        db_render_error_page($status);
         exit;
     }
+}
+
+try {
     $pdo = getDbConnection();
     $count = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
     if ($count > 0) {
@@ -17,6 +36,11 @@ try {
         exit;
     }
 } catch (Exception $e) {
+    if (db_is_configured()) {
+        $status = db_connection_status();
+        db_render_error_page($status);
+        exit;
+    }
     header('Location: setup.php');
     exit;
 }

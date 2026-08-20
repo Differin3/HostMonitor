@@ -4,6 +4,9 @@ const DB_HA_API = `${API_BASE}/db_ha.php`;
 
 const TEXT_FIELDS = {
     system_name: 'system_name',
+    web_host: 'web_host',
+    web_port: 'web_port',
+    public_url: 'public_url',
     timezone: 'timezone',
     language: 'language',
     'collect-interval': 'collect_interval',

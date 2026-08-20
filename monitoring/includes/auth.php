@@ -15,6 +15,24 @@ if (db_needs_setup()) {
     exit;
 }
 
+if (db_is_configured()) {
+    $dbOk = false;
+    try {
+        $pdo = getDbConnection();
+        if ($pdo) {
+            $pdo->query('SELECT 1');
+            $dbOk = true;
+        }
+    } catch (Throwable $e) {
+        $dbOk = false;
+    }
+    if (!$dbOk) {
+        $status = db_connection_status();
+        db_render_error_page($status);
+        exit;
+    }
+}
+
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit;
