@@ -46,6 +46,8 @@ $old = [
     'replica_port' => $_POST['replica_port'] ?? ($oldReplica['port'] ?? '3306'),
     'replica_name' => $_POST['replica_name'] ?? ($oldReplica['name'] ?? ''),
     'replica_user' => $_POST['replica_user'] ?? ($oldReplica['user'] ?? ''),
+    'replica_ssl' => isset($_POST['replica_ssl']),
+    'replica_ssl_verify' => isset($_POST['replica_ssl_verify']),
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -85,6 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $replicaName = trim((string)($_POST['replica_name'] ?? ''));
         $replicaUser = trim((string)($_POST['replica_user'] ?? ''));
         $replicaPassword = (string)($_POST['replica_password'] ?? '');
+        $replicaSsl = isset($_POST['replica_ssl']);
+        $replicaSslVerify = isset($_POST['replica_ssl_verify']);
         if ($replicaEnabled) {
             if ($replicaHost === '') {
                 throw new InvalidArgumentException('Укажите хост резервной MySQL или снимите галочку');
@@ -109,6 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'name' => $replicaName,
                 'user' => $replicaUser,
                 'password' => $replicaPassword,
+                'ssl' => $replicaSsl,
+                'ssl_verify' => $replicaSslVerify,
             ],
         ];
 
@@ -255,6 +261,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="form-field span-2">
                             <label class="form-label">Пароль резерва</label>
                             <input type="password" name="replica_password" value="" placeholder="Пусто — как у основной" autocomplete="new-password">
+                        </div>
+                        <!-- Добавленные SSL-чекбоксы -->
+                        <div class="form-field span-2" style="display:flex; gap:20px; align-items:center; margin-top:8px;">
+                            <label class="setup-check">
+                                <input type="checkbox" name="replica_ssl" value="1" <?= $old['replica_ssl'] ? 'checked' : '' ?>>
+                                Использовать SSL
+                            </label>
+                            <label class="setup-check">
+                                <input type="checkbox" name="replica_ssl_verify" value="1" <?= $old['replica_ssl_verify'] ? 'checked' : '' ?>>
+                                Проверять сертификат
+                            </label>
                         </div>
                     </div>
                 </details>

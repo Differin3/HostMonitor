@@ -118,6 +118,12 @@ function dbmon_connect(array $ep, string $engine, int $timeout = 3): PDO
     if (defined('PDO::MYSQL_ATTR_CONNECT_TIMEOUT')) {
         $opts[PDO::MYSQL_ATTR_CONNECT_TIMEOUT] = $timeout;
     }
+    // 👇 Добавлена поддержка SSL
+    if (!empty($ep['ssl'])) {
+        $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = !empty($ep['ssl_verify']);
+        // При необходимости можно указать CA-сертификат:
+        // $opts[PDO::MYSQL_ATTR_SSL_CA] = '/etc/ssl/certs/ca-certificates.crt';
+    }
     $dsn = $db !== ''
         ? "mysql:host={$host};port={$port};dbname={$db};charset=utf8mb4"
         : "mysql:host={$host};port={$port};charset=utf8mb4";

@@ -313,6 +313,17 @@ render_layout_start('Настройки', 'settings');
                             <label for="db-replica-password">Пароль резерва</label>
                             <input type="password" id="db-replica-password" placeholder="Пусто — не менять / как у основной" autocomplete="new-password">
                         </div>
+                        <!-- Добавленные SSL-чекбоксы -->
+                        <div class="form-field ha-span-2" style="display:flex; gap:20px; align-items:center; margin-top:4px;">
+                            <label>
+                                <input type="checkbox" id="db-replica-ssl" value="1">
+                                Использовать SSL
+                            </label>
+                            <label>
+                                <input type="checkbox" id="db-replica-ssl-verify" value="1">
+                                Проверять сертификат
+                            </label>
+                        </div>
                     </div>
                     <div class="ha-actions">
                         <button type="button" class="primary" id="db-ha-save">Сохранить подключения</button>

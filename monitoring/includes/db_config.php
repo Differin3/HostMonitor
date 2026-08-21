@@ -64,6 +64,9 @@ function db_config_load(): array
             'password' => (string)(getenv('DB_REPLICA_PASSWORD') !== false && getenv('DB_REPLICA_PASSWORD') !== ''
                 ? getenv('DB_REPLICA_PASSWORD')
                 : ($replicaFile['password'] ?? '')),
+            // SSL-параметры загружаются из файла, но переменные окружения для них не предусмотрены (опционально)
+            'ssl' => (bool)($replicaFile['ssl'] ?? false),
+            'ssl_verify' => (bool)($replicaFile['ssl_verify'] ?? false),
         ],
         'from_file' => is_file($path),
         'from_env' => (bool)(getenv('DB_NAME') || getenv('DB_USER') || getenv('DB_HOST')),
@@ -111,6 +114,9 @@ function db_config_save(array $cfg): void
             'name' => (string)($replicaIn['name'] ?? $prevReplica['name'] ?? ''),
             'user' => (string)($replicaIn['user'] ?? $prevReplica['user'] ?? ''),
             'password' => $replicaPassword,
+            // Сохраняем SSL-параметры, если они переданы
+            'ssl' => (bool)($replicaIn['ssl'] ?? $prevReplica['ssl'] ?? false),
+            'ssl_verify' => (bool)($replicaIn['ssl_verify'] ?? $prevReplica['ssl_verify'] ?? false),
         ],
     ], true);
     $php = "<?php\n// Сгенерировано панелью. Не коммить.\nreturn {$export};\n";
@@ -162,7 +168,7 @@ function db_schema_path(): string
     $name = 'schema_mysql.sql';
     $here = dirname(__DIR__);
     $candidates = [
-        dirname($here) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $name,
+        dirname($here) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $
         $here . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $name,
         $here . DIRECTORY_SEPARATOR . $name,
         $here . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . $name,

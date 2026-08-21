@@ -305,6 +305,13 @@ function fillDbHaForm(data) {
     setv('db-replica-port', replica.port || '3306');
     setv('db-replica-name', replica.name);
     setv('db-replica-user', replica.user);
+
+    // Чекбоксы SSL
+    const sslEl = val('db-replica-ssl');
+    const sslVerifyEl = val('db-replica-ssl-verify');
+    if (sslEl) sslEl.checked = !!replica.ssl;
+    if (sslVerifyEl) sslVerifyEl.checked = !!replica.ssl_verify;
+
     const enabled = val('db-replica-enabled');
     const failback = val('db-replica-failback');
     if (enabled) enabled.checked = !!data.replica_enabled;
@@ -379,6 +386,8 @@ function collectDbHaPayload() {
             name: val('db-replica-name')?.value.trim() || '',
             user: val('db-replica-user')?.value.trim() || '',
             password: val('db-replica-password')?.value || '',
+            ssl: !!val('db-replica-ssl')?.checked,
+            ssl_verify: !!val('db-replica-ssl-verify')?.checked,
         },
     };
 }
