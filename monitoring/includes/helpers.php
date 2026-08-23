@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+if (!function_exists('str_contains')) {
+    function str_contains(string $haystack, string $needle): bool
+    {
+        return $needle === '' || strpos($haystack, $needle) !== false;
+    }
+}
+
 if (!function_exists('json_error')) {
     function json_error(string $message, int $status = 400): void
     {
