@@ -112,23 +112,39 @@ function topo_norm_udn(string $udn): string
     return $udn;
 }
 
-function topo_upnp_score(array $d): int
+function topo_upnp_merge(array $a, array $b): array
 {
-    $score = (int)($d['is_igd'] ?? 0) * 1000;
-    $score += topo_ports_up($d['ports'] ?? null) * 10;
-    $score += strlen((string)($d['friendly_name'] ?? ''));
-    $score += strlen((string)($d['model_name'] ?? ''));
-    $last = !empty($d['last_seen']) ? (int)strtotime((string)$d['last_seen']) : 0;
-    $score += (int)min(max($last - 1700000000, 0) / 1000, 500);
-    if ((int)($d['node_id'] ?? 0) > 0) {
-        $score += 50;
+    $la = !empty($a['last_seen']) ? (int)strtotime((string)$a['last_seen']) : 0;
+    $lb = !empty($b['last_seen']) ? (int)strtotime((string)$b['last_seen']) : 0;
+    // База — более свежая запись
+    $base = $lb > $la ? $b : $a;
+    $other = $lb > $la ? $a : $b;
+
+    foreach (['friendly_name', 'manufacturer', 'model_name', 'model_number', 'device_type',
+              'host', 'wan_ip', 'wan_link', 'connection_status', 'software', 'hardware_version'] as $k) {
+        if (($base[$k] ?? '') === '' && ($other[$k] ?? '') !== '') {
+            $base[$k] = $other[$k];
+        }
     }
-    return $score;
+    $base['is_igd'] = max((int)($base['is_igd'] ?? 0), (int)($other['is_igd'] ?? 0));
+    $base['bytes_sent'] = max((int)($base['bytes_sent'] ?? 0), (int)($other['bytes_sent'] ?? 0));
+    $base['bytes_received'] = max((int)($base['bytes_received'] ?? 0), (int)($other['bytes_received'] ?? 0));
+    if (topo_ports_up($other['ports'] ?? null) > topo_ports_up($base['ports'] ?? null)) {
+        $base['ports'] = $other['ports'];
+    }
+    // last_seen всегда самый свежий
+    if ($lb > $la) {
+        $base['last_seen'] = $b['last_seen'];
+    } elseif ($la > 0) {
+        $base['last_seen'] = $a['last_seen'];
+    }
+    return $base;
 }
 
 /**
  * Одно физическое UPnP-устройство часто приходит с разных нод / ST / USN.
  * Схлопываем по нормализованному UDN, затем по IP хоста.
+ * При слиянии берём свежий last_seen (иначе карта показывает offline).
  */
 function topo_dedupe_upnp(array $rows): array
 {
@@ -140,8 +156,10 @@ function topo_dedupe_upnp(array $rows): array
         $udn = topo_norm_udn((string)($d['udn'] ?? ''));
         $host = topo_ip((string)($d['host'] ?? '')) ?: strtolower(trim((string)($d['host'] ?? '')));
         $key = $udn !== '' ? 'u:' . $udn : ($host !== '' ? 'h:' . $host : 'i:' . (int)($d['id'] ?? 0));
-        if (!isset($byKey[$key]) || topo_upnp_score($d) > topo_upnp_score($byKey[$key])) {
+        if (!isset($byKey[$key])) {
             $byKey[$key] = $d;
+        } else {
+            $byKey[$key] = topo_upnp_merge($byKey[$key], $d);
         }
     }
 
@@ -152,8 +170,10 @@ function topo_dedupe_upnp(array $rows): array
             $byHost['id:' . (int)($d['id'] ?? 0)] = $d;
             continue;
         }
-        if (!isset($byHost[$host]) || topo_upnp_score($d) > topo_upnp_score($byHost[$host])) {
+        if (!isset($byHost[$host])) {
             $byHost[$host] = $d;
+        } else {
+            $byHost[$host] = topo_upnp_merge($byHost[$host], $d);
         }
     }
     return array_values($byHost);
@@ -479,7 +499,8 @@ try {
         $host = topo_ip((string)($d['host'] ?? '')) ?: (string)($d['host'] ?? '');
         $wanIp = topo_ip((string)($d['wan_ip'] ?? ''));
         $last = !empty($d['last_seen']) ? strtotime((string)$d['last_seen']) : 0;
-        $online = $last > 0 && (time() - $last) < 180;
+        // UPnP-скан реже heartbeat; 10 мин согласовано с «живым» инспектором
+        $online = $last > 0 && (time() - $last) < 600;
         $vendor = topo_vendor(($d['manufacturer'] ?? '') . ' ' . ($d['model_name'] ?? '') . ' ' . ($d['friendly_name'] ?? ''));
         $kind = topo_kind_upnp($d);
         $extra = $d['extra'] ?? [];

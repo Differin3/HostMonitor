@@ -416,7 +416,7 @@ try {
             $mapStmt->execute([$device['id']]);
             $device['port_mappings'] = $mapStmt->fetchAll(PDO::FETCH_ASSOC);
             $last = $device['last_seen'] ? strtotime((string)$device['last_seen']) : 0;
-            $device['online'] = $last > 0 && (time() - $last) < 180;
+            $device['online'] = $last > 0 && (time() - $last) < 600;
             $device = upnp_enrich_identity($device);
             $device = upnp_unpack_extra($device);
             if (!empty($device['ports']) && is_string($device['ports'])) {

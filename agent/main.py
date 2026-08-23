@@ -792,16 +792,17 @@ class MonitoringAgent:
         dirty = False
         try:
             if (root / '.git').exists():
+                git_base = ['git', '-c', f'safe.directory={root}', '-C', str(root)]
                 commit = subprocess.check_output(
-                    ['git', '-C', str(root), 'rev-parse', '--short', 'HEAD'],
+                    git_base + ['rev-parse', '--short', 'HEAD'],
                     text=True, stderr=subprocess.DEVNULL, timeout=10,
                 ).strip()
                 branch = subprocess.check_output(
-                    ['git', '-C', str(root), 'rev-parse', '--abbrev-ref', 'HEAD'],
+                    git_base + ['rev-parse', '--abbrev-ref', 'HEAD'],
                     text=True, stderr=subprocess.DEVNULL, timeout=10,
                 ).strip()
                 dirty = subprocess.call(
-                    ['git', '-C', str(root), 'diff', '--quiet'],
+                    git_base + ['diff', '--quiet'],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
                 ) != 0
         except Exception as e:

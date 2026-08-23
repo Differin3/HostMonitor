@@ -163,3 +163,69 @@ if (!function_exists('node_heartbeat_timeout_sec')) {
     }
 }
 
+if (!function_exists('nodes_ensure_agent_columns')) {
+    /**
+     * Добавляет agent_* колонки без долгих блокировок:
+     * сначала INFORMATION_SCHEMA, ALTER только если колонки нет.
+     */
+    function nodes_ensure_agent_columns(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+
+        $needed = [
+            'agent_version' => 'VARCHAR(32) NULL',
+            'agent_commit' => 'VARCHAR(64) NULL',
+            'agent_remote_commit' => 'VARCHAR(64) NULL',
+            'agent_branch' => 'VARCHAR(64) NULL',
+            'agent_update_available' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'agent_updated_at' => 'TIMESTAMP NULL',
+            'command_result' => 'TEXT NULL',
+        ];
+
+        try {
+            $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+            if ($dbName === '') {
+                return;
+            }
+            $existing = [];
+            $stmt = $pdo->prepare(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+            );
+            $stmt->execute([$dbName, 'nodes']);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $col) {
+                $existing[(string)$col] = true;
+            }
+
+            $missing = [];
+            foreach ($needed as $col => $ddl) {
+                if (!isset($existing[$col])) {
+                    $missing[$col] = $ddl;
+                }
+            }
+            if (!$missing) {
+                return;
+            }
+
+            try {
+                $pdo->exec('SET SESSION lock_wait_timeout = 5');
+            } catch (Throwable $e) {
+                // ignore
+            }
+            foreach ($missing as $col => $ddl) {
+                try {
+                    $pdo->exec("ALTER TABLE nodes ADD COLUMN `{$col}` {$ddl}");
+                } catch (Throwable $e) {
+                    // race / already exists
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());
+        }
+    }
+}
+

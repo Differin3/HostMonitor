@@ -18,45 +18,25 @@ header('Content-Type: application/json; charset=utf-8');
 
 $pdo = getDbConnection();
 
-if (!function_exists('nodes_ensure_agent_columns')) {
-    function nodes_ensure_agent_columns(PDO $pdo): void
-    {
-        static $done = false;
-        if ($done) {
-            return;
-        }
-        $done = true;
-        foreach ([
-            "ALTER TABLE nodes ADD COLUMN agent_version VARCHAR(32) NULL",
-            "ALTER TABLE nodes ADD COLUMN agent_commit VARCHAR(64) NULL",
-            "ALTER TABLE nodes ADD COLUMN agent_remote_commit VARCHAR(64) NULL",
-            "ALTER TABLE nodes ADD COLUMN agent_branch VARCHAR(64) NULL",
-            "ALTER TABLE nodes ADD COLUMN agent_update_available TINYINT(1) NOT NULL DEFAULT 0",
-            "ALTER TABLE nodes ADD COLUMN agent_updated_at TIMESTAMP NULL",
-            "ALTER TABLE nodes ADD COLUMN command_result TEXT NULL",
-        ] as $sql) {
-            try {
-                $pdo->exec($sql);
-            } catch (Throwable $e) {
-                // already exists
-            }
-        }
-    }
-}
+// Определение в helpers.php (быстрая проверка INFORMATION_SCHEMA)
+nodes_ensure_agent_columns($pdo);
 
 function agent_desired_version(): array
 {
     $version = '0.0.0';
     $commit = '';
-    $verFile = dirname(__DIR__, 2) . '/agent/VERSION';
+    $root = dirname(__DIR__, 2);
+    $verFile = $root . '/agent/VERSION';
     if (is_file($verFile)) {
         $raw = trim((string)file_get_contents($verFile));
         $version = trim(explode("\n", $raw)[0] ?? '') ?: '0.0.0';
     }
-    $root = dirname(__DIR__, 2);
     if (is_dir($root . '/.git')) {
         $out = [];
-        @exec('git -C ' . escapeshellarg($root) . ' rev-parse --short HEAD 2>/dev/null', $out);
+        $cmd = 'git -c safe.directory=' . escapeshellarg($root)
+            . ' -C ' . escapeshellarg($root)
+            . ' rev-parse --short HEAD 2>/dev/null';
+        @exec($cmd, $out);
         $commit = trim((string)($out[0] ?? ''));
     }
     return ['desired_version' => $version, 'desired_commit' => $commit];
@@ -82,8 +62,6 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command): bool
     $upd->execute([$command, $nodeId]);
     return true;
 }
-
-nodes_ensure_agent_columns($pdo);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string)($_GET['action'] ?? '');
@@ -142,18 +120,33 @@ try {
 
     if ($method === 'GET' && ($action === '' || $action === 'status')) {
         $desired = agent_desired_version();
-        $rows = $pdo->query(
-            "SELECT id, name, host, status, last_seen,
-                    agent_version, agent_commit, agent_remote_commit, agent_branch,
-                    agent_update_available, agent_updated_at, command_result, last_command, command_status
-             FROM nodes ORDER BY name"
-        )->fetchAll(PDO::FETCH_ASSOC);
+        try {
+            $rows = $pdo->query(
+                "SELECT id, name, host, status, last_seen,
+                        agent_version, agent_commit, agent_remote_commit, agent_branch,
+                        agent_update_available, agent_updated_at, command_result, last_command, command_status
+                 FROM nodes ORDER BY name"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // Колонки ещё не созданы / старая схема — добиваем ALTER и повторяем
+            nodes_ensure_agent_columns($pdo);
+            $rows = $pdo->query(
+                "SELECT id, name, host, status, last_seen,
+                        agent_version, agent_commit, agent_remote_commit, agent_branch,
+                        agent_update_available, agent_updated_at, last_command, command_status
+                 FROM nodes ORDER BY name"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        }
 
         $outdated = 0;
         foreach ($rows as &$row) {
             $local = (string)($row['agent_commit'] ?? '');
             $flag = (int)($row['agent_update_available'] ?? 0) === 1;
+            $ver = (string)($row['agent_version'] ?? '');
             if (!$flag && $desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
+                $flag = true;
+            }
+            if (!$flag && $desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
                 $flag = true;
             }
             $row['outdated'] = $flag;

@@ -806,8 +806,14 @@ window.loadAgentUpdates = loadAgentUpdates;
 async function loadAgentUpdates() {
     const tbody = document.getElementById('agent-updates-tbody');
     const label = document.getElementById('agent-desired-label');
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Загрузка...</td></tr>';
+    }
     try {
         const result = await fetchJson('/agent_update.php?action=status');
+        if (result.error) {
+            throw new Error(result.error);
+        }
         const desired = result.desired || {};
         if (label) {
             label.textContent = `Целевая версия: ${desired.desired_version || '—'} (${desired.desired_commit || '—'}), устаревших: ${result.outdated_count ?? 0}`;
@@ -834,9 +840,22 @@ async function loadAgentUpdates() {
         }).join('');
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
-        console.error(e);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center">Ошибка загрузки статуса агентов</td></tr>';
+        console.error('loadAgentUpdates', e);
+        if (label) {
+            label.textContent = `Целевая версия: — (ошибка: ${e.message || 'API'})`;
+        }
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center">Ошибка загрузки статуса агентов: ${escHtml(e.message || 'API')}</td></tr>`;
+        }
     }
+}
+
+function escHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 async function checkAgentUpdates() {

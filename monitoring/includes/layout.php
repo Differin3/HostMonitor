@@ -372,7 +372,17 @@ function render_layout_end(array $scripts = []): void
         <?php endif; ?>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/selects.js')) ?>"></script>
         <?php foreach ($scripts as $script): ?>
-            <script src="<?= htmlspecialchars(monitoring_asset($script)) ?>"></script>
+            <?php
+            $scriptPath = $script;
+            $fsPath = dirname(__DIR__, 2) . $scriptPath;
+            if (!is_file($fsPath) && str_starts_with($scriptPath, '/frontend/')) {
+                $fsPath = dirname(__DIR__, 2) . $scriptPath;
+            }
+            $ver = is_file($fsPath) ? (string)filemtime($fsPath) : (string)time();
+            $src = monitoring_asset($scriptPath);
+            $src .= (str_contains($src, '?') ? '&' : '?') . 'v=' . rawurlencode($ver);
+            ?>
+            <script src="<?= htmlspecialchars($src) ?>"></script>
         <?php endforeach; ?>
     </body>
     </html>
