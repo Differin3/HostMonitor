@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/helpers.php';
+
 /**
  * Сбор данных дашборда для REST и SSE (без ping/GPU — быстрый снимок).
  */
@@ -124,7 +126,9 @@ function dashboard_nodes_light(PDO $pdo, int $limit = 6): array
         $metricsByNode = [];
     }
 
-    $heartbeatTimeout = 60;
+    $heartbeatTimeout = function_exists('node_heartbeat_timeout_sec')
+        ? node_heartbeat_timeout_sec()
+        : 180;
     $out = [];
     foreach ($nodes as $node) {
         $id = (int)$node['id'];

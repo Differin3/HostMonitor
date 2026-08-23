@@ -41,8 +41,8 @@ function db_ha_status_payload(bool $ping): array
     ];
     if ($ping) {
         $out['ping'] = [
-            'primary' => db_ping_endpoint($primary, 3),
-            'replica' => $enabled ? db_ping_endpoint($replica, 3) : ['ok' => false, 'ms' => 0, 'error' => 'Резерв выключен'],
+            'primary' => db_ping_endpoint($primary, 12),
+            'replica' => $enabled ? db_ping_endpoint($replica, 12) : ['ok' => false, 'ms' => 0, 'error' => 'Резерв выключен'],
         ];
         $out['editable'] = db_connection_editable([
             'configured' => true,
@@ -190,7 +190,7 @@ try {
         db_ha_require_editable();
         $cfg = db_config_load();
         try {
-            db_try_connect(db_endpoint($cfg, 'primary'), 3);
+            db_try_connect(db_endpoint($cfg, 'primary'), 12);
         } catch (Throwable $e) {
             json_error('Основная база недоступна: ' . $e->getMessage(), 503);
         }

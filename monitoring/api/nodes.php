@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../includes/database.php';
+require_once __DIR__ . '/../includes/helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -369,7 +370,8 @@ function handleGet($pdo) {
         
         // Вычисляем uptime и ping для всех нод, проверяем статус на основе last_seen
         // (но НЕ обновляем статус в БД автоматически - это делается только через heartbeat или refresh)
-        $heartbeat_timeout = 60; // Нода считается offline, если heartbeat не было больше 60 секунд
+        // Offline только после ~3 циклов агента (COLLECT_INTERVAL≈60с), не из‑за ICMP ping
+        $heartbeat_timeout = node_heartbeat_timeout_sec();
         foreach ($nodes as &$node) {
             // Проверяем статус на основе last_seen (только для отображения, без обновления БД)
             if ($node['last_seen']) {
@@ -1027,24 +1029,19 @@ function refreshNode($pdo, $id) {
     // Если ping успешен, но статус был offline - обновляем статус
     // Если ping неуспешен и last_seen старый - помечаем offline
     $newStatus = $node['status'];
-    $heartbeatTimeout = 60; // секунд
+    // Статус по last_seen агента; ICMP ping только как доп. сигнал (не сбрасывает online при свежем heartbeat)
+    $heartbeatTimeout = node_heartbeat_timeout_sec();
     
-    if ($ping !== null) {
-        // Хост доступен
-        if ($node['status'] !== 'online') {
+    if ($node['last_seen']) {
+        $secondsSinceLastSeen = time() - (int)strtotime($node['last_seen']);
+        if ($secondsSinceLastSeen <= $heartbeatTimeout) {
             $newStatus = 'online';
-        }
-    } else {
-        // Хост недоступен - проверяем когда был последний heartbeat
-        if ($node['last_seen']) {
-            $lastSeenTimestamp = strtotime($node['last_seen']);
-            $secondsSinceLastSeen = time() - $lastSeenTimestamp;
-            if ($secondsSinceLastSeen > $heartbeatTimeout) {
-                $newStatus = 'offline';
-            }
-        } else {
+        } elseif ($ping === null) {
             $newStatus = 'offline';
         }
+        // ping OK при просроченном last_seen — не трогаем (агент мог просто задержаться)
+    } elseif ($ping === null) {
+        $newStatus = 'offline';
     }
     
     // Обновляем только статус, НЕ last_seen
@@ -1063,31 +1060,24 @@ function refreshAllNodes($pdo) {
     $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     $updated = 0;
-    $heartbeatTimeout = 60; // секунд
+    $heartbeatTimeout = node_heartbeat_timeout_sec();
     
     foreach ($nodes as $node) {
         // Делаем ping для проверки доступности
         $ping = pingNode($node['host']);
         
-        // Определяем новый статус на основе ping и last_seen
+        // Статус в первую очередь по last_seen агента, не по ICMP
         $newStatus = $node['status'];
         
-        if ($ping !== null) {
-            // Хост доступен
-            if ($node['status'] !== 'online') {
+        if ($node['last_seen']) {
+            $secondsSinceLastSeen = time() - (int)strtotime($node['last_seen']);
+            if ($secondsSinceLastSeen <= $heartbeatTimeout) {
                 $newStatus = 'online';
-            }
-        } else {
-            // Хост недоступен - проверяем когда был последний heartbeat
-            if ($node['last_seen']) {
-                $lastSeenTimestamp = strtotime($node['last_seen']);
-                $secondsSinceLastSeen = time() - $lastSeenTimestamp;
-                if ($secondsSinceLastSeen > $heartbeatTimeout) {
-                    $newStatus = 'offline';
-                }
-            } else {
+            } elseif ($ping === null) {
                 $newStatus = 'offline';
             }
+        } elseif ($ping === null) {
+            $newStatus = 'offline';
         }
         
         // Обновляем только статус, НЕ last_seen (его обновляет только агент)

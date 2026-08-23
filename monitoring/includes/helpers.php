@@ -152,3 +152,14 @@ if (!function_exists('monitoring_url')) {
     }
 }
 
+if (!function_exists('node_heartbeat_timeout_sec')) {
+    /**
+     * Через сколько секунд без last_seen нода считается offline.
+     * Агент шлёт метрики ~раз в 60с + время сбора; 180с ≈ 3 цикла с запасом.
+     */
+    function node_heartbeat_timeout_sec(): int
+    {
+        return 180;
+    }
+}
+

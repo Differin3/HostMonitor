@@ -172,7 +172,7 @@ function dbmon_endpoint_for(array $row): array
     ];
 }
 
-function dbmon_connect(array $ep, string $engine, int $timeout = 3): PDO
+function dbmon_connect(array $ep, string $engine, int $timeout = 12): PDO
 {
     $host = $ep['host'] ?: 'localhost';
     $port = $ep['port'] ?: ($engine === 'postgres' ? '5432' : '3306');
@@ -347,7 +347,7 @@ function dbmon_probe_one(PDO $pdo, array $row): array
     $error = '';
     $metrics = [];
     try {
-        $conn = dbmon_connect($ep, $engine, 3);
+        $conn = dbmon_connect($ep, $engine, 12);
         $conn->query('SELECT 1');
         $metrics = $engine === 'postgres' ? dbmon_probe_postgres($conn) : dbmon_probe_mysql($conn);
     } catch (Throwable $e) {

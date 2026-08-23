@@ -2477,8 +2477,21 @@ class MonitoringAgent:
             if logs and not self.send_logs(logs):
                 _log("Error: failed to send logs")
             
-            _log(f"Cycle {cycle} completed, sleeping {collect_interval}s...")
-            time.sleep(collect_interval)
+            _log(f"Cycle {cycle} completed, sleeping {collect_interval}s (heartbeat every {heartbeat_interval}s)...")
+            # Не sleep(60) целиком: иначе last_seen устаревает и панель мигает offline.
+            # Будим каждые heartbeat_interval секунд и шлём heartbeat независимо от сбора метрик.
+            deadline = time.time() + collect_interval
+            while True:
+                now = time.time()
+                if now - last_heartbeat >= heartbeat_interval:
+                    if self.send_heartbeat():
+                        last_heartbeat = now
+                    else:
+                        _log("Warning: heartbeat failed during wait, will retry")
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                time.sleep(min(float(heartbeat_interval), remaining))
 
 if __name__ == "__main__":
     import sys
