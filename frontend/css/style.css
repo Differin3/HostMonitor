@@ -3129,87 +3129,38 @@ body.light .theme-toggle:hover {
 }
 
 .db-sync-section {
-    margin-top: 28px;
-    padding-top: 20px;
+    margin-top: 24px;
+    padding-top: 18px;
     border-top: 1px solid var(--border-color);
 }
 
 .db-sync-actions {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin: 16px 0 0;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 0;
 }
 
-.db-sync-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    width: 100%;
-    padding: 14px 16px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-}
-
-.db-sync-card:hover:not(:disabled) {
-    border-color: rgba(96, 165, 250, 0.45);
-    background: rgba(96, 165, 250, 0.06);
-}
-
-.db-sync-card:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-.db-sync-card-icon {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    display: flex;
+.db-sync-btn {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-    background: rgba(96, 165, 250, 0.12);
-    color: #60a5fa;
+    gap: 8px;
+    min-height: 38px;
 }
 
-.db-sync-card-body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.db-sync-card-body strong {
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.db-sync-card-body small {
-    font-size: 12px;
-    color: var(--text-muted);
-    line-height: 1.45;
-}
-
-.db-sync-card-arrow {
+.db-sync-btn i,
+.db-sync-btn svg {
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
-    font-size: 18px;
-    color: var(--text-muted);
-    align-self: center;
 }
 
 .db-sync-progress {
-    margin-top: 16px;
-    padding: 16px;
-    border-radius: 12px;
-    border: 1px solid rgba(96, 165, 250, 0.35);
-    background: rgba(96, 165, 250, 0.06);
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
 }
 
 .db-sync-progress-head {
@@ -3217,41 +3168,58 @@ body.light .theme-toggle:hover {
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     font-size: 13px;
     font-weight: 600;
+    color: var(--text-primary);
 }
 
 .db-sync-meter {
-    height: 10px;
-    margin-bottom: 10px;
+    height: 8px;
+    margin-bottom: 8px;
 }
 
 .db-sync-progress-detail {
-    margin: 0 0 12px;
+    margin: 0 0 10px;
     font-size: 12px;
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.45;
 }
 
 .db-sync-result {
-    margin-top: 12px;
-    padding: 12px 14px;
-    border-radius: 10px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.45;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    background: var(--bg-card);
 }
 
 .db-sync-result.is-ok {
-    border: 1px solid rgba(74, 222, 128, 0.35);
-    background: rgba(74, 222, 128, 0.08);
+    border-color: rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.08);
+    color: #16a34a;
+}
+
+body:not(.light) .db-sync-result.is-ok {
     color: #86efac;
 }
 
 .db-sync-result.is-error {
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.08);
+    color: #dc2626;
+}
+
+body:not(.light) .db-sync-result.is-error {
     color: #fca5a5;
+}
+
+/* legacy class kept for older markup */
+.db-sync-card {
+    display: none;
 }
 
 .dbmon-section-title {

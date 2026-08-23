@@ -145,18 +145,26 @@ if [[ -f "${PANEL_GIT_SCRIPT}" ]]; then
     sudo chmod 755 "${PANEL_GIT_SCRIPT}"
 fi
 if id "monitoring" &>/dev/null; then
-    PHP_USER="www-data"
-    id "${PHP_USER}" &>/dev/null || PHP_USER="nginx"
-    id "${PHP_USER}" &>/dev/null || PHP_USER=""
-    if [[ -n "${PHP_USER}" && -f "${PANEL_GIT_SCRIPT}" ]]; then
+    PHP_USERS=()
+    for u in www-data nginx monitoring; do
+        id "${u}" &>/dev/null && PHP_USERS+=("${u}")
+    done
+    if [[ ${#PHP_USERS[@]} -gt 0 && -f "${PANEL_GIT_SCRIPT}" ]]; then
         SUDOERS_FILE="/etc/sudoers.d/hostmonitor-panel-git"
-        sudo tee "${SUDOERS_FILE}" >/dev/null <<EOF
-# HostMonitor: обновление панели из веб-интерфейса
-${PHP_USER} ALL=(monitoring) NOPASSWD: ${PANEL_GIT_SCRIPT}
-EOF
+        {
+            echo "# HostMonitor: обновление панели из веб-интерфейса"
+            for PHP_USER in "${PHP_USERS[@]}"; do
+                if [[ "${PHP_USER}" != "monitoring" ]]; then
+                    echo "${PHP_USER} ALL=(monitoring) NOPASSWD: ${PANEL_GIT_SCRIPT}"
+                fi
+            done
+        } | sudo tee "${SUDOERS_FILE}" >/dev/null
         sudo chmod 440 "${SUDOERS_FILE}"
-        echo "[install_panel] sudoers: ${PHP_USER} → panel_git.sh"
+        sudo visudo -cf "${SUDOERS_FILE}" >/dev/null
+        echo "[install_panel] sudoers: ${PHP_USERS[*]} → panel_git.sh"
     fi
+    # safe.directory
+    sudo -u monitoring git config --global --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
     PANEL_CFG="${INSTALL_DIR}/monitoring/data/panel.local.php"
     if [[ ! -f "${PANEL_CFG}" ]]; then
         sudo tee "${PANEL_CFG}" >/dev/null <<EOF

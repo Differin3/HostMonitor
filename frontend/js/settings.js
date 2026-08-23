@@ -300,7 +300,7 @@ function setDbSyncUi(running) {
     const progress = val('db-sync-progress');
     if (actions) actions.classList.toggle('hidden', dbSyncRunning);
     if (progress) progress.classList.toggle('hidden', !dbSyncRunning);
-    document.querySelectorAll('.db-sync-card').forEach((btn) => {
+    document.querySelectorAll('.db-sync-btn, .db-sync-card').forEach((btn) => {
         btn.disabled = !dbHaEditable || dbSyncRunning;
     });
     const cancelBtn = val('db-sync-cancel');
@@ -338,8 +338,8 @@ async function runDbSync(direction) {
     if (!dbHaEditable || dbSyncRunning) return;
 
     const titles = {
-        to_replica: 'Сделать резервную базу актуальной',
-        to_primary: 'Вернуть данные на основную базу',
+        to_replica: 'Скопировать основную базу на резерв',
+        to_primary: 'Скопировать резервную базу на основную',
     };
     const confirmed = window.showConfirm
         ? await window.showConfirm(
@@ -497,7 +497,7 @@ function setDbHaEditable(editable) {
             }
             return;
         }
-        if (el.classList.contains('db-sync-card')) {
+        if (el.classList.contains('db-sync-btn') || el.classList.contains('db-sync-card')) {
             el.disabled = !dbHaEditable || dbSyncRunning;
             return;
         }

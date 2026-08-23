@@ -23,6 +23,16 @@ function panel_config_load(): array
     if (is_file($path)) {
         $loaded = include $path;
         if (is_array($loaded)) {
+            // Старые/альтернативные ключи из разных установщиков.
+            if (empty($loaded['repo_root']) && !empty($loaded['repository_root'])) {
+                $loaded['repo_root'] = (string)$loaded['repository_root'];
+            }
+            if (empty($loaded['git_wrapper']) && !empty($loaded['git_script'])) {
+                $loaded['git_wrapper'] = (string)$loaded['git_script'];
+            }
+            if (empty($loaded['git_sudo_user']) && !empty($loaded['sudo_user'])) {
+                $loaded['git_sudo_user'] = (string)$loaded['sudo_user'];
+            }
             $cfg = array_merge($cfg, $loaded);
         }
     }
@@ -33,6 +43,10 @@ function panel_config_load(): array
     $envUser = getenv('PANEL_GIT_USER');
     if ($envUser !== false && $envUser !== '') {
         $cfg['git_sudo_user'] = (string)$envUser;
+    }
+    // Python-сервис часто идёт от monitoring/root — sudo не нужен по умолчанию.
+    if (($cfg['git_sudo_user'] ?? '') === '' && panel_posix_user() === 'monitoring') {
+        $cfg['git_sudo_user'] = 'monitoring';
     }
     return $cfg;
 }
@@ -149,6 +163,27 @@ function panel_run_shell(string $cmd, int $timeoutSec = 30): array
     return ['ok' => false, 'output' => 'В PHP отключены proc_open, exec и shell_exec', 'exit_code' => 127];
 }
 
+function panel_posix_user(): string
+{
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+        $info = @posix_getpwuid(posix_geteuid());
+        if (is_array($info) && !empty($info['name'])) {
+            return (string)$info['name'];
+        }
+    }
+    $who = trim((string)@shell_exec('whoami 2>/dev/null'));
+    return $who !== '' ? $who : 'unknown';
+}
+
+function panel_git_can_write(string $root): bool
+{
+    $gitDir = $root . DIRECTORY_SEPARATOR . '.git';
+    if (!is_dir($gitDir)) {
+        return false;
+    }
+    return is_writable($root) && is_writable($gitDir);
+}
+
 function panel_git_command(string $root, string $args, bool $useSudo = true): string
 {
     $cfg = panel_config_load();
@@ -156,11 +191,18 @@ function panel_git_command(string $root, string $args, bool $useSudo = true): st
     if ($wrapper === '') {
         $wrapper = dirname(__DIR__, 2) . '/scripts/panel_git.sh';
     }
+    if (is_file($wrapper)) {
+        @chmod($wrapper, 0755);
+    }
+
+    $me = panel_posix_user();
+    $sudoUser = trim((string)($cfg['git_sudo_user'] ?? ''));
+    $needSudo = $useSudo && $sudoUser !== '' && $sudoUser !== $me && $me !== 'root';
+
     if (is_file($wrapper) && is_executable($wrapper)) {
-        $sudoUser = trim((string)($cfg['git_sudo_user'] ?? ''));
         $base = escapeshellarg($wrapper) . ' ' . escapeshellarg($root) . ' ' . $args;
-        if ($useSudo && $sudoUser !== '') {
-            return 'sudo -n ' . $base . ' 2>&1';
+        if ($needSudo) {
+            return 'sudo -n -u ' . escapeshellarg($sudoUser) . ' -- ' . $base . ' 2>&1';
         }
         return $base . ' 2>&1';
     }
@@ -168,29 +210,63 @@ function panel_git_command(string $root, string $args, bool $useSudo = true): st
     $git = escapeshellarg(panel_git_bin());
     $safe = '-c safe.directory=' . escapeshellarg($root);
     $gitCmd = $git . ' ' . $safe . ' -C ' . escapeshellarg($root) . ' ' . $args;
-    $sudoUser = trim((string)($cfg['git_sudo_user'] ?? ''));
-    if ($useSudo && $sudoUser !== '') {
+    if ($needSudo) {
         return 'sudo -n -u ' . escapeshellarg($sudoUser)
-            . ' env HOME=/tmp GIT_TERMINAL_PROMPT=0 '
+            . ' -- env HOME=/tmp GIT_TERMINAL_PROMPT=0 '
             . $gitCmd . ' 2>&1';
     }
     return 'env HOME=/tmp GIT_TERMINAL_PROMPT=0 ' . $gitCmd . ' 2>&1';
 }
 
+function panel_git_diagnose(string $root): string
+{
+    $parts = [];
+    $parts[] = 'user=' . panel_posix_user();
+    $parts[] = 'root=' . $root;
+    $parts[] = 'writable=' . (panel_git_can_write($root) ? 'yes' : 'no');
+    $gitDir = $root . '/.git';
+    if (function_exists('posix_getpwuid') && is_dir($gitDir)) {
+        $uid = @fileowner($gitDir);
+        if ($uid !== false) {
+            $owner = @posix_getpwuid($uid);
+            $parts[] = 'git_owner=' . (is_array($owner) ? (string)($owner['name'] ?? $uid) : (string)$uid);
+        }
+    }
+    $cfg = panel_config_load();
+    $wrapper = (string)($cfg['git_wrapper'] ?? '');
+    if ($wrapper === '') {
+        $wrapper = dirname(__DIR__, 2) . '/scripts/panel_git.sh';
+    }
+    $parts[] = 'wrapper=' . (is_executable($wrapper) ? 'ok' : 'missing');
+    $parts[] = 'sudo_user=' . ((string)($cfg['git_sudo_user'] ?? '') ?: '-');
+    return implode('; ', $parts);
+}
+
 function panel_git(string $root, string $args, int $timeoutSec = 30): array
 {
-    $attempts = [true, false];
-    $last = ['ok' => false, 'output' => ''];
+    // 1) Если текущий пользователь уже может писать в .git — без sudo.
+    // 2) Иначе sudo на git_sudo_user.
+    // 3) Последний шанс — прямой git без sudo.
+    $attempts = [];
+    if (panel_git_can_write($root) || panel_posix_user() === 'root') {
+        $attempts[] = false;
+    }
+    $cfg = panel_config_load();
+    $sudoUser = trim((string)($cfg['git_sudo_user'] ?? ''));
+    if ($sudoUser !== '' && $sudoUser !== panel_posix_user() && panel_posix_user() !== 'root') {
+        $attempts[] = true;
+    }
+    if (!in_array(false, $attempts, true)) {
+        $attempts[] = false;
+    }
+
+    $last = ['ok' => false, 'output' => '', 'exit_code' => 1];
     foreach ($attempts as $useSudo) {
         $result = panel_run_shell(panel_git_command($root, $args, $useSudo), $timeoutSec);
         if ($result['ok']) {
             return $result;
         }
         $last = $result;
-        $cfg = panel_config_load();
-        if ($useSudo === false || trim((string)($cfg['git_sudo_user'] ?? '')) === '') {
-            break;
-        }
     }
     return $last;
 }
@@ -292,10 +368,15 @@ function panel_update_check(bool $fetch = true): array
     if ($fetch) {
         $fetchResult = panel_git($root, 'fetch origin --prune', 90);
         if (!$fetchResult['ok']) {
-            $hint = panel_update_hint($fetchResult['output']);
+            $detail = trim((string)($fetchResult['output'] ?? ''));
+            if ($detail === '') {
+                $detail = 'пустой ответ (exit ' . (int)($fetchResult['exit_code'] ?? 1) . ')';
+            }
+            $hint = panel_update_hint($detail);
+            $diag = panel_git_diagnose($root);
             return [
                 'available' => false,
-                'error' => 'git fetch не удался: ' . $fetchResult['output'] . $hint,
+                'error' => 'git fetch не удался: ' . $detail . $hint . "\n\nДиагностика: " . $diag,
                 'current_commit' => '',
                 'remote_commit' => '',
                 'branch' => panel_git_branch($root),
@@ -356,20 +437,27 @@ function panel_update_hint(string $output): string
 {
     $out = strtolower($output);
     $hints = [];
+    $me = panel_posix_user();
     if (str_contains($out, 'dubious ownership') || str_contains($out, 'safe.directory')) {
-        $hints[] = 'Настройте scripts/panel_git.sh и sudoers (см. install_panel.sh).';
+        $hints[] = 'Выполните: sudo -u monitoring git config --global --add safe.directory /opt/monitoring';
     }
-    if (str_contains($out, 'permission denied') || str_contains($out, 'cannot open')) {
-        $hints[] = 'PHP (www-data) не имеет доступа к .git — создайте data/panel.local.php с git_sudo_user=monitoring.';
+    if (str_contains($out, 'permission denied') || str_contains($out, 'cannot open') || str_contains($out, 'unable to access')) {
+        $hints[] = 'Проверьте владельца репозитория: chown -R monitoring:monitoring /opt/monitoring';
     }
-    if (str_contains($out, 'sudo:') || str_contains($out, 'a password is required')) {
-        $hints[] = 'Добавьте правило sudoers: www-data ALL=(monitoring) NOPASSWD: /opt/monitoring/scripts/panel_git.sh';
+    if (str_contains($out, 'sudo:') || str_contains($out, 'a password is required') || str_contains($out, 'not allowed')) {
+        $hints[] = "Добавьте sudoers для пользователя PHP ({$me}): {$me} ALL=(monitoring) NOPASSWD: /opt/monitoring/scripts/panel_git.sh";
+    }
+    if (str_contains($out, 'could not resolve host') || str_contains($out, 'failed to connect') || str_contains($out, 'network is unreachable')) {
+        $hints[] = 'Нет доступа к GitHub с сервера (DNS/firewall). Проверьте: curl -I https://github.com';
+    }
+    if (str_contains($out, 'authentication failed') || str_contains($out, 'could not read username') || str_contains($out, 'publickey')) {
+        $hints[] = 'Нужна авторизация к remote (HTTPS token или SSH-ключ для пользователя monitoring).';
     }
     if (str_contains($out, 'git: command not found') || str_contains($out, 'git not found')) {
         $hints[] = 'Установите git: apt install git';
     }
     if ($hints === []) {
-        return '';
+        $hints[] = 'На сервере: bash /opt/monitoring/scripts/fix_panel_git.sh';
     }
     return "\n\nПодсказка: " . implode(' ', $hints);
 }

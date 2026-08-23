@@ -358,25 +358,17 @@ render_layout_start('Настройки', 'settings');
                     </div>
 
                     <div class="db-sync-section">
-                        <h3 class="ha-subhead">Копирование данных между базами</h3>
-                        <p class="form-hint-text">Разовое полное копирование всех таблиц (схема + строки). На приёмнике таблицы <strong>перезаписываются</strong>. Для постоянной репликации используйте MySQL replication — эти кнопки не заменяют её.</p>
+                        <h3 class="ha-subhead">Резервное копирование</h3>
+                        <p class="form-hint-text">Полное копирование таблиц панели (схема и данные). Приёмник будет перезаписан. Это не live-репликация MySQL.</p>
 
                         <div class="db-sync-actions" id="db-sync-actions">
-                            <button type="button" class="db-sync-card" id="db-ha-to-replica" data-direction="to_replica">
-                                <span class="db-sync-card-icon"><i data-lucide="cloud-upload"></i></span>
-                                <span class="db-sync-card-body">
-                                    <strong>Сделать резерв актуальным</strong>
-                                    <small>Копировать с основной на резервную — перед переключением на SkySQL или для бэкапа</small>
-                                </span>
-                                <span class="db-sync-card-arrow">→</span>
+                            <button type="button" class="btn-outline db-sync-btn" id="db-ha-to-replica" data-direction="to_replica" title="Скопировать основную базу на резерв">
+                                <i data-lucide="upload-cloud"></i>
+                                <span>Основная → резерв</span>
                             </button>
-                            <button type="button" class="db-sync-card" id="db-ha-to-primary" data-direction="to_primary">
-                                <span class="db-sync-card-icon"><i data-lucide="cloud-download"></i></span>
-                                <span class="db-sync-card-body">
-                                    <strong>Вернуть данные на основную</strong>
-                                    <small>Копировать с резервной на основную — если правили резерв и нужно откатить на локальную базу</small>
-                                </span>
-                                <span class="db-sync-card-arrow">→</span>
+                            <button type="button" class="btn-outline db-sync-btn" id="db-ha-to-primary" data-direction="to_primary" title="Скопировать резервную базу на основную">
+                                <i data-lucide="download-cloud"></i>
+                                <span>Резерв → основная</span>
                             </button>
                         </div>
 
