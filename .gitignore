@@ -13,6 +13,10 @@ env/
 certs/
 *.key
 *.crt
+.gitconfig
+agent/node.conf
+agent/log.cursor.json
+agent/log.*.json
 monitoring/data/db.local.php
 monitoring/data/*.php
 monitoring/data/retention.last
