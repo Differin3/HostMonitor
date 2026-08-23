@@ -123,6 +123,99 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             return self._handle_php()
         return super().do_HEAD()
 
+    def _is_sse_script(self, script_path: str) -> bool:
+        return os.path.basename(script_path) == "sse.php"
+
+    def _read_php_headers(self, stream):
+        """Читает CGI-заголовки PHP и возвращает (header_blob, remainder)."""
+        buf = b""
+        while True:
+            chunk = stream.read(4096)
+            if not chunk:
+                break
+            buf += chunk
+            for sep in (b"\r\n\r\n", b"\n\n"):
+                idx = buf.find(sep)
+                if idx >= 0:
+                    end = idx + len(sep)
+                    return buf[:end], buf[end:]
+        return buf, b""
+
+    def _send_php_headers(self, header_blob: bytes, payload_prefix: bytes = b"") -> int:
+        try:
+            header_lines = header_blob.decode("iso-8859-1").split("\r\n")
+        except Exception:
+            header_lines = header_blob.decode("utf-8", errors="ignore").split("\n")
+
+        status_code = 200
+        response_headers = []
+        location_header = None
+        for line in header_lines:
+            if not line.strip():
+                continue
+            if line.lower().startswith("status:"):
+                parts = line.split(" ", 1)
+                if len(parts) == 2 and parts[1].strip().split()[0].isdigit():
+                    status_code = int(parts[1].strip().split()[0])
+                continue
+            if ":" in line:
+                key, value = line.split(":", 1)
+                response_headers.append((key.strip(), value.strip()))
+                if key.strip().lower() == "location":
+                    location_header = value.strip()
+
+        if location_header and status_code == 200:
+            status_code = 302
+
+        self.send_response(status_code)
+        for key, value in response_headers:
+            if key.lower() == "set-cookie":
+                self.send_header(key, value)
+        for key, value in response_headers:
+            if key.lower() != "set-cookie":
+                self.send_header(key, value)
+        self.end_headers()
+
+        if payload_prefix:
+            self.wfile.write(payload_prefix)
+            self.wfile.flush()
+        return status_code
+
+    def _stream_php_stdout(self, proc, body: bytes) -> None:
+        try:
+            if body:
+                proc.stdin.write(body)
+            proc.stdin.close()
+        except Exception as e:
+            self.send_error(500, f"Ошибка передачи тела запроса в PHP: {e}")
+            proc.kill()
+            return
+
+        header_blob, remainder = self._read_php_headers(proc.stdout)
+        if not header_blob:
+            err = proc.stderr.read().decode(errors="ignore") if proc.stderr else ""
+            self.send_error(500, f"SSE: PHP не вернул заголовки\n{err}")
+            proc.wait()
+            return
+
+        self._send_php_headers(header_blob, remainder)
+
+        try:
+            while True:
+                chunk = proc.stdout.read(8192)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            proc.kill()
+            return
+
+        proc.wait()
+        if proc.returncode != 0 and proc.stderr:
+            err = proc.stderr.read().decode(errors="ignore")
+            sys.stderr.write(f"SSE PHP завершился с кодом {proc.returncode}: {err}\n")
+
     def _handle_php(self):
         parsed = urllib.parse.urlsplit(self.path)
         script_path = self.translate_path(parsed.path)
@@ -180,6 +273,10 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, f"Ошибка запуска PHP: {e}")
             return
+
+        if self._is_sse_script(script_path):
+            return self._stream_php_stdout(proc, body)
+
         stdout, stderr = proc.communicate(body)
 
         if proc.returncode != 0:

@@ -38,6 +38,9 @@ let netChart = null;
 let layout = loadLayout();
 let editing = false;
 let timers = [];
+let sseSource = null;
+let sseConnected = false;
+const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
 const esc = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -395,15 +398,14 @@ const updateCharts = (payload) => {
     }
 };
 
-const refreshOverview = async () => {
-    const [summary, alerts, nodes] = await Promise.all([
-        fetchJson('/summary').catch(() => null),
-        fetchJson('/alerts/active').catch(() => null),
-        fetchJson('/nodes').catch(() => null),
-    ]);
-    if (summary) updateStats(summary.data ?? summary);
+const applyOverviewPayload = (payload) => {
+    if (!payload) return;
+    const summary = payload.summary ?? payload;
+    if (summary && (summary.cpu_avg != null || summary.nodes_total != null)) {
+        updateStats(summary);
+    }
 
-    const nodesData = nodes?.data ?? nodes?.nodes ?? [];
+    const nodesData = payload.nodes ?? payload.data ?? payload.nodes_list ?? [];
     const list = Array.isArray(nodesData) ? nodesData.slice() : [];
     list.sort((a, b) => {
         const aOff = a.status === 'online' ? 1 : 0;
@@ -413,11 +415,21 @@ const refreshOverview = async () => {
     });
     renderList(elements.nodesList, list.slice(0, 6), renderNodeItem, 'Нет данных о нодах');
 
-    const alertsData = alerts?.data ?? alerts?.alerts ?? [];
+    const alertsData = payload.alerts ?? payload.alerts_list ?? [];
     renderList(elements.alertsList, Array.isArray(alertsData) ? alertsData.slice(0, 6) : [], renderAlertItem, 'Алертов нет');
-    if (alerts && elements.alertsCount && summary == null) {
-        setText(elements.alertsCount, Array.isArray(alertsData) ? alertsData.length : 0);
-    }
+};
+
+const refreshOverview = async () => {
+    const [summary, alerts, nodes] = await Promise.all([
+        fetchJson('/summary').catch(() => null),
+        fetchJson('/alerts/active').catch(() => null),
+        fetchJson('/nodes').catch(() => null),
+    ]);
+    applyOverviewPayload({
+        summary: summary?.data ?? summary,
+        nodes: nodes?.data ?? nodes?.nodes ?? [],
+        alerts: alerts?.data ?? alerts?.alerts ?? [],
+    });
 };
 
 const refreshCharts = async () => {
@@ -431,6 +443,63 @@ const refreshCharts = async () => {
 const refreshAll = async () => {
     await Promise.all([refreshOverview(), refreshCharts()]);
 };
+
+function stopPolling() {
+    timers.forEach((id) => clearInterval(id));
+    timers = [];
+}
+
+function startPollingFallback() {
+    if (timers.length) return;
+    timers.push(setInterval(refreshOverview, 8000));
+    timers.push(setInterval(refreshCharts, 20000));
+}
+
+function disconnectSse() {
+    if (sseSource) {
+        sseSource.close();
+        sseSource = null;
+    }
+    sseConnected = false;
+}
+
+function connectSse() {
+    if (!window.EventSource || !elements.board) return;
+    disconnectSse();
+    const url = `${SSE_BASE}?range=${encodeURIComponent(layout.range)}&_=${Date.now()}`;
+    const es = new EventSource(url);
+    sseSource = es;
+
+    es.addEventListener('overview', (e) => {
+        try {
+            applyOverviewPayload(JSON.parse(e.data));
+        } catch (err) {
+            console.warn('SSE overview parse error', err);
+        }
+    });
+
+    es.addEventListener('charts', (e) => {
+        try {
+            const payload = JSON.parse(e.data);
+            if (payload?.range && payload.range !== layout.range) return;
+            updateCharts(payload);
+        } catch (err) {
+            console.warn('SSE charts parse error', err);
+        }
+    });
+
+    es.addEventListener('error', () => {
+        if (es.readyState === EventSource.CLOSED) {
+            sseConnected = false;
+            startPollingFallback();
+        }
+    });
+
+    es.onopen = () => {
+        sseConnected = true;
+        stopPolling();
+    };
+}
 
 function bindBoard() {
     if (!elements.board || !elements.dashboard) return;
@@ -524,7 +593,11 @@ function bindToolbar() {
         layout.range = btn.dataset.range;
         saveLayout();
         paintRange();
-        refreshCharts();
+        if (sseConnected) {
+            connectSse();
+        } else {
+            refreshCharts();
+        }
     });
     document.getElementById('dash-edit')?.addEventListener('click', () => {
         setEditing(!editing);
@@ -550,9 +623,12 @@ document.addEventListener('DOMContentLoaded', () => {
     bindToolbar();
     initCharts();
     refreshAll();
-    timers.push(setInterval(refreshOverview, 8000));
-    timers.push(setInterval(refreshCharts, 20000));
+    connectSse();
+    setTimeout(() => {
+        if (!sseConnected) startPollingFallback();
+    }, 4000);
     window.addEventListener('resize', resizeCharts);
+    window.addEventListener('pagehide', disconnectSse);
     if (window.lucide) lucide.createIcons();
 });
 
