@@ -96,23 +96,49 @@ case "$SSE_CODE" in
   *) bad "sse.php without cookie → HTTP ${SSE_CODE}" ;;
 esac
 
+# Only HM_USER / HM_PASS — never fall back to Linux $USER (often "root" under sudo)
 if [[ -n "${HM_USER:-}" && -n "${HM_PASS:-}" ]]; then
   rm -f "${COOKIE_JAR}"
-  curl -s -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+  LOGIN_HEADERS=/tmp/hm_verify_login_headers.txt
+  LOGIN_BODY=/tmp/hm_verify_login_body.txt
+  # Do not follow redirect: cookie must be captured from the 302 login response
+  LOGIN_CODE=$(curl -s -c "${COOKIE_JAR}" -b "${COOKIE_JAR}" \
+    -D "${LOGIN_HEADERS}" \
+    -o "${LOGIN_BODY}" \
+    -w "%{http_code}" \
     -X POST "${BASE_URL}/login.php" \
-    -d "username=${HM_USER}&password=${HM_PASS}" \
-    -o /dev/null || true
+    --data-urlencode "username=${HM_USER}" \
+    --data-urlencode "password=${HM_PASS}" || true)
+  LOGIN_CODE="${LOGIN_CODE:-000}"
+  if grep -qiE '^Location:.*index\.php' "${LOGIN_HEADERS}" 2>/dev/null \
+     || [[ "${LOGIN_CODE}" == "302" || "${LOGIN_CODE}" == "303" ]]; then
+    ok "login as ${HM_USER} -> HTTP ${LOGIN_CODE}"
+  else
+    bad "login failed for user '${HM_USER}' (HTTP ${LOGIN_CODE}) — check HM_USER/HM_PASS"
+    grep -iE '^(HTTP/|Location:|Set-Cookie:)' "${LOGIN_HEADERS}" 2>/dev/null | head -10 || true
+    if grep -q 'login-error\|Неверный' "${LOGIN_BODY}" 2>/dev/null; then
+      warn "login page shows invalid credentials"
+    fi
+  fi
+  if ! grep -q 'PHPSESSID' "${COOKIE_JAR}" 2>/dev/null; then
+    bad "no PHPSESSID in cookie jar after login"
+  else
+    ok "session cookie saved"
+  fi
   echo "Streaming sse.php for 12s with session cookie..."
   STREAM_OUT=/tmp/hm_verify_sse_stream.txt
   curl -N --max-time 12 -s -b "${COOKIE_JAR}" \
     "${BASE_URL}/sse.php?range=1h" -o "${STREAM_OUT}" || true
-  if grep -q "event: ready" "${STREAM_OUT}" && grep -q "event: overview" "${STREAM_OUT}"; then
+  if grep -q "Unauthorized" "${STREAM_OUT}" 2>/dev/null; then
+    bad "SSE still Unauthorized — session not accepted (wrong password or cookie path)"
+    head -5 "${STREAM_OUT}" || true
+  elif grep -q "event: ready" "${STREAM_OUT}" && grep -q "event: overview" "${STREAM_OUT}"; then
     ok "SSE stream has event: ready and event: overview"
   else
     bad "SSE stream missing ready/overview (see ${STREAM_OUT})"
     head -40 "${STREAM_OUT}" || true
   fi
-  if grep -q ": ping" "${STREAM_OUT}"; then
+  if grep -qE '^: ping|^:ping' "${STREAM_OUT}" 2>/dev/null; then
     ok "SSE heartbeat (: ping) present"
   else
     warn "SSE heartbeat (: ping) not seen in 12s window"
@@ -149,7 +175,8 @@ elif [[ ! -x scripts/panel_git.sh ]]; then
 elif ! id monitoring >/dev/null 2>&1; then
   warn "user 'monitoring' not found — skip panel_git fetch (ok on non-panel hosts)"
 else
-  if sudo -u monitoring "${ROOT}/scripts/panel_git.sh" fetch >/tmp/hm_verify_git.txt 2>&1; then
+  # panel_git.sh requires: panel_git.sh <repo-root> <git-args...>
+  if sudo -u monitoring "${ROOT}/scripts/panel_git.sh" "${ROOT}" fetch >/tmp/hm_verify_git.txt 2>&1; then
     ok "panel_git.sh fetch as monitoring"
   else
     bad "panel_git.sh fetch failed"
