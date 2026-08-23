@@ -113,25 +113,68 @@ function panel_can_call(string $fn): bool
     return function_exists($fn) && !in_array($fn, panel_disabled_functions(), true);
 }
 
+function panel_run_env(): array
+{
+    $env = [];
+    // Полное окружение: иначе git не находит git-remote-https / ssh и падает с exit -1 без текста.
+    foreach (['PATH', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'HOME', 'SHELL',
+              'SSH_AUTH_SOCK', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH', 'http_proxy', 'https_proxy',
+              'HTTP_PROXY', 'HTTPS_PROXY', 'no_proxy', 'NO_PROXY', 'SSL_CERT_FILE', 'CURL_CA_BUNDLE'] as $key) {
+        $val = getenv($key);
+        if ($val !== false && $val !== '') {
+            $env[$key] = $val;
+        }
+    }
+    if (empty($env['PATH'])) {
+        $env['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+    }
+    $home = '/tmp';
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+        $info = @posix_getpwuid(posix_geteuid());
+        if (is_array($info) && !empty($info['dir']) && is_dir((string)$info['dir'])) {
+            $home = (string)$info['dir'];
+        }
+    }
+    // Не подменяем существующий валидный HOME на /tmp — ломает SSH-ключи и credential helper.
+    if (empty($env['HOME']) || $env['HOME'] === '/tmp' || !is_dir($env['HOME'])) {
+        $env['HOME'] = $home;
+    }
+    $env['GIT_TERMINAL_PROMPT'] = '0';
+    $env['GIT_ASKPASS'] = 'echo';
+    return $env;
+}
+
 function panel_run_shell(string $cmd, int $timeoutSec = 30): array
 {
     if (panel_can_call('proc_open')) {
-        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $proc = @proc_open($cmd, $descriptors, $pipes, null, [
-            'HOME' => '/tmp',
-            'GIT_TERMINAL_PROMPT' => '0',
-        ]);
+        $descriptors = [
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $proc = @proc_open($cmd, $descriptors, $pipes, null, panel_run_env());
         if (is_resource($proc)) {
             stream_set_blocking($pipes[1], false);
             stream_set_blocking($pipes[2], false);
             $stdout = '';
             $stderr = '';
             $deadline = microtime(true) + max(1, $timeoutSec);
-            while (microtime(true) < $deadline) {
+            $timedOut = false;
+            while (true) {
                 $stdout .= (string)stream_get_contents($pipes[1]);
                 $stderr .= (string)stream_get_contents($pipes[2]);
                 $status = proc_get_status($proc);
                 if (!$status['running']) {
+                    break;
+                }
+                if (microtime(true) >= $deadline) {
+                    $timedOut = true;
+                    @proc_terminate($proc, 15);
+                    usleep(200000);
+                    $status = proc_get_status($proc);
+                    if ($status['running']) {
+                        @proc_terminate($proc, 9);
+                    }
                     break;
                 }
                 usleep(100000);
@@ -141,7 +184,18 @@ function panel_run_shell(string $cmd, int $timeoutSec = 30): array
             fclose($pipes[1]);
             fclose($pipes[2]);
             $exitCode = proc_close($proc);
+            // Prefer real exit code from last proc_get_status when proc_close returns -1.
+            if ($exitCode < 0 && isset($status['exitcode']) && $status['exitcode'] >= 0) {
+                $exitCode = (int)$status['exitcode'];
+            }
             $output = trim($stdout . ($stderr !== '' ? "\n" . $stderr : ''));
+            if ($timedOut) {
+                $output = trim($output . "\n[timeout after {$timeoutSec}s]");
+                return ['ok' => false, 'output' => $output, 'exit_code' => 124];
+            }
+            if ($exitCode < 0 && $output === '') {
+                $output = 'процесс завершился без вывода (часто пустой PATH/HOME в PHP CGI или недоступен git-remote-https)';
+            }
             return ['ok' => $exitCode === 0, 'output' => $output, 'exit_code' => $exitCode];
         }
     }
@@ -154,10 +208,14 @@ function panel_run_shell(string $cmd, int $timeoutSec = 30): array
     }
 
     if (panel_can_call('shell_exec')) {
-        $output = shell_exec($cmd);
+        $output = shell_exec($cmd . '; echo __EC__:$?');
         $text = trim((string)$output);
-        $failed = $text === '' || stripos($text, 'fatal:') !== false || stripos($text, 'error:') !== false;
-        return ['ok' => !$failed, 'output' => $text, 'exit_code' => $failed ? 1 : 0];
+        $code = 1;
+        if (preg_match('/__EC__:(\d+)\s*$/', $text, $m)) {
+            $code = (int)$m[1];
+            $text = trim(preg_replace('/__EC__:\d+\s*$/', '', $text) ?? $text);
+        }
+        return ['ok' => $code === 0, 'output' => $text, 'exit_code' => $code];
     }
 
     return ['ok' => false, 'output' => 'В PHP отключены proc_open, exec и shell_exec', 'exit_code' => 127];
@@ -210,12 +268,28 @@ function panel_git_command(string $root, string $args, bool $useSudo = true): st
     $git = escapeshellarg(panel_git_bin());
     $safe = '-c safe.directory=' . escapeshellarg($root);
     $gitCmd = $git . ' ' . $safe . ' -C ' . escapeshellarg($root) . ' ' . $args;
-    if ($needSudo) {
+    $home = '/var/lib/monitoring';
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+        $info = @posix_getpwuid(posix_geteuid());
+        if (is_array($info) && !empty($info['dir'])) {
+            $home = (string)$info['dir'];
+        }
+    }
+    if ($needSudo && $sudoUser !== '') {
+        $suInfo = function_exists('posix_getpwnam') ? @posix_getpwnam($sudoUser) : false;
+        if (is_array($suInfo) && !empty($suInfo['dir'])) {
+            $home = (string)$suInfo['dir'];
+        }
         return 'sudo -n -u ' . escapeshellarg($sudoUser)
-            . ' -- env HOME=/tmp GIT_TERMINAL_PROMPT=0 '
+            . ' -- env HOME=' . escapeshellarg($home)
+            . ' PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+            . ' GIT_TERMINAL_PROMPT=0 '
             . $gitCmd . ' 2>&1';
     }
-    return 'env HOME=/tmp GIT_TERMINAL_PROMPT=0 ' . $gitCmd . ' 2>&1';
+    return 'env HOME=' . escapeshellarg($home)
+        . ' PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        . ' GIT_TERMINAL_PROMPT=0 '
+        . $gitCmd . ' 2>&1';
 }
 
 function panel_git_diagnose(string $root): string
@@ -239,6 +313,13 @@ function panel_git_diagnose(string $root): string
     }
     $parts[] = 'wrapper=' . (is_executable($wrapper) ? 'ok' : 'missing');
     $parts[] = 'sudo_user=' . ((string)($cfg['git_sudo_user'] ?? '') ?: '-');
+    $remote = panel_git_remote_url($root);
+    if ($remote !== '') {
+        $parts[] = 'remote=' . (preg_match('#^https?://#i', $remote) ? 'https' : (str_starts_with($remote, 'git@') || str_contains($remote, 'ssh://') ? 'ssh' : 'other'));
+    }
+    $env = panel_run_env();
+    $parts[] = 'path=' . (str_contains((string)($env['PATH'] ?? ''), '/usr/bin') ? 'ok' : 'weak');
+    $parts[] = 'home=' . (string)($env['HOME'] ?? '-');
     return implode('; ', $parts);
 }
 
@@ -455,6 +536,9 @@ function panel_update_hint(string $output): string
     }
     if (str_contains($out, 'git: command not found') || str_contains($out, 'git not found')) {
         $hints[] = 'Установите git: apt install git';
+    }
+    if (str_contains($out, 'пустой ответ') || str_contains($out, 'exit -1') || str_contains($out, 'без вывода') || str_contains($out, 'path/home')) {
+        $hints[] = 'Обновите панель (git pull) и перезапустите monitoring-web — исправлен пустой PATH/HOME у PHP CGI. Затем: bash /opt/monitoring/scripts/fix_panel_git.sh';
     }
     if ($hints === []) {
         $hints[] = 'На сервере: bash /opt/monitoring/scripts/fix_panel_git.sh';
