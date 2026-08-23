@@ -774,12 +774,172 @@ class MonitoringAgent:
             _log(f"Traceback: {traceback.format_exc()}")
             return False
     
+    def install_root(self) -> pathlib.Path:
+        # /opt/monitoring/agent/main.py → /opt/monitoring
+        return pathlib.Path(__file__).resolve().parent.parent
+
+    def agent_version_info(self) -> dict:
+        root = self.install_root()
+        version = '0.0.0'
+        ver_file = pathlib.Path(__file__).resolve().parent / 'VERSION'
+        try:
+            if ver_file.is_file():
+                version = ver_file.read_text(encoding='utf-8').strip().splitlines()[0].strip() or version
+        except Exception:
+            pass
+        commit = ''
+        branch = ''
+        dirty = False
+        try:
+            if (root / '.git').exists():
+                commit = subprocess.check_output(
+                    ['git', '-C', str(root), 'rev-parse', '--short', 'HEAD'],
+                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                ).strip()
+                branch = subprocess.check_output(
+                    ['git', '-C', str(root), 'rev-parse', '--abbrev-ref', 'HEAD'],
+                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                ).strip()
+                dirty = subprocess.call(
+                    ['git', '-C', str(root), 'diff', '--quiet'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                ) != 0
+        except Exception as e:
+            _log(f"agent version git probe failed: {e}")
+        return {
+            'agent_version': version,
+            'agent_commit': commit,
+            'agent_branch': branch or 'main',
+            'agent_dirty': dirty,
+            'install_root': str(root),
+        }
+
+    def check_agent_update(self) -> dict:
+        root = self.install_root()
+        info = self.agent_version_info()
+        if not (root / '.git').is_dir():
+            return {
+                **info,
+                'ok': False,
+                'update_available': False,
+                'error': f'Установка не через git ({root})',
+            }
+        try:
+            fetch = subprocess.run(
+                ['git', '-C', str(root), 'fetch', 'origin', '--prune'],
+                capture_output=True, text=True, timeout=120,
+            )
+            if fetch.returncode != 0:
+                err = (fetch.stderr or fetch.stdout or 'git fetch failed').strip()
+                return {**info, 'ok': False, 'update_available': False, 'error': err[:500]}
+            branch = info.get('agent_branch') or 'main'
+            remote_ref = f'origin/{branch}'
+            try:
+                remote = subprocess.check_output(
+                    ['git', '-C', str(root), 'rev-parse', '--short', remote_ref],
+                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                ).strip()
+            except subprocess.CalledProcessError:
+                remote = subprocess.check_output(
+                    ['git', '-C', str(root), 'rev-parse', '--short', 'origin/main'],
+                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                ).strip()
+                remote_ref = 'origin/main'
+            local = info.get('agent_commit') or ''
+            available = bool(remote and local and remote != local)
+            return {
+                **info,
+                'ok': True,
+                'update_available': available,
+                'agent_remote_commit': remote,
+                'remote_ref': remote_ref,
+                'error': None,
+            }
+        except Exception as e:
+            return {**info, 'ok': False, 'update_available': False, 'error': str(e)[:500]}
+
+    def update_agent(self) -> dict:
+        checked = self.check_agent_update()
+        if not checked.get('ok'):
+            return checked
+        if not checked.get('update_available'):
+            return {**checked, 'ok': True, 'updated': False, 'message': 'Уже актуальная версия'}
+        if checked.get('agent_dirty'):
+            return {
+                **checked,
+                'ok': False,
+                'updated': False,
+                'error': 'Локальные изменения в репозитории агента — обновите вручную',
+            }
+        root = self.install_root()
+        remote_ref = checked.get('remote_ref') or 'origin/main'
+        try:
+            pull = subprocess.run(
+                ['git', '-C', str(root), 'pull', '--ff-only', 'origin', remote_ref.split('/', 1)[-1]],
+                capture_output=True, text=True, timeout=180,
+            )
+            if pull.returncode != 0:
+                # fallback: reset --hard to remote (install tree should be clean)
+                reset = subprocess.run(
+                    ['git', '-C', str(root), 'reset', '--hard', remote_ref],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if reset.returncode != 0:
+                    err = (pull.stderr or reset.stderr or 'git pull failed').strip()
+                    return {**checked, 'ok': False, 'updated': False, 'error': err[:500]}
+            req = root / 'agent' / 'requirements.txt'
+            pip = root / '.venv' / 'bin' / 'pip'
+            if not pip.is_file():
+                pip = root / '.venv' / 'bin' / 'pip3'
+            if pip.is_file() and req.is_file():
+                subprocess.run(
+                    [str(pip), 'install', '-q', '-r', str(req)],
+                    capture_output=True, text=True, timeout=300,
+                )
+            after = self.agent_version_info()
+            self._exit_after_command = True
+            return {
+                **after,
+                'ok': True,
+                'updated': True,
+                'update_available': False,
+                'agent_remote_commit': after.get('agent_commit'),
+                'message': f"Обновлено {checked.get('agent_commit')} → {after.get('agent_commit')}",
+                'error': None,
+            }
+        except Exception as e:
+            return {**checked, 'ok': False, 'updated': False, 'error': str(e)[:500]}
+
+    def report_agent_update(self, payload: dict) -> None:
+        try:
+            _request_with_retry(
+                'POST',
+                f'{self.master_url}/api/agent_update.php',
+                params={'action': 'report'},
+                json=payload,
+                headers=self.headers,
+                verify=_get_verify(),
+                timeout=15,
+            )
+        except Exception as e:
+            _log(f'agent_update report failed: {e}')
+
     def execute_command(self, command):
         # Выполнение команды (с базовой фильтрацией)
         # ОПАСНЫЕ КОМАНДЫ ОТКЛЮЧЕНЫ ПО УМОЛЧАНИЮ
         allow_dangerous = os.getenv("ALLOW_DANGEROUS_COMMANDS", "false").lower() == "true"
         
         try:
+            if command in ('check-agent-update', 'check-agent-updates'):
+                result = self.check_agent_update()
+                self.report_agent_update(result)
+                _log(f"check-agent-update: {result}")
+                return bool(result.get('ok'))
+            if command in ('update-agent', 'upgrade-agent'):
+                result = self.update_agent()
+                self.report_agent_update(result)
+                _log(f"update-agent: {result}")
+                return bool(result.get('ok'))
             if command.startswith('reboot'):
                 # Перезагрузка системы - ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
@@ -2362,19 +2522,24 @@ class MonitoringAgent:
         return logs
     
     def send_heartbeat(self):
-        # Отправка heartbeat для обновления статуса ноды
+        # Отправка heartbeat для обновления статуса ноды + версии агента
         try:
+            info = self.agent_version_info()
             _log(f"Sending heartbeat to {self.master_url}/api/nodes.php?action=heartbeat")
+            payload = {
+                'timestamp': datetime.now().isoformat(),
+                **info,
+            }
             resp = _request_with_retry(
                 "POST",
                 f"{self.master_url}/api/nodes.php?action=heartbeat",
-                json={"timestamp": datetime.now().isoformat()},
+                json=payload,
                 headers=self.headers,
                 verify=_get_verify(),
                 timeout=5  # Короткий таймаут для heartbeat
             )
             if resp and resp.status_code in (200, 201):
-                _log(f"Heartbeat sent successfully: status={resp.status_code}")
+                _log(f"Heartbeat sent successfully: status={resp.status_code} version={info.get('agent_version')} commit={info.get('agent_commit')}")
                 return True
             else:
                 _log(f"Heartbeat failed: status={resp.status_code if resp else 'no response'}")
@@ -2421,6 +2586,10 @@ class MonitoringAgent:
                     _log(f"Command execution result: success={success}")
                     self.report_command_status(command, 'completed' if success else 'failed')
                     _log(f"=== COMMAND EXECUTION COMPLETE ===")
+                    if getattr(self, '_exit_after_command', False):
+                        _log('Exiting after agent update so systemd Restart=always picks up new code')
+                        time.sleep(1)
+                        os._exit(0)
                 except Exception as e:
                     _log(f"ERROR executing command: {e}")
                     import traceback

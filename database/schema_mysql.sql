@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS nodes (
     command_status VARCHAR(20) DEFAULT 'pending',
     command_timestamp TIMESTAMP NULL,
     command_result TEXT NULL,
+    agent_version VARCHAR(32) NULL,
+    agent_commit VARCHAR(64) NULL,
+    agent_remote_commit VARCHAR(64) NULL,
+    agent_branch VARCHAR(64) NULL,
+    agent_update_available TINYINT(1) NOT NULL DEFAULT 0,
+    agent_updated_at TIMESTAMP NULL,
     INDEX idx_status (status),
     INDEX idx_provider (provider_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

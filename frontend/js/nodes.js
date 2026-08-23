@@ -113,7 +113,7 @@ const renderNodes = (nodesToRender = null) => {
     
     if (!nodes.length) {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="10">Нет нод</td>'; // 10 колонок с учетом столбца действий
+        tr.innerHTML = '<td colspan="11">Нет нод</td>';
         tableBody.appendChild(tr);
         return;
     }
@@ -124,6 +124,7 @@ const renderNodes = (nodesToRender = null) => {
         const uptime = formatUptime(node.uptime || 0);
         const ping = node.ping !== undefined ? `${node.ping} мс` : '-';
         const statusClass = getStatusClass(node.status);
+        const agentHtml = formatAgentCell(node);
         
         tr.innerHTML = `
             <td><input type="checkbox" class="node-checkbox" value="${node.id}" onchange="updateSelection()"></td>
@@ -139,6 +140,7 @@ const renderNodes = (nodesToRender = null) => {
             <td>
                 <span class="cpu-value">${node.cpu_usage !== undefined ? `${parseFloat(node.cpu_usage).toFixed(1)}%` : '-'}</span>
             </td>
+            <td>${agentHtml}</td>
             <td>
                 <button class="icon-btn" type="button" onclick="editNodeById(${node.id})" title="Редактировать ноду">
                         <i data-lucide="edit"></i>
@@ -152,6 +154,21 @@ const renderNodes = (nodesToRender = null) => {
         lucide.createIcons();
     }
 };
+
+function formatAgentCell(node) {
+    const version = (node.agent_version || '').trim();
+    const commit = (node.agent_commit || '').trim();
+    if (!version && !commit) {
+        return '<span class="muted">—</span>';
+    }
+    const outdated = Number(node.agent_update_available) === 1;
+    const label = version || 'agent';
+    const commitShort = commit ? ` <code style="font-size:11px;">${commit}</code>` : '';
+    const badge = outdated
+        ? ' <span class="status pill" style="background:#f59e0b;color:#111;">update</span>'
+        : '';
+    return `<span title="${commit || ''}">${label}${commitShort}${badge}</span>`;
+}
 
 const loadNodes = async (silent = false) => {
     if (refreshTimer) clearTimeout(refreshTimer);
@@ -692,13 +709,17 @@ async function sendNodeCommand(action) {
         if (!confirmed) return;
     }
     
-    const actionNames = {
+const actionNames = {
         reboot: 'перезагрузить',
-        shutdown: 'выключить'
+        shutdown: 'выключить',
+        'check-agent-update': 'проверить агент',
+        'update-agent': 'обновить агент',
     };
     const titleNames = {
         reboot: 'Перезагрузка нод',
-        shutdown: 'Выключение нод'
+        shutdown: 'Выключение нод',
+        'check-agent-update': 'Проверка агента',
+        'update-agent': 'Обновление агента',
     };
     const actionName = actionNames[action] || action;
     const title = titleNames[action] || 'Действие с нодами';
@@ -759,6 +780,24 @@ async function rebootSelectedNodes() {
 async function shutdownSelectedNodes() {
     await sendNodeCommand('shutdown'); // оставлено для совместимости, не используется напрямую
 }
+
+async function checkAgentUpdateSelected() {
+    await sendNodeCommand('check-agent-update');
+}
+
+async function updateAgentSelected() {
+    if (selectedNodes.size === 0) return;
+    const confirmed = await window.showConfirm(
+        `Обновить агент на ${selectedNodes.size} нод(ах)?\nАгент сделает git pull и перезапустится.`,
+        'Обновление агента',
+        'warning'
+    );
+    if (!confirmed) return;
+    await sendNodeCommand('update-agent');
+}
+
+window.checkAgentUpdateSelected = checkAgentUpdateSelected;
+window.updateAgentSelected = updateAgentSelected;
 
 // Функция togglePowerSelectedNodes удалена - команды выключения отключены для безопасности
 

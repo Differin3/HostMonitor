@@ -36,6 +36,43 @@ render_layout_start('Обновления системы', 'updates');
         </div>
     </div>
 
+    <div class="card" style="margin-top: 24px;">
+        <div class="card-header">
+            <div class="card-title">
+                <i data-lucide="bot"></i>
+                <span>Агенты HostMonitor</span>
+            </div>
+            <div class="card-actions">
+                <button class="btn-outline" type="button" onclick="checkAgentUpdates()">
+                    <i data-lucide="search"></i> Проверить агенты
+                </button>
+                <button class="primary" type="button" onclick="applyAgentUpdates()">
+                    <i data-lucide="download"></i> Обновить устаревшие
+                </button>
+            </div>
+        </div>
+        <p class="stat-subtitle" id="agent-desired-label" style="margin: 0 16px 12px;">Целевая версия: —</p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Нода</th>
+                        <th>Статус</th>
+                        <th>Версия</th>
+                        <th>Commit</th>
+                        <th>Remote</th>
+                        <th>Обновление</th>
+                    </tr>
+                </thead>
+                <tbody id="agent-updates-tbody">
+                    <tr>
+                        <td colspan="6" class="text-center">Загрузка...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="compact-filters" style="margin-top: 24px;">
         <select id="nodeFilter" class="compact-select">
             <option value="">Все ноды</option>
@@ -55,7 +92,7 @@ render_layout_start('Обновления системы', 'updates');
         <div class="card-header">
             <div class="card-title">
                 <i data-lucide="package"></i>
-                <span>Доступные обновления</span>
+                <span>Доступные обновления пакетов</span>
             </div>
             <div class="card-actions">
                 <button class="primary" onclick="checkUpdates()">

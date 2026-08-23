@@ -30,6 +30,7 @@ render_layout_start('Ноды', 'nodes', $actions);
                     <th>Uptime</th>
                     <th>Ping</th>
                     <th><i data-lucide="cpu"></i> CPU</th>
+                    <th>Агент</th>
                     <th><i data-lucide="settings"></i></th>
                 </tr>
             </thead>
@@ -245,6 +246,12 @@ render_layout_start('Ноды', 'nodes', $actions);
             <button class="context-action-link" onclick="selectAllNodes()">Выбрать все</button>
             <button class="context-action-btn context-action-refresh" onclick="refreshSelectedNodes()">
                 <i data-lucide="refresh-cw"></i> Обновить
+            </button>
+            <button class="context-action-btn" onclick="checkAgentUpdateSelected()">
+                <i data-lucide="search"></i> Проверить агент
+            </button>
+            <button class="context-action-btn" onclick="updateAgentSelected()">
+                <i data-lucide="download"></i> Обновить агент
             </button>
             <button class="context-action-btn context-action-delete" onclick="deleteSelectedNodes()">
                 <i data-lucide="trash-2"></i> Удалить

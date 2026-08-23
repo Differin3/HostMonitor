@@ -799,6 +799,79 @@ window.checkUpdates = checkUpdates;
 window.installUpdates = installUpdates;
 window.installSingleUpdate = installSingleUpdate;
 window.loadHistory = loadHistory;
+window.checkAgentUpdates = checkAgentUpdates;
+window.applyAgentUpdates = applyAgentUpdates;
+window.loadAgentUpdates = loadAgentUpdates;
+
+async function loadAgentUpdates() {
+    const tbody = document.getElementById('agent-updates-tbody');
+    const label = document.getElementById('agent-desired-label');
+    try {
+        const result = await fetchJson('/agent_update.php?action=status');
+        const desired = result.desired || {};
+        if (label) {
+            label.textContent = `Целевая версия: ${desired.desired_version || '—'} (${desired.desired_commit || '—'}), устаревших: ${result.outdated_count ?? 0}`;
+        }
+        const nodes = result.nodes || [];
+        if (!tbody) return;
+        if (!nodes.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет нод</td></tr>';
+            return;
+        }
+        tbody.innerHTML = nodes.map((n) => {
+            const outdated = n.outdated || Number(n.agent_update_available) === 1;
+            const badge = outdated
+                ? '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>'
+                : '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
+            return `<tr>
+                <td>${n.name || '-'}</td>
+                <td><span class="status pill ${n.status === 'online' ? 'online' : 'offline'}">${n.status || '-'}</span></td>
+                <td>${n.agent_version || '—'}</td>
+                <td><code>${n.agent_commit || '—'}</code></td>
+                <td><code>${n.agent_remote_commit || '—'}</code></td>
+                <td>${badge}</td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error(e);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center">Ошибка загрузки статуса агентов</td></tr>';
+    }
+}
+
+async function checkAgentUpdates() {
+    try {
+        showToast('Проверка обновлений агентов...', 'info');
+        const result = await fetchJson('/agent_update.php?action=check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        showToast(result.message || `В очередь: ${result.queued || 0}`, 'success');
+        setTimeout(loadAgentUpdates, 3000);
+    } catch (e) {
+        showToast(e.message || 'Ошибка проверки агентов', 'error');
+    }
+}
+
+async function applyAgentUpdates() {
+    try {
+        const confirmed = window.confirm
+            ? window.confirm('Обновить агенты на всех онлайн-нодах с доступным обновлением?')
+            : true;
+        if (!confirmed) return;
+        showToast('Обновление агентов...', 'info');
+        const result = await fetchJson('/agent_update.php?action=apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ only_outdated: true }),
+        });
+        showToast(result.message || `В очередь: ${result.queued || 0}`, 'success');
+        setTimeout(loadAgentUpdates, 5000);
+    } catch (e) {
+        showToast(e.message || 'Ошибка обновления агентов', 'error');
+    }
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('select-all-updates')?.addEventListener('change', (e) => {
@@ -825,6 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
         populateHistoryNodeFilter();
         loadHistory();
     });
+    loadAgentUpdates();
     checkUpdates(true); // Автоматически загружаем обновления при открытии страницы (silent)
 });
 

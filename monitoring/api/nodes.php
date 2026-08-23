@@ -12,6 +12,34 @@ header('Content-Type: application/json; charset=utf-8');
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $pdo = getDbConnection();
 
+if (!function_exists('nodes_ensure_agent_columns')) {
+    function nodes_ensure_agent_columns(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        foreach ([
+            "ALTER TABLE nodes ADD COLUMN agent_version VARCHAR(32) NULL",
+            "ALTER TABLE nodes ADD COLUMN agent_commit VARCHAR(64) NULL",
+            "ALTER TABLE nodes ADD COLUMN agent_remote_commit VARCHAR(64) NULL",
+            "ALTER TABLE nodes ADD COLUMN agent_branch VARCHAR(64) NULL",
+            "ALTER TABLE nodes ADD COLUMN agent_update_available TINYINT(1) NOT NULL DEFAULT 0",
+            "ALTER TABLE nodes ADD COLUMN agent_updated_at TIMESTAMP NULL",
+            "ALTER TABLE nodes ADD COLUMN command_result TEXT NULL",
+        ] as $sql) {
+            try {
+                $pdo->exec($sql);
+            } catch (Throwable $e) {
+                // column already exists
+            }
+        }
+    }
+}
+
+nodes_ensure_agent_columns($pdo);
+
 // Функция проверки токена ноды (для агентов)
 function validateNodeToken($pdo, $token) {
     if (!$token) return null;
@@ -639,7 +667,7 @@ function handlePost($pdo) {
             }
         }
         
-        if (in_array($nodeAction, ['reboot', 'shutdown', 'sync'])) {
+        if (in_array($nodeAction, ['reboot', 'shutdown', 'sync', 'check-agent-update', 'update-agent'], true)) {
             executeNodeAction($pdo, $nodeId, $nodeAction);
             return;
         }
@@ -666,12 +694,35 @@ function handlePost($pdo) {
             echo json_encode(['error' => 'Unauthorized']);
             exit;
         }
+
+        nodes_ensure_agent_columns($pdo);
         
         $nodeId = $nodeInfo['id'];
-        
-        // Обновляем last_seen и статус ноды
-        $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
-        $updateStmt->execute([$nodeId]);
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) {
+            $data = [];
+        }
+
+        $version = substr((string)($data['agent_version'] ?? ''), 0, 32);
+        $commit = substr((string)($data['agent_commit'] ?? ''), 0, 64);
+        $branch = substr((string)($data['agent_branch'] ?? ''), 0, 64);
+        $remote = substr((string)($data['agent_remote_commit'] ?? ''), 0, 64);
+
+        if ($version !== '' || $commit !== '') {
+            $updateStmt = $pdo->prepare(
+                "UPDATE nodes SET status = 'online', last_seen = NOW(),
+                    agent_version = COALESCE(NULLIF(?, ''), agent_version),
+                    agent_commit = COALESCE(NULLIF(?, ''), agent_commit),
+                    agent_branch = COALESCE(NULLIF(?, ''), agent_branch),
+                    agent_remote_commit = COALESCE(NULLIF(?, ''), agent_remote_commit),
+                    agent_updated_at = NOW()
+                 WHERE id = ?"
+            );
+            $updateStmt->execute([$version, $commit, $branch, $remote, $nodeId]);
+        } else {
+            $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
+            $updateStmt->execute([$nodeId]);
+        }
         
         echo json_encode([
             'status' => 'ok',
