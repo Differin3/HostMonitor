@@ -206,22 +206,12 @@ try {
         if ($direction !== 'to_replica' && $direction !== 'to_primary') {
             json_error('direction: to_replica или to_primary');
         }
-        $cfg = db_config_load();
-        if (!db_replica_enabled($cfg)) {
-            json_error('Сначала включите резервную базу');
-        }
-        $primary = db_endpoint($cfg, 'primary');
-        $replica = db_endpoint($cfg, 'replica');
-        if (db_endpoint_same($primary, $replica)) {
-            json_error('Основная и резервная база совпадают — копировать некуда');
-        }
-        $srcEp = $direction === 'to_replica' ? $primary : $replica;
-        $dstEp = $direction === 'to_replica' ? $replica : $primary;
         try {
-            $src = db_try_connect($srcEp, 8);
-            $dst = db_try_connect($dstEp, 8);
+            $eps = db_sync_endpoints($direction);
+            $src = db_try_connect($eps['src'], 8);
+            $dst = db_try_connect($eps['dst'], 8);
         } catch (Throwable $e) {
-            json_error('Нет соединения для синхронизации: ' . $e->getMessage(), 503);
+            json_error($e->getMessage(), 503);
         }
         $stats = db_copy_database($src, $dst);
         getDbConnection(true);
@@ -231,6 +221,90 @@ try {
             'copied' => $stats,
             'status' => db_ha_status_payload(true),
         ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'sync_prepare') {
+        db_ha_require_editable();
+        $direction = (string)($data['direction'] ?? 'to_replica');
+        try {
+            $eps = db_sync_endpoints($direction);
+            $src = db_try_connect($eps['src'], 8);
+            $tables = db_list_base_tables($src);
+        } catch (Throwable $e) {
+            json_error($e->getMessage(), 503);
+        }
+        echo json_encode([
+            'ok' => true,
+            'direction' => $direction,
+            'tables' => $tables,
+            'table_count' => count($tables),
+            'source_label' => $eps['source_label'],
+            'target_label' => $eps['target_label'],
+            'source_name' => (string)($eps['src']['name'] ?? ''),
+            'target_name' => (string)($eps['dst']['name'] ?? ''),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'sync_table') {
+        db_ha_require_editable();
+        @set_time_limit(0);
+        $direction = (string)($data['direction'] ?? 'to_replica');
+        $table = trim((string)($data['table'] ?? ''));
+        $index = max(0, (int)($data['index'] ?? 0));
+        $total = max(1, (int)($data['total'] ?? 1));
+        if ($table === '') {
+            json_error('Имя таблицы обязательно');
+        }
+        try {
+            $eps = db_sync_endpoints($direction);
+            $src = db_try_connect($eps['src'], 120);
+            $dst = db_try_connect($eps['dst'], 120);
+        } catch (Throwable $e) {
+            json_error('Нет соединения: ' . $e->getMessage(), 503);
+        }
+        try {
+            if ($index === 0) {
+                $dst->exec('SET FOREIGN_KEY_CHECKS=0');
+                $dst->exec('SET UNIQUE_CHECKS=0');
+            }
+            $rows = db_copy_table($src, $dst, $table);
+            $done = $index >= $total - 1;
+            if ($done) {
+                db_sync_restore_checks($dst);
+                getDbConnection(true);
+            }
+            echo json_encode([
+                'ok' => true,
+                'table' => $table,
+                'rows' => $rows,
+                'index' => $index,
+                'total' => $total,
+                'done' => $done,
+                'status' => $done ? db_ha_status_payload(true) : null,
+            ], JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            try {
+                db_sync_restore_checks($dst);
+            } catch (Throwable $ignored) {
+            }
+            throw $e;
+        }
+        exit;
+    }
+
+    if ($action === 'sync_abort') {
+        db_ha_require_editable();
+        $direction = (string)($data['direction'] ?? 'to_replica');
+        try {
+            $eps = db_sync_endpoints($direction);
+            $dst = db_try_connect($eps['dst'], 8);
+            db_sync_restore_checks($dst);
+        } catch (Throwable $e) {
+            json_error($e->getMessage(), 503);
+        }
+        echo json_encode(['ok' => true, 'message' => 'Синхронизация прервана'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 

@@ -39,6 +39,8 @@ const CHECK_FIELDS = {
 
 let dbHaLoaded = false;
 let dbHaEditable = true;
+let dbSyncRunning = false;
+let dbSyncAbort = false;
 let lastSettings = {};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -292,6 +294,152 @@ function setHaPill(id, label, ok, extra) {
     if (ok === 'warn') el.classList.add('warn');
 }
 
+function setDbSyncUi(running) {
+    dbSyncRunning = !!running;
+    const actions = val('db-sync-actions');
+    const progress = val('db-sync-progress');
+    if (actions) actions.classList.toggle('hidden', dbSyncRunning);
+    if (progress) progress.classList.toggle('hidden', !dbSyncRunning);
+    document.querySelectorAll('.db-sync-card').forEach((btn) => {
+        btn.disabled = !dbHaEditable || dbSyncRunning;
+    });
+    const cancelBtn = val('db-sync-cancel');
+    if (cancelBtn) cancelBtn.disabled = !dbSyncRunning;
+    if (!dbSyncRunning && window.lucide) lucide.createIcons();
+}
+
+function updateDbSyncProgress(label, pct, detail) {
+    const labelEl = val('db-sync-progress-label');
+    const pctEl = val('db-sync-progress-pct');
+    const bar = val('db-sync-progress-bar');
+    const detailEl = val('db-sync-progress-detail');
+    if (labelEl) labelEl.textContent = label;
+    if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+    if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    if (detailEl) detailEl.textContent = detail || '';
+}
+
+function showDbSyncResult(message, isError) {
+    const box = val('db-sync-result');
+    if (!box) return;
+    box.classList.remove('hidden', 'is-ok', 'is-error');
+    box.classList.add(isError ? 'is-error' : 'is-ok');
+    box.textContent = message;
+}
+
+function hideDbSyncResult() {
+    const box = val('db-sync-result');
+    if (box) box.classList.add('hidden');
+}
+
+async function runDbSync(direction) {
+    if (!dbHaEditable || dbSyncRunning) return;
+
+    const titles = {
+        to_replica: 'Сделать резервную базу актуальной',
+        to_primary: 'Вернуть данные на основную базу',
+    };
+    const confirmed = window.showConfirm
+        ? await window.showConfirm(
+            `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Это может занять несколько минут.\n\nПродолжить?`,
+            'Копирование базы',
+            'warning'
+        )
+        : confirm('Таблицы на приёмнике будут перезаписаны. Продолжить?');
+    if (!confirmed) return;
+
+    dbSyncAbort = false;
+    hideDbSyncResult();
+    setDbSyncUi(true);
+    updateDbSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');
+
+    let directionUsed = direction;
+    let totalRows = 0;
+    const tableStats = [];
+
+    try {
+        const prep = await dbHaRequest({ action: 'sync_prepare', direction });
+        directionUsed = prep.direction || direction;
+        const tables = prep.tables || [];
+        const total = tables.length;
+        if (!total) {
+            throw new Error('В источнике нет таблиц для копирования');
+        }
+
+        const srcLabel = prep.source_label || 'источник';
+        const dstLabel = prep.target_label || 'приёмник';
+        const srcName = prep.source_name ? ` (${prep.source_name})` : '';
+        const dstName = prep.target_name ? ` (${prep.target_name})` : '';
+        updateDbSyncProgress(
+            'Копирование…',
+            0,
+            `${srcLabel}${srcName} → ${dstLabel}${dstName} · таблиц: ${total}`
+        );
+
+        for (let i = 0; i < total; i++) {
+            if (dbSyncAbort) {
+                throw new Error('Отменено пользователем');
+            }
+            const table = tables[i];
+            const pctBefore = (i / total) * 100;
+            updateDbSyncProgress(
+                `Таблица ${i + 1} из ${total}`,
+                pctBefore,
+                `Копируется «${table}»…`
+            );
+
+            const res = await dbHaRequest({
+                action: 'sync_table',
+                direction: directionUsed,
+                table,
+                index: i,
+                total,
+            });
+
+            const rows = Number(res.rows) || 0;
+            totalRows += rows;
+            tableStats.push({ table, rows });
+
+            const pctAfter = ((i + 1) / total) * 100;
+            updateDbSyncProgress(
+                i + 1 >= total ? 'Завершение…' : `Таблица ${i + 1} из ${total}`,
+                pctAfter,
+                `«${table}» — ${rows.toLocaleString('ru-RU')} строк`
+            );
+
+            if (res.done && res.status) {
+                fillDbHaForm(res.status);
+            }
+        }
+
+        updateDbSyncProgress('Готово', 100, `Скопировано таблиц: ${tableStats.length}, строк: ${totalRows.toLocaleString('ru-RU')}`);
+        const summary = `Готово: ${tableStats.length} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`;
+        showDbSyncResult(summary, false);
+        dbHaLog(summary, false);
+        showToast('Копирование завершено', 'success');
+    } catch (e) {
+        if (dbSyncAbort || e.message === 'Отменено пользователем') {
+            try {
+                await dbHaRequest({ action: 'sync_abort', direction: directionUsed });
+            } catch (abortErr) {
+                // ignore
+            }
+            updateDbSyncProgress('Отменено', 0, '');
+            showDbSyncResult('Копирование прервано.', true);
+            dbHaLog('Копирование прервано.', true);
+            showToast('Копирование отменено', 'info');
+        } else {
+            updateDbSyncProgress('Ошибка', 0, e.message);
+            showDbSyncResult(e.message, true);
+            dbHaLog(e.message, true);
+            showToast(e.message, 'error');
+        }
+    } finally {
+        setDbSyncUi(false);
+        dbSyncAbort = false;
+    }
+}
+
 function setDbHaEditable(editable) {
     dbHaEditable = !!editable;
     const banner = val('db-ha-locked-banner');
@@ -299,9 +447,17 @@ function setDbHaEditable(editable) {
     const section = val('database-tab')?.querySelector('.settings-section');
     if (!section) return;
     section.querySelectorAll('input, textarea, select, button').forEach((el) => {
-        if (el.id === 'db-ha-ping') {
-            el.disabled = false;
-            el.readOnly = false;
+        if (el.id === 'db-ha-ping' || el.id === 'db-sync-cancel') {
+            if (el.id === 'db-sync-cancel') {
+                el.disabled = !dbSyncRunning;
+            } else {
+                el.disabled = false;
+                el.readOnly = false;
+            }
+            return;
+        }
+        if (el.classList.contains('db-sync-card')) {
+            el.disabled = !dbHaEditable || dbSyncRunning;
             return;
         }
         const textLike = el.tagName === 'TEXTAREA'
@@ -317,6 +473,7 @@ function setDbHaEditable(editable) {
         toggleReplicaFields();
         toggleSslCaBlock();
     }
+    setDbSyncUi(dbSyncRunning);
 }
 
 function paintSslCaStatus(replica) {
@@ -557,24 +714,14 @@ function initDbHa() {
         }
     });
 
-    const sync = async (direction, label) => {
-        if (!dbHaEditable) return;
-        if (!confirm(`${label}. Таблицы на приёмнике будут перезаписаны. Продолжить?`)) return;
-        dbHaLog('Копирование… это может занять несколько минут.', false);
-        try {
-            const data = await dbHaRequest({ action: 'sync', direction });
-            if (data.status) fillDbHaForm(data.status);
-            const copied = data.copied || {};
-            dbHaLog(`Готово: таблиц ${copied.table_count ?? 0}, строк ${copied.row_count ?? 0}.`, false);
-            showToast('Синхронизация завершена', 'success');
-        } catch (e) {
-            dbHaLog(e.message, true);
-            showToast(e.message, 'error');
-        }
-    };
-
-    val('db-ha-to-replica')?.addEventListener('click', () => sync('to_replica', 'Скопировать основную базу на резерв'));
-    val('db-ha-to-primary')?.addEventListener('click', () => sync('to_primary', 'Скопировать резервную базу на основную'));
+    val('db-ha-to-replica')?.addEventListener('click', () => runDbSync('to_replica'));
+    val('db-ha-to-primary')?.addEventListener('click', () => runDbSync('to_primary'));
+    val('db-sync-cancel')?.addEventListener('click', () => {
+        if (!dbSyncRunning) return;
+        dbSyncAbort = true;
+        const pct = parseFloat(String(val('db-sync-progress-pct')?.textContent || '0').replace('%', '')) || 0;
+        updateDbSyncProgress('Отмена…', pct, 'Дождитесь завершения текущей таблицы');
+    });
     val('db-replica-ssl-ca-upload')?.addEventListener('click', uploadSslCa);
     val('db-replica-ssl-ca-remove')?.addEventListener('click', removeSslCa);
     val('db-replica-ssl-ca-file')?.addEventListener('change', async (e) => {
@@ -586,5 +733,6 @@ function initDbHa() {
 
     toggleReplicaFields();
     toggleSslCaBlock();
+    setDbSyncUi(false);
     loadDbHa(true);
 }

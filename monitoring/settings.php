@@ -351,17 +351,48 @@ render_layout_start('Настройки', 'settings');
                         </div>
                     </div>
 
-                    <div class="ha-actions">
-                        <button type="button" class="primary" id="db-ha-save">Сохранить подключения</button>
-                        <button type="button" class="btn-outline" id="db-ha-ping">Проверить</button>
-                        <button type="button" class="btn-outline" id="db-ha-failback">Вернуться на основную</button>
+                    <div class="ha-actions ha-actions-primary">
+                        <button type="button" class="primary" id="db-ha-save"><i data-lucide="save"></i> Сохранить настройки MySQL</button>
+                        <button type="button" class="btn-outline" id="db-ha-ping"><i data-lucide="activity"></i> Проверить связь</button>
+                        <button type="button" class="btn-outline" id="db-ha-failback" title="Принудительно переключить панель на основную базу"><i data-lucide="rotate-ccw"></i> На основную</button>
                     </div>
 
-                    <h3 class="ha-subhead">Синхронизация</h3>
-                    <p class="form-hint-text">Копирует таблицы целиком (схема + данные). На большой базе может занять несколько минут.</p>
-                    <div class="ha-actions">
-                        <button type="button" class="btn-outline" id="db-ha-to-replica">Основная → резерв</button>
-                        <button type="button" class="btn-outline" id="db-ha-to-primary">Резерв → основная</button>
+                    <div class="db-sync-section">
+                        <h3 class="ha-subhead">Копирование данных между базами</h3>
+                        <p class="form-hint-text">Разовое полное копирование всех таблиц (схема + строки). На приёмнике таблицы <strong>перезаписываются</strong>. Для постоянной репликации используйте MySQL replication — эти кнопки не заменяют её.</p>
+
+                        <div class="db-sync-actions" id="db-sync-actions">
+                            <button type="button" class="db-sync-card" id="db-ha-to-replica" data-direction="to_replica">
+                                <span class="db-sync-card-icon"><i data-lucide="cloud-upload"></i></span>
+                                <span class="db-sync-card-body">
+                                    <strong>Сделать резерв актуальным</strong>
+                                    <small>Копировать с основной на резервную — перед переключением на SkySQL или для бэкапа</small>
+                                </span>
+                                <span class="db-sync-card-arrow">→</span>
+                            </button>
+                            <button type="button" class="db-sync-card" id="db-ha-to-primary" data-direction="to_primary">
+                                <span class="db-sync-card-icon"><i data-lucide="cloud-download"></i></span>
+                                <span class="db-sync-card-body">
+                                    <strong>Вернуть данные на основную</strong>
+                                    <small>Копировать с резервной на основную — если правили резерв и нужно откатить на локальную базу</small>
+                                </span>
+                                <span class="db-sync-card-arrow">→</span>
+                            </button>
+                        </div>
+
+                        <div class="db-sync-progress hidden" id="db-sync-progress" aria-live="polite">
+                            <div class="db-sync-progress-head">
+                                <span id="db-sync-progress-label">Подготовка…</span>
+                                <span id="db-sync-progress-pct">0%</span>
+                            </div>
+                            <div class="hm-meter db-sync-meter" data-tone="ok"><span id="db-sync-progress-bar" style="width:0%"></span></div>
+                            <p class="db-sync-progress-detail" id="db-sync-progress-detail"></p>
+                            <div class="ha-actions">
+                                <button type="button" class="btn-outline" id="db-sync-cancel"><i data-lucide="x"></i> Отменить</button>
+                            </div>
+                        </div>
+
+                        <div class="db-sync-result hidden" id="db-sync-result"></div>
                     </div>
                     <pre class="ha-log hidden" id="db-ha-log"></pre>
                 </div>

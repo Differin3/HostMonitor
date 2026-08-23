@@ -24,6 +24,18 @@ function dbmon_ensure_tables(PDO $pdo): void
         INDEX idx_dbmon_kind (kind)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    foreach ([
+        'ssl TINYINT(1) NOT NULL DEFAULT 0',
+        'ssl_verify TINYINT(1) NOT NULL DEFAULT 0',
+        "ssl_ca VARCHAR(255) NOT NULL DEFAULT ''",
+    ] as $colDef) {
+        try {
+            $pdo->exec('ALTER TABLE monitored_databases ADD COLUMN ' . $colDef);
+        } catch (Throwable $e) {
+            // column exists
+        }
+    }
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS database_metrics (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         database_id INT NOT NULL,
@@ -80,6 +92,66 @@ function dbmon_upsert_builtin(PDO $pdo, string $kind, string $name, array $ep, s
     $ins->execute([$name, $kind, 'mysql', $host, $port, $dbName, $user, '', 'unknown']);
 }
 
+function dbmon_ssl_ca_relative(int $id): string
+{
+    return 'ssl/dbmon-' . $id . '-ca.pem';
+}
+
+function dbmon_ssl_public(array $row): array
+{
+    $kind = (string)($row['kind'] ?? 'custom');
+    if ($kind === 'replica') {
+        $ep = db_public_endpoint(db_endpoint(db_config_load(), 'replica'));
+        return [
+            'ssl' => !empty($ep['ssl']),
+            'ssl_verify' => !empty($ep['ssl_verify']),
+            'has_ssl_ca' => !empty($ep['has_ssl_ca']),
+            'ssl_ca' => (string)($ep['ssl_ca'] ?? ''),
+            'ssl_ca_subject' => (string)($ep['ssl_ca_subject'] ?? ''),
+            'ssl_ca_cert_count' => (int)($ep['ssl_ca_cert_count'] ?? 0),
+            'ssl_managed_in' => 'settings',
+        ];
+    }
+    if ($kind === 'panel') {
+        return [
+            'ssl' => false,
+            'ssl_verify' => false,
+            'has_ssl_ca' => false,
+            'ssl_ca' => '',
+            'ssl_managed_in' => '',
+        ];
+    }
+    $rel = (string)($row['ssl_ca'] ?? '');
+    $caInfo = db_ssl_ca_info($rel !== '' ? $rel : '', false);
+    $out = [
+        'ssl' => !empty($row['ssl']),
+        'ssl_verify' => !empty($row['ssl_verify']),
+        'has_ssl_ca' => !empty($caInfo['installed']),
+        'ssl_ca' => !empty($caInfo['installed']) ? (string)($caInfo['relative'] ?? $rel) : '',
+        'ssl_managed_in' => 'local',
+    ];
+    if (!empty($caInfo['subject'])) {
+        $out['ssl_ca_subject'] = (string)$caInfo['subject'];
+    }
+    if (!empty($caInfo['cert_count'])) {
+        $out['ssl_ca_cert_count'] = (int)$caInfo['cert_count'];
+    }
+    return $out;
+}
+
+function dbmon_save_replica_ssl(array $data): void
+{
+    $cfg = db_config_load();
+    $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+    db_config_save(array_merge($cfg, [
+        'replica' => array_merge($replica, [
+            'ssl' => !empty($data['ssl']),
+            'ssl_verify' => !empty($data['ssl_verify']),
+            'ssl_ca' => (string)($replica['ssl_ca'] ?? $cfg['replica']['ssl_ca'] ?? ''),
+        ]),
+    ]));
+}
+
 function dbmon_endpoint_for(array $row): array
 {
     $kind = (string)($row['kind'] ?? 'custom');
@@ -93,6 +165,10 @@ function dbmon_endpoint_for(array $row): array
         'name' => (string)($row['db_name'] ?? ''),
         'user' => (string)($row['username'] ?? ''),
         'password' => (string)($row['password'] ?? ''),
+        'ssl' => !empty($row['ssl']),
+        'ssl_verify' => !empty($row['ssl_verify']),
+        'ssl_ca' => (string)($row['ssl_ca'] ?? ''),
+        'ssl_ca_default' => false,
     ];
 }
 
@@ -373,6 +449,7 @@ function dbmon_public(array $row, ?array $metrics = null): array
     $row['enabled'] = (int)($row['enabled'] ?? 1);
     $row['is_builtin'] = in_array($row['kind'] ?? '', ['panel', 'replica'], true);
     $row['has_password'] = false;
+    $row = array_merge($row, dbmon_ssl_public($row));
     if ($metrics) {
         $row['metrics'] = $metrics;
     }

@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/db_config.php';
 require_once __DIR__ . '/../includes/db_monitor.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -51,6 +52,9 @@ function dbmon_save_row(PDO $pdo, int $id, array $data): void
     if ($builtin) {
         $pdo->prepare('UPDATE monitored_databases SET name = ?, notes = ?, enabled = ? WHERE id = ?')
             ->execute([$name !== '' ? $name : $row['name'], $notes, $enabled, $id]);
+        if (($row['kind'] ?? '') === 'replica' && (array_key_exists('ssl', $data) || array_key_exists('ssl_verify', $data))) {
+            dbmon_save_replica_ssl($data);
+        }
     } else {
         $engine = dbmon_normalize_engine((string)($data['engine'] ?? $row['engine']));
         $host = trim((string)($data['host'] ?? $row['host']));
@@ -61,12 +65,14 @@ function dbmon_save_row(PDO $pdo, int $id, array $data): void
             ? ($data['node_id'] !== '' && $data['node_id'] !== null ? (int)$data['node_id'] : null)
             : ($row['node_id'] !== null ? (int)$row['node_id'] : null);
         $password = (string)($data['password'] ?? '');
+        $ssl = array_key_exists('ssl', $data) ? (!empty($data['ssl']) ? 1 : 0) : (int)($row['ssl'] ?? 0);
+        $sslVerify = array_key_exists('ssl_verify', $data) ? (!empty($data['ssl_verify']) ? 1 : 0) : (int)($row['ssl_verify'] ?? 0);
         if ($password === '') {
-            $pdo->prepare('UPDATE monitored_databases SET name = ?, engine = ?, host = ?, port = ?, db_name = ?, username = ?, node_id = ?, notes = ?, enabled = ? WHERE id = ?')
-                ->execute([$name, $engine, $host, $port, $dbName, $user, $nodeId, $notes, $enabled, $id]);
+            $pdo->prepare('UPDATE monitored_databases SET name = ?, engine = ?, host = ?, port = ?, db_name = ?, username = ?, node_id = ?, notes = ?, enabled = ?, ssl = ?, ssl_verify = ? WHERE id = ?')
+                ->execute([$name, $engine, $host, $port, $dbName, $user, $nodeId, $notes, $enabled, $ssl, $sslVerify, $id]);
         } else {
-            $pdo->prepare('UPDATE monitored_databases SET name = ?, engine = ?, host = ?, port = ?, db_name = ?, username = ?, password = ?, node_id = ?, notes = ?, enabled = ? WHERE id = ?')
-                ->execute([$name, $engine, $host, $port, $dbName, $user, $password, $nodeId, $notes, $enabled, $id]);
+            $pdo->prepare('UPDATE monitored_databases SET name = ?, engine = ?, host = ?, port = ?, db_name = ?, username = ?, password = ?, node_id = ?, notes = ?, enabled = ?, ssl = ?, ssl_verify = ? WHERE id = ?')
+                ->execute([$name, $engine, $host, $port, $dbName, $user, $password, $nodeId, $notes, $enabled, $ssl, $sslVerify, $id]);
         }
     }
     $stmt->execute([$id]);
@@ -74,6 +80,85 @@ function dbmon_save_row(PDO $pdo, int $id, array $data): void
     dbmon_probe_one($pdo, $fresh);
     $stmt->execute([$id]);
     echo json_encode(['ok' => true, 'database' => dbmon_public($stmt->fetch(PDO::FETCH_ASSOC) ?: $fresh)], JSON_UNESCAPED_UNICODE);
+}
+
+function dbmon_upload_ssl_ca(PDO $pdo, int $id, string $pem): void
+{
+    if ($id < 1) {
+        json_error('ID обязателен');
+    }
+    if (!db_ssl_validate_pem($pem)) {
+        json_error('Некорректный PEM: нужен текст с -----BEGIN CERTIFICATE-----');
+    }
+    $stmt = $pdo->prepare('SELECT * FROM monitored_databases WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        json_error('База не найдена', 404);
+    }
+    $kind = (string)($row['kind'] ?? 'custom');
+    if ($kind === 'replica') {
+        $rel = db_ssl_ca_save($pem);
+        $cfg = db_config_load();
+        $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+        db_config_save(array_merge($cfg, [
+            'replica' => array_merge($replica, ['ssl_ca' => $rel, 'ssl' => true]),
+        ]));
+        $sslInfo = db_ssl_ca_info($rel);
+    } elseif ($kind === 'panel') {
+        json_error('SSL для основной базы панели настраивается в Настройки → База данных');
+    } else {
+        $rel = db_ssl_ca_save($pem, dbmon_ssl_ca_relative($id));
+        $pdo->prepare('UPDATE monitored_databases SET ssl = 1, ssl_ca = ? WHERE id = ?')->execute([$rel, $id]);
+        $sslInfo = db_ssl_ca_info($rel, false);
+    }
+    $stmt->execute([$id]);
+    $fresh = $stmt->fetch(PDO::FETCH_ASSOC);
+    dbmon_probe_one($pdo, $fresh);
+    $stmt->execute([$id]);
+    echo json_encode([
+        'ok' => true,
+        'ssl_ca' => $sslInfo,
+        'database' => dbmon_public($stmt->fetch(PDO::FETCH_ASSOC) ?: $fresh),
+        'message' => 'CA-сертификат сохранён',
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function dbmon_remove_ssl_ca(PDO $pdo, int $id): void
+{
+    if ($id < 1) {
+        json_error('ID обязателен');
+    }
+    $stmt = $pdo->prepare('SELECT * FROM monitored_databases WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        json_error('База не найдена', 404);
+    }
+    $kind = (string)($row['kind'] ?? 'custom');
+    if ($kind === 'replica') {
+        db_ssl_ca_remove();
+        $cfg = db_config_load();
+        $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+        db_config_save(array_merge($cfg, [
+            'replica' => array_merge($replica, ['ssl_ca' => '']),
+        ]));
+        $sslInfo = db_ssl_ca_info('', true);
+    } elseif ($kind === 'panel') {
+        json_error('SSL для основной базы панели настраивается в Настройки → База данных');
+    } else {
+        db_ssl_ca_remove(dbmon_ssl_ca_relative($id));
+        $pdo->prepare("UPDATE monitored_databases SET ssl_ca = '' WHERE id = ?")->execute([$id]);
+        $sslInfo = db_ssl_ca_info('', false);
+    }
+    $stmt->execute([$id]);
+    $fresh = $stmt->fetch(PDO::FETCH_ASSOC);
+    echo json_encode([
+        'ok' => true,
+        'ssl_ca' => $sslInfo,
+        'database' => dbmon_public($fresh),
+        'message' => 'CA-сертификат удалён',
+    ], JSON_UNESCAPED_UNICODE);
 }
 
 try {
@@ -148,6 +233,15 @@ try {
             dbmon_save_row($pdo, (int)($data['id'] ?? 0), $data);
             exit;
         }
+        if ($action === 'upload_ssl_ca') {
+            $pem = trim((string)($data['pem'] ?? ''));
+            dbmon_upload_ssl_ca($pdo, (int)($data['id'] ?? 0), $pem);
+            exit;
+        }
+        if ($action === 'remove_ssl_ca') {
+            dbmon_remove_ssl_ca($pdo, (int)($data['id'] ?? 0));
+            exit;
+        }
 
         $name = trim((string)($data['name'] ?? ''));
         $engine = dbmon_normalize_engine((string)($data['engine'] ?? 'mysql'));
@@ -165,9 +259,12 @@ try {
             json_error('Некорректный порт');
         }
 
-        $ins = $pdo->prepare('INSERT INTO monitored_databases (name, kind, engine, host, port, db_name, username, password, node_id, notes, enabled, status)
-            VALUES (?, "custom", ?, ?, ?, ?, ?, ?, ?, ?, 1, "unknown")');
-        $ins->execute([$name, $engine, $host, $port, $dbName, $user, $password, $nodeId, $notes]);
+        $ssl = !empty($data['ssl']) ? 1 : 0;
+        $sslVerify = !empty($data['ssl_verify']) ? 1 : 0;
+
+        $ins = $pdo->prepare('INSERT INTO monitored_databases (name, kind, engine, host, port, db_name, username, password, node_id, notes, enabled, status, ssl, ssl_verify)
+            VALUES (?, "custom", ?, ?, ?, ?, ?, ?, ?, ?, 1, "unknown", ?, ?)');
+        $ins->execute([$name, $engine, $host, $port, $dbName, $user, $password, $nodeId, $notes, $ssl, $sslVerify]);
         $newId = (int)$pdo->lastInsertId();
         $stmt = $pdo->prepare('SELECT * FROM monitored_databases WHERE id = ?');
         $stmt->execute([$newId]);
@@ -195,6 +292,7 @@ try {
         if (in_array($kind, ['panel', 'replica'], true)) {
             json_error('Встроенное подключение панели удаляется в настройках БД');
         }
+        db_ssl_ca_remove(dbmon_ssl_ca_relative($id));
         $pdo->prepare('DELETE FROM monitored_databases WHERE id = ?')->execute([$id]);
         echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
         exit;

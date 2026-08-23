@@ -281,7 +281,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="form-field ha-span-2 db-ha-ca-block" id="replica-ssl-ca-block" <?= empty($old['replica_ssl_verify']) ? 'hidden' : '' ?>>
                             <label class="form-label" for="replica_ssl_ca_pem">CA-сертификат (PEM)</label>
-                            <p class="form-hint-text">Для SkySQL / MariaDB Sky. Вставьте текст сертификата (можно позже загрузить файл в настройках).</p>
+                            <p class="form-hint-text">Для SkySQL / MariaDB Sky. Загрузите .pem/.crt или вставьте текст сертификата.</p>
+                            <div class="ha-actions">
+                                <input type="file" id="replica_ssl_ca_file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,text/plain">
+                            </div>
                             <textarea id="replica_ssl_ca_pem" name="replica_ssl_ca_pem" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
                         </div>
                     </div>
@@ -355,6 +358,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if (sslVerify) {
             sslVerify.addEventListener('change', toggleCa);
+        }
+        const caFile = document.getElementById('replica_ssl_ca_file');
+        if (caFile) {
+            caFile.addEventListener('change', async (e) => {
+                const file = e.target.files?.[0];
+                const ta = document.getElementById('replica_ssl_ca_pem');
+                if (file && ta) ta.value = await file.text();
+            });
         }
         toggleReplica();
         toggleCa();

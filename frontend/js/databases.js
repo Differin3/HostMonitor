@@ -50,6 +50,40 @@ const engineLabel = (engine) => {
     return 'MySQL';
 };
 
+const isMysqlEngine = (engine) => engine === 'mysql' || engine === 'mariadb';
+
+function paintDbmonSslStatus(row) {
+    const statusEl = document.getElementById('dbmon-ssl-ca-status');
+    const removeBtn = document.getElementById('dbmon-ssl-ca-remove');
+    if (!statusEl) return;
+    if (row?.has_ssl_ca) {
+        const parts = ['CA установлен'];
+        if (row.ssl_ca) parts.push(`(${row.ssl_ca})`);
+        if (row.ssl_ca_subject) parts.push(`— ${row.ssl_ca_subject}`);
+        if (row.ssl_ca_cert_count > 1) parts.push(`[${row.ssl_ca_cert_count} серт.]`);
+        statusEl.textContent = parts.join(' ');
+        statusEl.classList.add('ok-hint');
+    } else {
+        statusEl.textContent = 'CA не загружен — при «Проверять сертификат» используется системный bundle или загрузите свой PEM';
+        statusEl.classList.remove('ok-hint');
+    }
+    if (removeBtn) removeBtn.disabled = !row?.has_ssl_ca;
+}
+
+function toggleDbmonSslSection(row) {
+    const section = document.getElementById('dbmon-ssl-section');
+    const caBlock = document.getElementById('dbmon-ssl-ca-block');
+    const hint = document.getElementById('dbmon-ssl-settings-hint');
+    const engine = row?.engine || document.getElementById('dbmon-engine-field')?.value || 'mysql';
+    const kind = row?.kind || 'custom';
+    const show = isMysqlEngine(engine) && kind !== 'panel';
+    if (section) section.classList.toggle('hidden', !show);
+    if (hint) hint.classList.toggle('hidden', kind !== 'replica');
+    if (!show) return;
+    const verify = document.getElementById('dbmon-ssl-verify')?.checked;
+    if (caBlock) caBlock.classList.toggle('hidden', !verify);
+}
+
 async function fetchJson(url, options = {}) {
     const res = await fetch(url, { credentials: 'include', ...options });
     const text = await res.text();
@@ -76,10 +110,15 @@ function openModal(row) {
     document.getElementById('dbmon-id').value = row?.id || '';
     document.getElementById('dbmon-modal-title').textContent = row ? 'Изменить базу' : 'Добавить базу';
     const builtin = !!row?.is_builtin;
+    const kind = row?.kind || 'custom';
     ['dbmon-engine-field', 'dbmon-host', 'dbmon-port', 'dbmon-dbname', 'dbmon-user', 'dbmon-password'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.disabled = builtin;
     });
+    const sslPem = document.getElementById('dbmon-ssl-ca-pem');
+    if (sslPem) sslPem.value = '';
+    const sslFile = document.getElementById('dbmon-ssl-ca-file');
+    if (sslFile) sslFile.value = '';
     if (row) {
         document.getElementById('dbmon-name').value = row.name || '';
         document.getElementById('dbmon-engine-field').value = row.engine || 'mysql';
@@ -88,9 +127,20 @@ function openModal(row) {
         document.getElementById('dbmon-dbname').value = row.db_name || '';
         document.getElementById('dbmon-user').value = row.username || '';
         document.getElementById('dbmon-notes').value = row.notes || '';
+        const sslEl = document.getElementById('dbmon-ssl');
+        const sslVerifyEl = document.getElementById('dbmon-ssl-verify');
+        if (sslEl) sslEl.checked = !!row.ssl;
+        if (sslVerifyEl) sslVerifyEl.checked = !!row.ssl_verify;
+        paintDbmonSslStatus(row);
     } else {
         document.getElementById('dbmon-port').value = '3306';
+        const sslEl = document.getElementById('dbmon-ssl');
+        const sslVerifyEl = document.getElementById('dbmon-ssl-verify');
+        if (sslEl) sslEl.checked = false;
+        if (sslVerifyEl) sslVerifyEl.checked = false;
+        paintDbmonSslStatus(null);
     }
+    toggleDbmonSslSection(row || { engine: 'mysql', kind: 'custom' });
     els.modal.classList.remove('hidden');
     els.modal.classList.add('active');
     if (window.lucide) lucide.createIcons();
@@ -250,6 +300,77 @@ document.getElementById('dbmon-engine-field')?.addEventListener('change', (e) =>
     const port = document.getElementById('dbmon-port');
     if (!port || document.getElementById('dbmon-id').value) return;
     port.value = e.target.value === 'postgres' ? '5432' : '3306';
+    toggleDbmonSslSection({ engine: e.target.value, kind: 'custom' });
+});
+
+document.getElementById('dbmon-ssl-verify')?.addEventListener('change', () => {
+    toggleDbmonSslSection(allDatabases.find((d) => String(d.id) === document.getElementById('dbmon-id').value) || { engine: document.getElementById('dbmon-engine-field')?.value, kind: 'custom' });
+});
+
+async function uploadDbmonSslCa() {
+    const id = Number(document.getElementById('dbmon-id').value);
+    if (!id) {
+        window.showToast?.('Сначала сохраните базу, затем загрузите CA', 'error');
+        return;
+    }
+    const textarea = document.getElementById('dbmon-ssl-ca-pem');
+    const pem = (textarea?.value || '').trim();
+    if (!pem) {
+        window.showToast?.('Выберите файл или вставьте PEM', 'error');
+        return;
+    }
+    try {
+        const data = await fetchJson(`${API_BASE}/databases.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'upload_ssl_ca', id, pem }),
+        });
+        if (textarea) textarea.value = '';
+        const fileInput = document.getElementById('dbmon-ssl-ca-file');
+        if (fileInput) fileInput.value = '';
+        const sslEl = document.getElementById('dbmon-ssl');
+        if (sslEl) sslEl.checked = true;
+        if (data.database) {
+            const idx = allDatabases.findIndex((d) => String(d.id) === String(id));
+            if (idx >= 0) allDatabases[idx] = data.database;
+            paintDbmonSslStatus(data.database);
+        }
+        window.showToast?.(data.message || 'CA сохранён', 'success');
+    } catch (err) {
+        window.showToast?.(err.message, 'error');
+    }
+}
+
+async function removeDbmonSslCa() {
+    const id = Number(document.getElementById('dbmon-id').value);
+    if (!id) return;
+    if (!confirm('Удалить CA-сертификат для этой базы?')) return;
+    try {
+        const data = await fetchJson(`${API_BASE}/databases.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'remove_ssl_ca', id }),
+        });
+        const textarea = document.getElementById('dbmon-ssl-ca-pem');
+        if (textarea) textarea.value = '';
+        if (data.database) {
+            const idx = allDatabases.findIndex((d) => String(d.id) === String(id));
+            if (idx >= 0) allDatabases[idx] = data.database;
+            paintDbmonSslStatus(data.database);
+        }
+        window.showToast?.(data.message || 'CA удалён', 'success');
+    } catch (err) {
+        window.showToast?.(err.message, 'error');
+    }
+}
+
+document.getElementById('dbmon-ssl-ca-upload')?.addEventListener('click', uploadDbmonSslCa);
+document.getElementById('dbmon-ssl-ca-remove')?.addEventListener('click', removeDbmonSslCa);
+document.getElementById('dbmon-ssl-ca-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const textarea = document.getElementById('dbmon-ssl-ca-pem');
+    if (textarea) textarea.value = await file.text();
 });
 
 els.grid?.addEventListener('click', async (e) => {
@@ -294,18 +415,33 @@ els.form?.addEventListener('submit', async (e) => {
         password: document.getElementById('dbmon-password').value,
         notes: document.getElementById('dbmon-notes').value.trim(),
     };
+    const sslSection = document.getElementById('dbmon-ssl-section');
+    if (sslSection && !sslSection.classList.contains('hidden')) {
+        payload.ssl = !!document.getElementById('dbmon-ssl')?.checked;
+        payload.ssl_verify = !!document.getElementById('dbmon-ssl-verify')?.checked;
+    }
     try {
-        if ($id) {
+        let savedId = id ? Number(id) : 0;
+        if (id) {
             await fetchJson(`${API_BASE}/databases.php`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'update', id: Number(id), ...payload }),
             });
         } else {
-            await fetchJson(`${API_BASE}/databases.php`, {
+            const created = await fetchJson(`${API_BASE}/databases.php`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
+            });
+            savedId = Number(created.database?.id || 0);
+        }
+        const pem = (document.getElementById('dbmon-ssl-ca-pem')?.value || '').trim();
+        if (savedId && pem) {
+            await fetchJson(`${API_BASE}/databases.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'upload_ssl_ca', id: savedId, pem }),
             });
         }
         closeModal();

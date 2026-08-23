@@ -87,7 +87,7 @@ render_layout_start(
     </article>
 
     <div class="modal hidden" id="dbmon-modal">
-        <div class="modal-dialog" style="max-width: 520px;">
+        <div class="modal-dialog" style="max-width: 560px;">
             <div class="modal-header">
                 <h2 id="dbmon-modal-title">Добавить базу</h2>
                 <button class="modal-close" type="button" id="dbmon-modal-close"><i data-lucide="x"></i></button>
@@ -134,6 +134,30 @@ render_layout_start(
                 <div class="form-field">
                     <label class="form-label">Заметка</label>
                     <input type="text" name="notes" id="dbmon-notes" placeholder="прод, реплика, биллинг…">
+                </div>
+                <div class="dbmon-ssl-section hidden" id="dbmon-ssl-section">
+                    <div class="form-field db-ha-ssl-checks">
+                        <label>
+                            <input type="checkbox" id="dbmon-ssl" value="1">
+                            Использовать SSL
+                        </label>
+                        <label>
+                            <input type="checkbox" id="dbmon-ssl-verify" value="1">
+                            Проверять сертификат
+                        </label>
+                    </div>
+                    <div class="form-field hidden" id="dbmon-ssl-ca-block">
+                        <label class="form-label" for="dbmon-ssl-ca-pem">CA-сертификат (PEM)</label>
+                        <p class="form-hint-text">Для SkySQL / MariaDB Sky. Загрузите .pem/.crt или вставьте текст сертификата.</p>
+                        <div class="ha-actions">
+                            <input type="file" id="dbmon-ssl-ca-file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,text/plain">
+                            <button type="button" class="btn-outline" id="dbmon-ssl-ca-upload">Сохранить CA</button>
+                            <button type="button" class="btn-outline" id="dbmon-ssl-ca-remove">Удалить CA</button>
+                        </div>
+                        <textarea id="dbmon-ssl-ca-pem" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
+                        <p class="form-hint-text" id="dbmon-ssl-ca-status">CA не загружен</p>
+                    </div>
+                    <p class="form-hint-text hidden" id="dbmon-ssl-settings-hint">Параметры подключения резерва панели также редактируются в <a href="settings.php#database">Настройки → База данных</a>.</p>
                 </div>
                 <p class="setup-hint">Панель подключается сама с этой машины. Пользователю достаточно SELECT / SHOW STATUS. Таблицы HostMonitor на чужой базе не создаются.</p>
                 <div class="modal-actions">

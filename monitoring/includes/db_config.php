@@ -161,46 +161,51 @@ function db_ssl_validate_pem(string $pem): bool
         && str_contains($pem, '-----END CERTIFICATE-----');
 }
 
-function db_ssl_ca_resolve(?string $configured): ?string
+function db_ssl_ca_resolve(?string $configured, bool $allowReplicaDefault = true): ?string
 {
     if ($configured !== null && $configured !== '') {
         $path = db_ssl_ca_absolute($configured);
-        if (is_readable($path)) {
-            return $path;
-        }
+        return is_readable($path) ? $path : null;
+    }
+    if ($configured === '' && !$allowReplicaDefault) {
+        return null;
+    }
+    if (!$allowReplicaDefault) {
+        return null;
     }
     $default = db_ssl_ca_absolute(db_ssl_ca_relative());
     return is_readable($default) ? $default : null;
 }
 
-function db_ssl_ca_save(string $pem): string
+function db_ssl_ca_save(string $pem, ?string $relative = null): string
 {
     if (!db_ssl_validate_pem($pem)) {
         throw new InvalidArgumentException('Файл должен содержать PEM-сертификат (-----BEGIN CERTIFICATE-----)');
     }
+    $rel = $relative !== null && $relative !== '' ? $relative : db_ssl_ca_relative();
     $dir = db_ssl_data_dir();
     if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
         throw new RuntimeException('Не удалось создать каталог data/ssl/');
     }
-    $path = db_ssl_ca_absolute(db_ssl_ca_relative());
+    $path = db_ssl_ca_absolute($rel);
     if (file_put_contents($path, trim($pem) . "\n", LOCK_EX) === false) {
         throw new RuntimeException('Не удалось сохранить CA-сертификат — проверьте права data/ssl/');
     }
     @chmod($path, 0640);
-    return db_ssl_ca_relative();
+    return $rel;
 }
 
-function db_ssl_ca_remove(): void
+function db_ssl_ca_remove(?string $relative = null): void
 {
-    $path = db_ssl_ca_absolute(db_ssl_ca_relative());
+    $path = db_ssl_ca_absolute($relative);
     if (is_file($path)) {
         @unlink($path);
     }
 }
 
-function db_ssl_ca_info(?string $configured = null): array
+function db_ssl_ca_info(?string $configured = null, bool $allowReplicaDefault = true): array
 {
-    $path = db_ssl_ca_resolve($configured ?? '');
+    $path = db_ssl_ca_resolve($configured, $allowReplicaDefault);
     if ($path === null) {
         return ['installed' => false, 'path' => '', 'relative' => ''];
     }
@@ -241,7 +246,9 @@ function db_pdo_ssl_opts(array $ep): array
     $verify = !empty($ep['ssl_verify']);
     $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $verify;
 
-    $caPath = db_ssl_ca_resolve((string)($ep['ssl_ca'] ?? ''));
+    $allowDefault = ($ep['ssl_ca_default'] ?? true);
+    $configured = array_key_exists('ssl_ca', $ep) ? (string)$ep['ssl_ca'] : null;
+    $caPath = db_ssl_ca_resolve($configured, $allowDefault);
     if ($caPath !== null) {
         $opts[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
     } elseif ($verify) {
@@ -791,6 +798,89 @@ function db_insert_batch(PDO $pdo, string $table, array $cols, array $rows): voi
     $pdo->prepare($sql)->execute($params);
 }
 
+function db_copy_table(PDO $src, PDO $dst, string $table): int
+{
+    $quoted = db_quote_ident($table);
+    $createRow = $src->query('SHOW CREATE TABLE ' . $quoted)->fetch(PDO::FETCH_ASSOC) ?: [];
+    $ddl = (string)($createRow['Create Table'] ?? $createRow['Create View'] ?? '');
+    if ($ddl === '') {
+        $vals = array_values($createRow);
+        $ddl = (string)($vals[1] ?? '');
+    }
+    if ($ddl === '') {
+        throw new RuntimeException('Не удалось прочитать схему таблицы ' . $table);
+    }
+    $dst->exec('DROP TABLE IF EXISTS ' . $quoted);
+    $dst->exec(db_strip_foreign_keys($ddl));
+    $count = 0;
+    $unbuffered = defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY');
+    if ($unbuffered) {
+        $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+    }
+    try {
+        $q = $src->query('SELECT * FROM ' . $quoted);
+        $batch = [];
+        $cols = null;
+        while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
+            if ($cols === null) {
+                $cols = array_keys($row);
+            }
+            $batch[] = $row;
+            if (count($batch) >= 100) {
+                db_insert_batch($dst, $table, $cols, $batch);
+                $count += count($batch);
+                $batch = [];
+            }
+        }
+        if ($batch !== [] && $cols !== null) {
+            db_insert_batch($dst, $table, $cols, $batch);
+            $count += count($batch);
+        }
+        $q->closeCursor();
+    } finally {
+        if ($unbuffered) {
+            $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+        }
+    }
+    return $count;
+}
+
+function db_sync_endpoints(string $direction): array
+{
+    if ($direction !== 'to_replica' && $direction !== 'to_primary') {
+        throw new InvalidArgumentException('direction: to_replica или to_primary');
+    }
+    $cfg = db_config_load();
+    if (!db_replica_enabled($cfg)) {
+        throw new RuntimeException('Сначала включите резервную базу');
+    }
+    $primary = db_endpoint($cfg, 'primary');
+    $replica = db_endpoint($cfg, 'replica');
+    if (db_endpoint_same($primary, $replica)) {
+        throw new RuntimeException('Основная и резервная база совпадают — копировать некуда');
+    }
+    if ($direction === 'to_replica') {
+        return [
+            'src' => $primary,
+            'dst' => $replica,
+            'source_label' => 'основная',
+            'target_label' => 'резервная',
+        ];
+    }
+    return [
+        'src' => $replica,
+        'dst' => $primary,
+        'source_label' => 'резервная',
+        'target_label' => 'основная',
+    ];
+}
+
+function db_sync_restore_checks(PDO $dst): void
+{
+    $dst->exec('SET UNIQUE_CHECKS=1');
+    $dst->exec('SET FOREIGN_KEY_CHECKS=1');
+}
+
 function db_copy_database(PDO $src, PDO $dst): array
 {
     @set_time_limit(0);
@@ -798,53 +888,10 @@ function db_copy_database(PDO $src, PDO $dst): array
     $dst->exec('SET UNIQUE_CHECKS=0');
     $tables = db_list_base_tables($src);
     $copied = [];
-    $unbuffered = defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY');
     foreach ($tables as $table) {
-        $quoted = db_quote_ident($table);
-        $createRow = $src->query('SHOW CREATE TABLE ' . $quoted)->fetch(PDO::FETCH_ASSOC) ?: [];
-        $ddl = (string)($createRow['Create Table'] ?? $createRow['Create View'] ?? '');
-        if ($ddl === '') {
-            $vals = array_values($createRow);
-            $ddl = (string)($vals[1] ?? '');
-        }
-        if ($ddl === '') {
-            throw new RuntimeException('Не удалось прочитать схему таблицы ' . $table);
-        }
-        $dst->exec('DROP TABLE IF EXISTS ' . $quoted);
-        $dst->exec(db_strip_foreign_keys($ddl));
-        $count = 0;
-        if ($unbuffered) {
-            $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        }
-        try {
-            $q = $src->query('SELECT * FROM ' . $quoted);
-            $batch = [];
-            $cols = null;
-            while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
-                if ($cols === null) {
-                    $cols = array_keys($row);
-                }
-                $batch[] = $row;
-                if (count($batch) >= 100) {
-                    db_insert_batch($dst, $table, $cols, $batch);
-                    $count += count($batch);
-                    $batch = [];
-                }
-            }
-            if ($batch !== [] && $cols !== null) {
-                db_insert_batch($dst, $table, $cols, $batch);
-                $count += count($batch);
-            }
-            $q->closeCursor();
-        } finally {
-            if ($unbuffered) {
-                $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
-            }
-        }
-        $copied[$table] = $count;
+        $copied[$table] = db_copy_table($src, $dst, $table);
     }
-    $dst->exec('SET UNIQUE_CHECKS=1');
-    $dst->exec('SET FOREIGN_KEY_CHECKS=1');
+    db_sync_restore_checks($dst);
     return ['tables' => $copied, 'table_count' => count($copied), 'row_count' => array_sum($copied)];
 }
 
