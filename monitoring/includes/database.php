@@ -35,7 +35,8 @@ function getDbConnection(bool $reset = false) {
     $primaryErr = '';
     if (!$skipPrimary) {
         try {
-            $pdo = db_try_connect($primary, $replicaOn ? 12 : 8);
+            // Короткий таймаут: иначе UI висит на недоступной БД / SkySQL SSL
+            $pdo = db_try_connect($primary, $replicaOn ? 3 : 3);
             if (($state['role'] ?? 'primary') !== 'primary') {
                 db_ha_state_save('primary', '');
             }
@@ -52,7 +53,7 @@ function getDbConnection(bool $reset = false) {
     if ($replicaOn) {
         try {
             $replica = db_endpoint($cfg, 'replica');
-            $pdo = db_try_connect($replica, 12);
+            $pdo = db_try_connect($replica, 3);
             if (!$skipPrimary || ($state['role'] ?? '') !== 'replica') {
                 $reason = $skipPrimary ? (string)($state['reason'] ?? 'failover') : $primaryErr;
                 db_ha_state_save('replica', $reason, $skipPrimary ? (int)($state['last_primary_try'] ?? $now) : $now);
@@ -65,7 +66,7 @@ function getDbConnection(bool $reset = false) {
 
     if ($skipPrimary) {
         try {
-            $pdo = db_try_connect($primary, 12);
+            $pdo = db_try_connect($primary, 3);
             db_ha_state_save('primary', '');
             return $pdo;
         } catch (Throwable $e) {

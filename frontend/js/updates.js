@@ -879,13 +879,31 @@ async function applyAgentUpdates() {
             ? window.confirm('Обновить агенты на всех онлайн-нодах с доступным обновлением?')
             : true;
         if (!confirmed) return;
-        showToast('Обновление агентов...', 'info');
+
+        // Сначала status: id берём из той же логики outdated, что в таблице
+        const status = await fetchJson('/agent_update.php?action=status');
+        const ids = (status.nodes || [])
+            .filter((n) => (n.outdated || Number(n.agent_update_available) === 1) && n.status === 'online')
+            .map((n) => Number(n.id))
+            .filter((id) => id > 0);
+        if (!ids.length) {
+            showToast('Нет устаревших онлайн-нод для обновления', 'info');
+            await loadAgentUpdates();
+            return;
+        }
+
+        showToast(`Обновление агентов (${ids.length})...`, 'info');
         const result = await fetchJson('/agent_update.php?action=apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ only_outdated: true }),
+            body: JSON.stringify({ only_outdated: true, node_ids: ids }),
         });
-        showToast(result.message || `В очередь: ${result.queued || 0}`, 'success');
+        const queued = result.queued ?? 0;
+        const skipped = result.skipped ?? 0;
+        showToast(
+            result.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
+            queued > 0 ? 'success' : 'warning'
+        );
         setTimeout(loadAgentUpdates, 5000);
     } catch (e) {
         showToast(e.message || 'Ошибка обновления агентов', 'error');

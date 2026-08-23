@@ -165,9 +165,8 @@ if (!function_exists('node_heartbeat_timeout_sec')) {
 
 if (!function_exists('nodes_ensure_agent_columns')) {
     /**
-     * Добавляет agent_* колонки без долгих блокировок:
-     * сначала INFORMATION_SCHEMA, ALTER только если колонки нет.
-     * Без ADD COLUMN IF NOT EXISTS — в MySQL этого синтаксиса нет.
+     * Добавляет agent_* колонки без долгих блокировок.
+     * Маркер в data/ — не гоняем INFORMATION_SCHEMA на каждый heartbeat CGI.
      */
     function nodes_ensure_agent_columns(PDO $pdo): void
     {
@@ -182,6 +181,13 @@ if (!function_exists('nodes_ensure_agent_columns')) {
             'agent_updated_at' => 'TIMESTAMP NULL',
             'command_result' => 'TEXT NULL',
         ];
+
+        $markerDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
+        $marker = $markerDir . DIRECTORY_SEPARATOR . '.agent_columns_ok';
+        // Уже мигрировали недавно — не трогаем БД (важно для php-cgi на каждый heartbeat)
+        if (is_file($marker) && (time() - (int)@filemtime($marker)) < 86400) {
+            return;
+        }
 
         try {
             $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
@@ -211,11 +217,14 @@ if (!function_exists('nodes_ensure_agent_columns')) {
                 }
             }
             if (!$missing) {
+                if (is_dir($markerDir) || @mkdir($markerDir, 0750, true)) {
+                    @file_put_contents($marker, (string)time());
+                }
                 return;
             }
 
             try {
-                $pdo->exec('SET SESSION lock_wait_timeout = 5');
+                $pdo->exec('SET SESSION lock_wait_timeout = 2');
             } catch (Throwable $e) {
                 // ignore
             }
@@ -225,6 +234,9 @@ if (!function_exists('nodes_ensure_agent_columns')) {
                 } catch (Throwable $e) {
                     // race / already exists
                 }
+            }
+            if (is_dir($markerDir) || @mkdir($markerDir, 0750, true)) {
+                @file_put_contents($marker, (string)time());
             }
         } catch (Throwable $e) {
             error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());

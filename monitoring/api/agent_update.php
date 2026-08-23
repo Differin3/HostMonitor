@@ -174,28 +174,52 @@ try {
         $ids = $data['node_ids'] ?? $data['ids'] ?? null;
         $onlyOutdated = !empty($data['only_outdated']);
 
+        $desired = agent_desired_version();
+
         if (is_array($ids) && $ids) {
             $ids = array_values(array_filter(array_map('intval', $ids), static fn($v) => $v > 0));
             if (!$ids) {
                 json_error('No nodes selected', 400);
             }
             $ph = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE id IN ($ph)");
+            $stmt = $pdo->prepare(
+                "SELECT id, name, agent_version, agent_commit, agent_update_available, status
+                 FROM nodes WHERE id IN ($ph)"
+            );
             $stmt->execute($ids);
             $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
-            $sql = "SELECT id, name FROM nodes WHERE status = 'online'";
-            if ($onlyOutdated && $action === 'apply') {
-                $sql .= ' AND agent_update_available = 1';
-            }
-            $nodes = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+            $nodes = $pdo->query(
+                "SELECT id, name, agent_version, agent_commit, agent_update_available, status
+                 FROM nodes WHERE status = 'online'"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // Та же логика outdated, что в status — не только флаг в БД
+        if ($onlyOutdated && $action === 'apply') {
+            $nodes = array_values(array_filter($nodes, static function (array $row) use ($desired): bool {
+                if ((int)($row['agent_update_available'] ?? 0) === 1) {
+                    return true;
+                }
+                $local = (string)($row['agent_commit'] ?? '');
+                $ver = (string)($row['agent_version'] ?? '');
+                if ($desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
+                    return true;
+                }
+                if ($desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
+                    return true;
+                }
+                return false;
+            }));
         }
 
         $queued = 0;
         $skipped = 0;
+        $names = [];
         foreach ($nodes as $node) {
             if (agent_queue_command($pdo, (int)$node['id'], $command)) {
                 $queued++;
+                $names[] = (string)($node['name'] ?? $node['id']);
             } else {
                 $skipped++;
             }
@@ -206,7 +230,12 @@ try {
             'command' => $command,
             'queued' => $queued,
             'skipped' => $skipped,
-            'message' => "Команда «{$command}» поставлена в очередь для {$queued} нод(ы)",
+            'nodes' => $names,
+            'message' => $queued > 0
+                ? "Команда «{$command}» поставлена в очередь для {$queued} нод(ы): " . implode(', ', $names)
+                : ($onlyOutdated
+                    ? 'Нет нод для обновления (флаг в БД пуст или commit уже совпадает). Нажмите «Проверить агенты», затем снова «Обновить».'
+                    : 'Не удалось поставить команду в очередь (возможно, другая pending-команда).'),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }

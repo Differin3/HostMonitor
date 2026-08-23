@@ -12,8 +12,10 @@ header('Content-Type: application/json; charset=utf-8');
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $pdo = getDbConnection();
 
-// Определение в helpers.php
-nodes_ensure_agent_columns($pdo);
+// Миграция колонок — не на каждый heartbeat (маркер в helpers), только лёгкий no-op
+if (($method !== 'POST') || !isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    nodes_ensure_agent_columns($pdo);
+}
 
 // Функция проверки токена ноды (для агентов)
 function validateNodeToken($pdo, $token) {

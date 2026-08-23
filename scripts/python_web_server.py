@@ -279,17 +279,17 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
 
         # Без таймаута зависший php-cgi блокирует поток и UI «не отвечает»
         try:
-            stdout, stderr = proc.communicate(body, timeout=60)
+            stdout, stderr = proc.communicate(body, timeout=20)
         except subprocess.TimeoutExpired:
             proc.kill()
             try:
                 stdout, stderr = proc.communicate(timeout=5)
             except Exception:
-                stdout, stderr = b"", b"PHP CGI timeout (60s)"
+                stdout, stderr = b"", b"PHP CGI timeout (20s)"
             self.send_response(504)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"Gateway Timeout: PHP CGI exceeded 60s\n")
+            self.wfile.write(b"Gateway Timeout: PHP CGI exceeded 20s (check DB / HA replica)\n")
             sys.stderr.write(f"PHP CGI timeout: {script_path}\n")
             return
 
