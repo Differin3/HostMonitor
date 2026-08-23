@@ -1,4 +1,4 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
+﻿const API_BASE = window.MONITORING_API_BASE || '/api';
 const SETTINGS_API = `${API_BASE}/settings.php`;
 const DB_HA_API = `${API_BASE}/db_ha.php`;
 
@@ -313,10 +313,12 @@ function updateDbSyncProgress(label, pct, detail) {
     const pctEl = val('db-sync-progress-pct');
     const bar = val('db-sync-progress-bar');
     const detailEl = val('db-sync-progress-detail');
-    if (labelEl) labelEl.textContent = label;
-    if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
-    if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    if (detailEl) detailEl.textContent = detail || '';
+    if (labelEl && label != null) labelEl.textContent = label;
+    if (pct != null && !Number.isNaN(Number(pct))) {
+        if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+        if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    }
+    if (detailEl && detail != null) detailEl.textContent = detail;
 }
 
 function showDbSyncResult(message, isError) {
@@ -341,7 +343,7 @@ async function runDbSync(direction) {
     };
     const confirmed = window.showConfirm
         ? await window.showConfirm(
-            `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Это может занять несколько минут.\n\nПродолжить?`,
+            `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Копирование идёт короткими порциями (без таймаута 504).\n\nПродолжить?`,
             'Копирование базы',
             'warning'
         )
@@ -355,13 +357,13 @@ async function runDbSync(direction) {
 
     let directionUsed = direction;
     let totalRows = 0;
-    const tableStats = [];
 
     try {
         const prep = await dbHaRequest({ action: 'sync_prepare', direction });
         directionUsed = prep.direction || direction;
         const tables = prep.tables || [];
         const total = tables.length;
+        const chunkLimit = Number(prep.chunk_limit) || 200;
         if (!total) {
             throw new Error('В источнике нет таблиц для копирования');
         }
@@ -380,43 +382,82 @@ async function runDbSync(direction) {
             if (dbSyncAbort) {
                 throw new Error('Отменено пользователем');
             }
+
             const table = tables[i];
-            const pctBefore = (i / total) * 100;
+            let offset = 0;
+            let cursor = null;
+            let tableRows = 0;
+            let guard = 0;
+
             updateDbSyncProgress(
                 `Таблица ${i + 1} из ${total}`,
-                pctBefore,
-                `Копируется «${table}»…`
+                (i / total) * 100,
+                `Создание схемы «${table}»…`
             );
-
-            const res = await dbHaRequest({
-                action: 'sync_table',
+            await dbHaRequest({
+                action: 'sync_table_schema',
                 direction: directionUsed,
                 table,
-                index: i,
-                total,
             });
 
-            const rows = Number(res.rows) || 0;
-            totalRows += rows;
-            tableStats.push({ table, rows });
+            while (true) {
+                if (dbSyncAbort) {
+                    throw new Error('Отменено пользователем');
+                }
+                if (++guard > 50000) {
+                    throw new Error(`Слишком много порций для таблицы «${table}» — прервано`);
+                }
 
-            const pctAfter = ((i + 1) / total) * 100;
-            updateDbSyncProgress(
-                i + 1 >= total ? 'Завершение…' : `Таблица ${i + 1} из ${total}`,
-                pctAfter,
-                `«${table}» — ${rows.toLocaleString('ru-RU')} строк`
-            );
+                const basePct = (i / total) * 100;
+                const within = Math.min(99, (tableRows / Math.max(tableRows + chunkLimit, 1)) * (100 / total));
+                updateDbSyncProgress(
+                    `Таблица ${i + 1} из ${total}`,
+                    basePct + within,
+                    `«${table}» · уже ${tableRows.toLocaleString('ru-RU')} строк…`
+                );
 
-            if (res.done && res.status) {
-                fillDbHaForm(res.status);
+                const res = await dbHaRequest({
+                    action: 'sync_table',
+                    direction: directionUsed,
+                    table,
+                    index: i,
+                    total,
+                    offset,
+                    cursor,
+                    limit: Math.min(chunkLimit, 200),
+                });
+
+                const rows = Number(res.rows) || 0;
+                tableRows += rows;
+                totalRows += rows;
+                offset = Number(res.next_offset) || (offset + rows);
+                cursor = res.next_cursor ?? null;
+
+                updateDbSyncProgress(
+                    `Таблица ${i + 1} из ${total}`,
+                    ((i + (res.table_done ? 1 : 0.55)) / total) * 100,
+                    `«${table}» — ${tableRows.toLocaleString('ru-RU')} строк`
+                );
+
+                if (res.done && res.status) {
+                    fillDbHaForm(res.status);
+                }
+                if (res.table_done) {
+                    break;
+                }
+                // Пустой чанк без table_done — защита от бесконечного цикла.
+                if (rows === 0) {
+                    break;
+                }
             }
         }
 
-        updateDbSyncProgress('Готово', 100, `Скопировано таблиц: ${tableStats.length}, строк: ${totalRows.toLocaleString('ru-RU')}`);
-        const summary = `Готово: ${tableStats.length} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`;
+        updateDbSyncProgress('Готово', 100, `Скопировано таблиц: ${total}, строк: ${totalRows.toLocaleString('ru-RU')}`);
+        const summary = `Готово: ${total} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`;
         showDbSyncResult(summary, false);
         dbHaLog(summary, false);
         showToast('Копирование завершено', 'success');
+        await loadDbHa(true);
     } catch (e) {
         if (dbSyncAbort || e.message === 'Отменено пользователем') {
             try {
@@ -582,19 +623,51 @@ function toggleSslCaBlock() {
     });
 }
 
-async function dbHaRequest(payload) {
-    const opts = payload
-        ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(payload),
+async function dbHaRequest(payload, { retries = 0 } = {}) {
+    const isSyncChunk = payload && ['sync_table', 'sync_table_schema', 'sync_prepare'].includes(payload.action);
+    const maxAttempts = retries > 0 ? retries + 1 : (isSyncChunk ? 4 : 1);
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const opts = payload
+                ? {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(payload),
+                }
+                : { credentials: 'include' };
+            const response = await fetch(DB_HA_API, opts);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const status = response.status;
+                const msg = data.error || `HTTP ${status}`;
+                // 502/504 — таймаут прокси; повторяем короткие чанки.
+                if ((status === 502 || status === 504 || status === 408) && attempt < maxAttempts) {
+                    lastError = new Error(msg);
+                    updateDbSyncProgress(
+                        'Повтор…',
+                        undefined,
+                        `Таймаут прокси (${status}), попытка ${attempt + 1}/${maxAttempts}`
+                    );
+                    await new Promise((r) => setTimeout(r, 800 * attempt));
+                    continue;
+                }
+                throw new Error(msg);
+            }
+            return data;
+        } catch (e) {
+            lastError = e;
+            const transient = /HTTP 502|HTTP 504|HTTP 408|Failed to fetch|NetworkError|network/i.test(String(e.message || e));
+            if (transient && attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, 800 * attempt));
+                continue;
+            }
+            throw e;
         }
-        : { credentials: 'include' };
-    const response = await fetch(DB_HA_API, opts);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    return data;
+    }
+    throw lastError || new Error('Запрос не выполнен');
 }
 
 async function loadDbHa(force) {

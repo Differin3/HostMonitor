@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 function db_config_path(): string
@@ -798,7 +798,7 @@ function db_insert_batch(PDO $pdo, string $table, array $cols, array $rows): voi
     $pdo->prepare($sql)->execute($params);
 }
 
-function db_copy_table(PDO $src, PDO $dst, string $table): int
+function db_copy_table_schema(PDO $src, PDO $dst, string $table): void
 {
     $quoted = db_quote_ident($table);
     $createRow = $src->query('SHOW CREATE TABLE ' . $quoted)->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -812,37 +812,123 @@ function db_copy_table(PDO $src, PDO $dst, string $table): int
     }
     $dst->exec('DROP TABLE IF EXISTS ' . $quoted);
     $dst->exec(db_strip_foreign_keys($ddl));
-    $count = 0;
-    $unbuffered = defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY');
-    if ($unbuffered) {
-        $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-    }
+}
+
+function db_table_pk_column(PDO $pdo, string $table): ?string
+{
+    $quoted = db_quote_ident($table);
     try {
-        $q = $src->query('SELECT * FROM ' . $quoted);
-        $batch = [];
-        $cols = null;
-        while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
-            if ($cols === null) {
-                $cols = array_keys($row);
-            }
-            $batch[] = $row;
-            if (count($batch) >= 100) {
-                db_insert_batch($dst, $table, $cols, $batch);
-                $count += count($batch);
-                $batch = [];
-            }
+        $stmt = $pdo->query('SHOW KEYS FROM ' . $quoted . " WHERE Key_name = 'PRIMARY'");
+        $cols = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $cols[] = (string)($row['Column_name'] ?? '');
         }
-        if ($batch !== [] && $cols !== null) {
+        if (count($cols) === 1 && $cols[0] !== '') {
+            return $cols[0];
+        }
+    } catch (Throwable $e) {
+        // ignore
+    }
+    return null;
+}
+
+function db_table_approx_rows(PDO $pdo, string $table): int
+{
+    $quoted = db_quote_ident($table);
+    try {
+        $n = $pdo->query('SELECT COUNT(*) FROM ' . $quoted)->fetchColumn();
+        return max(0, (int)$n);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+/**
+ * Копирует порцию строк таблицы. Короткий запрос — чтобы не ловить HTTP 504 у nginx.
+ *
+ * @return array{rows:int,next_offset:int,next_cursor:?string,table_done:bool,pk:?string}
+ */
+function db_copy_table_chunk(
+    PDO $src,
+    PDO $dst,
+    string $table,
+    int $offset = 0,
+    ?string $cursor = null,
+    int $limit = 200,
+    float $maxSeconds = 5.0
+): array {
+    // Маленькие порции: удалённый SkySQL/SSL + nginx иначе отдают HTTP 504.
+    $limit = max(25, min(400, $limit));
+    $quoted = db_quote_ident($table);
+    $pk = db_table_pk_column($src, $table);
+    $started = microtime(true);
+    $count = 0;
+    $nextCursor = $cursor;
+    $batch = [];
+    $cols = null;
+    $insertBatch = 40;
+
+    if ($pk !== null) {
+        $pkQuoted = db_quote_ident($pk);
+        if ($cursor !== null && $cursor !== '') {
+            $stmt = $src->prepare("SELECT * FROM {$quoted} WHERE {$pkQuoted} > ? ORDER BY {$pkQuoted} ASC LIMIT {$limit}");
+            $stmt->execute([$cursor]);
+        } else {
+            $stmt = $src->query("SELECT * FROM {$quoted} ORDER BY {$pkQuoted} ASC LIMIT {$limit}");
+        }
+    } else {
+        $stmt = $src->query("SELECT * FROM {$quoted} LIMIT {$limit} OFFSET " . max(0, $offset));
+    }
+
+    $stoppedEarly = false;
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if ($cols === null) {
+            $cols = array_keys($row);
+        }
+        $batch[] = $row;
+        if ($pk !== null) {
+            $nextCursor = (string)($row[$pk] ?? $nextCursor);
+        }
+        if (count($batch) >= $insertBatch) {
             db_insert_batch($dst, $table, $cols, $batch);
             $count += count($batch);
-        }
-        $q->closeCursor();
-    } finally {
-        if ($unbuffered) {
-            $src->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
+            $batch = [];
+            if ((microtime(true) - $started) >= $maxSeconds) {
+                $stoppedEarly = true;
+                break;
+            }
         }
     }
-    return $count;
+    if ($batch !== [] && $cols !== null) {
+        db_insert_batch($dst, $table, $cols, $batch);
+        $count += count($batch);
+    }
+    $stmt->closeCursor();
+
+    // table_done только если выборка исчерпана, а не из‑за лимита времени.
+    $tableDone = !$stoppedEarly && $count < $limit;
+    return [
+        'rows' => $count,
+        'next_offset' => $offset + $count,
+        'next_cursor' => $pk !== null ? $nextCursor : null,
+        'table_done' => $tableDone,
+        'pk' => $pk,
+    ];
+}
+
+function db_copy_table(PDO $src, PDO $dst, string $table): int
+{
+    db_copy_table_schema($src, $dst, $table);
+    $offset = 0;
+    $cursor = null;
+    $total = 0;
+    do {
+        $chunk = db_copy_table_chunk($src, $dst, $table, $offset, $cursor, 2000, 60.0);
+        $total += $chunk['rows'];
+        $offset = $chunk['next_offset'];
+        $cursor = $chunk['next_cursor'];
+    } while (!$chunk['table_done']);
+    return $total;
 }
 
 function db_sync_endpoints(string $direction): array

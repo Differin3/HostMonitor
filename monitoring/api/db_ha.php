@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/database.php';
@@ -200,32 +200,14 @@ try {
         exit;
     }
 
+    // Полное копирование одним запросом отключено — ловит HTTP 504 у nginx.
     if ($action === 'sync') {
-        db_ha_require_editable();
-        $direction = (string)($data['direction'] ?? 'to_replica');
-        if ($direction !== 'to_replica' && $direction !== 'to_primary') {
-            json_error('direction: to_replica или to_primary');
-        }
-        try {
-            $eps = db_sync_endpoints($direction);
-            $src = db_try_connect($eps['src'], 8);
-            $dst = db_try_connect($eps['dst'], 8);
-        } catch (Throwable $e) {
-            json_error($e->getMessage(), 503);
-        }
-        $stats = db_copy_database($src, $dst);
-        getDbConnection(true);
-        echo json_encode([
-            'ok' => true,
-            'direction' => $direction,
-            'copied' => $stats,
-            'status' => db_ha_status_payload(true),
-        ], JSON_UNESCAPED_UNICODE);
-        exit;
+        json_error('Используйте пошаговую синхронизацию из интерфейса (короткие порции)', 400);
     }
 
     if ($action === 'sync_prepare') {
         db_ha_require_editable();
+        @set_time_limit(60);
         $direction = (string)($data['direction'] ?? 'to_replica');
         try {
             $eps = db_sync_endpoints($direction);
@@ -243,46 +225,88 @@ try {
             'target_label' => $eps['target_label'],
             'source_name' => (string)($eps['src']['name'] ?? ''),
             'target_name' => (string)($eps['dst']['name'] ?? ''),
+            'chunk_limit' => 200,
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
+    // Только схема таблицы (отдельно от данных — меньше риск 504).
+    if ($action === 'sync_table_schema') {
+        @set_time_limit(45);
+        header('X-Accel-Buffering: no');
+        $direction = (string)($data['direction'] ?? 'to_replica');
+        $table = trim((string)($data['table'] ?? ''));
+        if ($table === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            json_error('Некорректное имя таблицы');
+        }
+        try {
+            $eps = db_sync_endpoints($direction);
+            $src = db_try_connect($eps['src'], 10);
+            $dst = db_try_connect($eps['dst'], 10);
+            $dst->exec('SET FOREIGN_KEY_CHECKS=0');
+            $dst->exec('SET UNIQUE_CHECKS=0');
+            db_copy_table_schema($src, $dst, $table);
+        } catch (Throwable $e) {
+            json_error('Схема: ' . $e->getMessage(), 503);
+        }
+        echo json_encode(['ok' => true, 'table' => $table, 'schema' => true], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Короткие чанки данных (~400 строк / ≤8 с) — обход nginx 504 на SkySQL/SSL.
     if ($action === 'sync_table') {
-        db_ha_require_editable();
-        @set_time_limit(0);
+        @set_time_limit(45);
+        @ini_set('max_execution_time', '45');
+        header('X-Accel-Buffering: no');
+
         $direction = (string)($data['direction'] ?? 'to_replica');
         $table = trim((string)($data['table'] ?? ''));
         $index = max(0, (int)($data['index'] ?? 0));
         $total = max(1, (int)($data['total'] ?? 1));
-        if ($table === '') {
-            json_error('Имя таблицы обязательно');
+        $offset = max(0, (int)($data['offset'] ?? 0));
+        $cursor = array_key_exists('cursor', $data) && $data['cursor'] !== null && $data['cursor'] !== ''
+            ? (string)$data['cursor']
+            : null;
+        $limit = max(25, min(300, (int)($data['limit'] ?? 200)));
+
+        if ($table === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+            json_error('Некорректное имя таблицы');
         }
+
         try {
             $eps = db_sync_endpoints($direction);
-            $src = db_try_connect($eps['src'], 120);
-            $dst = db_try_connect($eps['dst'], 120);
+            $src = db_try_connect($eps['src'], 10);
+            $dst = db_try_connect($eps['dst'], 10);
         } catch (Throwable $e) {
             json_error('Нет соединения: ' . $e->getMessage(), 503);
         }
+
         try {
-            if ($index === 0) {
-                $dst->exec('SET FOREIGN_KEY_CHECKS=0');
-                $dst->exec('SET UNIQUE_CHECKS=0');
-            }
-            $rows = db_copy_table($src, $dst, $table);
-            $done = $index >= $total - 1;
-            if ($done) {
+            $dst->exec('SET FOREIGN_KEY_CHECKS=0');
+            $dst->exec('SET UNIQUE_CHECKS=0');
+
+            // recreate в этом экшене больше не делаем — только sync_table_schema
+            $chunk = db_copy_table_chunk($src, $dst, $table, $offset, $cursor, $limit, 5.0);
+            $tableDone = !empty($chunk['table_done']);
+            $allDone = $tableDone && $index >= $total - 1;
+
+            if ($allDone) {
                 db_sync_restore_checks($dst);
                 getDbConnection(true);
             }
+
             echo json_encode([
                 'ok' => true,
                 'table' => $table,
-                'rows' => $rows,
+                'rows' => (int)$chunk['rows'],
+                'offset' => $offset,
+                'next_offset' => (int)$chunk['next_offset'],
+                'next_cursor' => $chunk['next_cursor'],
+                'table_done' => $tableDone,
                 'index' => $index,
                 'total' => $total,
-                'done' => $done,
-                'status' => $done ? db_ha_status_payload(true) : null,
+                'done' => $allDone,
+                'status' => $allDone ? db_ha_status_payload(true) : null,
             ], JSON_UNESCAPED_UNICODE);
         } catch (Throwable $e) {
             try {
@@ -295,7 +319,6 @@ try {
     }
 
     if ($action === 'sync_abort') {
-        db_ha_require_editable();
         $direction = (string)($data['direction'] ?? 'to_replica');
         try {
             $eps = db_sync_endpoints($direction);
