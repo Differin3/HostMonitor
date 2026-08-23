@@ -33,14 +33,12 @@
 
     function setDbHaEditable(editable) {
         dbHaEditable = !!editable;
-        const fieldset = val('db-ha-fieldset');
+        const body = val('db-ha-body');
         const banner = val('db-ha-locked-banner');
-        if (banner) {
-            banner.classList.toggle('hidden', dbHaEditable);
-        }
-        if (fieldset) {
-            fieldset.classList.toggle('is-locked', !dbHaEditable);
-            fieldset.querySelectorAll('input, textarea, select, button').forEach((el) => {
+        if (banner) banner.classList.toggle('hidden', dbHaEditable);
+        if (body) {
+            body.classList.toggle('is-locked', !dbHaEditable);
+            body.querySelectorAll('input, textarea, select, button').forEach((el) => {
                 if (el.id === 'db-ha-ping') {
                     el.disabled = false;
                     return;
@@ -48,9 +46,8 @@
                 el.disabled = !dbHaEditable;
             });
         }
-        if (!dbHaEditable) {
-            toggleReplicaFields();
-        }
+        toggleReplicaFields();
+        toggleSslCaBlock();
     }
 
     function paintSslCaStatus(replica) {
@@ -73,7 +70,12 @@
 
     function paintDbHaStatus(data) {
         const ping = data.ping || {};
-        setHaPill('ha-pill-active', 'Активная', data.active_role === 'replica' ? 'warn' : true, data.active_role === 'replica' ? 'резерв' : 'основная');
+        setHaPill(
+            'ha-pill-active',
+            'Активная',
+            data.active_role === 'replica' ? 'warn' : true,
+            data.active_role === 'replica' ? 'резерв' : 'основная'
+        );
         const pOk = ping.primary ? ping.primary.ok : null;
         const rOk = ping.replica ? ping.replica.ok : null;
         setHaPill('ha-pill-primary', 'Основная', pOk, pOk ? `${ping.primary.ms} мс` : (ping.primary?.error || 'нет ответа'));
@@ -89,10 +91,27 @@
         const enabled = val('db-replica-enabled');
         const fields = val('db-replica-fields');
         if (!fields || !enabled) return;
-        const on = enabled.checked && dbHaEditable;
-        fields.classList.toggle('is-disabled', !on);
+        const on = !!enabled.checked;
+        fields.classList.toggle('hidden', !on);
         fields.querySelectorAll('input, textarea, button').forEach((input) => {
-            input.disabled = !on;
+            if (!on) {
+                input.disabled = true;
+                return;
+            }
+            input.disabled = !dbHaEditable;
+        });
+        toggleSslCaBlock();
+    }
+
+    function toggleSslCaBlock() {
+        const enabled = val('db-replica-enabled');
+        const verify = val('db-replica-ssl-verify');
+        const block = val('db-replica-ssl-ca-block');
+        if (!block) return;
+        const on = !!enabled?.checked && !!verify?.checked;
+        block.classList.toggle('hidden', !on);
+        block.querySelectorAll('input, textarea, button').forEach((el) => {
+            el.disabled = !on || !dbHaEditable;
         });
     }
 
@@ -124,6 +143,7 @@
         if (failback) failback.checked = data.replica_failback !== false;
         paintDbHaStatus(data);
         toggleReplicaFields();
+        toggleSslCaBlock();
     }
 
     async function dbHaRequest(payload) {
@@ -222,7 +242,11 @@
         if (!val('db-ha-panel')) return;
         window.__HOSTMONITOR_DB_HA_INIT = true;
 
-        val('db-replica-enabled')?.addEventListener('change', toggleReplicaFields);
+        val('db-replica-enabled')?.addEventListener('change', () => {
+            toggleReplicaFields();
+            toggleSslCaBlock();
+        });
+        val('db-replica-ssl-verify')?.addEventListener('change', toggleSslCaBlock);
 
         val('db-ha-save')?.addEventListener('click', async () => {
             if (!dbHaEditable) return;
@@ -285,6 +309,8 @@
             if (textarea) textarea.value = await file.text();
         });
 
+        toggleReplicaFields();
+        toggleSslCaBlock();
         loadDbHa(true);
         if (typeof lucide !== 'undefined') lucide.createIcons();
     }

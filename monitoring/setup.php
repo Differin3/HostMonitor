@@ -279,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <span>Проверять сертификат</span>
                             </label>
                         </div>
-                        <div class="form-field ha-span-2" id="replica-ssl-ca-block">
+                        <div class="form-field ha-span-2 db-ha-ca-block" id="replica-ssl-ca-block" <?= empty($old['replica_ssl_verify']) ? 'hidden' : '' ?>>
                             <label class="form-label" for="replica_ssl_ca_pem">CA-сертификат (PEM)</label>
                             <p class="form-hint-text">Для SkySQL / MariaDB Sky. Вставьте текст сертификата (можно позже загрузить файл в настройках).</p>
                             <textarea id="replica_ssl_ca_pem" name="replica_ssl_ca_pem" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>

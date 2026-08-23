@@ -1194,6 +1194,27 @@ input[type="number"]::-webkit-outer-spin-button {
     position: relative;
 }
 
+.modal .form-field {
+    margin-bottom: 16px;
+}
+
+.modal .form-field input:not([type="checkbox"]):not([type="file"]),
+.modal .form-field select,
+.modal .form-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.modal .ha-grid .form-field {
+    margin-bottom: 0;
+}
+
 .modal-actions {
     margin-top: 32px;
     padding-top: 24px;
@@ -2810,11 +2831,81 @@ body.light .theme-toggle:hover {
     border-top: 1px solid var(--border-color);
 }
 
+/* ——— DB HA: единый блок подключений панели ——— */
+.db-ha-panel-card {
+    margin-bottom: 24px;
+}
+
+.db-ha-panel-head {
+    margin-bottom: 16px;
+}
+
+.db-ha-panel-head h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 4px;
+    font-size: 18px;
+}
+
+.db-ha-panel-body {
+    min-width: 0;
+}
+
+.db-ha-body.is-locked {
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.db-ha-body.is-locked #db-ha-ping {
+    pointer-events: auto;
+    opacity: 1;
+}
+
+.db-ha-section-title {
+    margin: 16px 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.db-ha-panel .db-ha-section-title:first-child {
+    margin-top: 0;
+}
+
+.db-ha-locked-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.1);
+    color: #fcd34d;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.db-ha-locked-banner.hidden,
+.db-ha-replica-block.hidden,
+.db-ha-ca-block.hidden {
+    display: none !important;
+}
+
+.db-ha-locked-banner i,
+.db-ha-locked-banner svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+}
+
 .ha-status-row {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin: 0 0 20px;
+    margin: 0 0 16px;
 }
 
 .ha-pill {
@@ -2851,26 +2942,111 @@ body.light .theme-toggle:hover {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px 16px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .ha-grid .ha-span-2 {
     grid-column: 1 / -1;
 }
 
+.ha-grid .form-field,
+.db-ha-panel .form-field,
+.login-card .ha-grid .form-field {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+.ha-grid .form-field input:not([type="checkbox"]):not([type="file"]),
+.ha-grid .form-field select,
+.ha-grid .form-field textarea,
+.db-ha-panel .form-field input:not([type="checkbox"]):not([type="file"]),
+.db-ha-panel .form-field select,
+.db-ha-panel .form-field textarea,
+.db-ha-ca-block textarea,
+.login-card .ha-grid input:not([type="checkbox"]):not([type="file"]),
+.login-card .ha-grid select,
+.login-card .ha-grid textarea,
+.login-card .db-ha-ca-block textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.ha-grid .form-field textarea,
+.db-ha-panel .form-field textarea,
+.db-ha-ca-block textarea,
+.login-card .db-ha-ca-block textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    resize: vertical;
+    min-height: 96px;
+}
+
+.db-ha-check-row {
+    margin: 0 0 10px;
+}
+
+.db-ha-check {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.db-ha-check input {
+    width: auto;
+    margin: 2px 0 0;
+    flex-shrink: 0;
+}
+
+.db-ha-ssl-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    align-items: center;
+    padding-top: 4px;
+}
+
+.db-ha-replica-block {
+    margin: 8px 0 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.db-ha-ca-block {
+    margin-top: 8px;
+}
+
+.db-ha-ca-actions {
+    margin: 8px 0;
+}
+
+.db-ha-ca-actions input[type="file"],
+.ha-actions input[type="file"] {
+    max-width: 100%;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
 .ha-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin: 8px 0 16px;
-}
-
-.ha-subhead {
-    margin-top: 12px;
+    margin: 12px 0 8px;
 }
 
 .ha-log {
-    margin: 8px 0 0;
+    margin: 12px 0 0;
     padding: 10px 12px;
     border-radius: 10px;
     border: 1px solid var(--border-color);
@@ -2885,108 +3061,6 @@ body.light .theme-toggle:hover {
 .ha-log.is-error {
     color: #f87171;
     border-color: rgba(248, 113, 113, 0.4);
-}
-
-/* Панель подключений панели к MySQL (единый блок на «Базы данных» / «Настройки») */
-.db-ha-panel-card {
-    margin-bottom: 24px;
-}
-
-.db-ha-panel-head h3 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 4px;
-}
-
-.db-ha-panel-inner {
-    padding: 0;
-}
-
-.db-ha-fieldset {
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px 18px 18px;
-    margin: 0;
-    min-width: 0;
-}
-
-.db-ha-fieldset.is-locked {
-    opacity: 0.72;
-    pointer-events: none;
-}
-
-.db-ha-fieldset.is-locked #db-ha-ping {
-    pointer-events: auto;
-    opacity: 1;
-}
-
-.db-ha-legend {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    padding: 0 6px;
-}
-
-.db-ha-legend-inline {
-    display: block;
-    margin: 4px 0 0;
-    padding: 0;
-}
-
-.db-ha-check-row {
-    margin-bottom: 8px;
-}
-
-.db-ha-check {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text-secondary);
-    cursor: pointer;
-}
-
-.db-ha-check input {
-    width: auto;
-    margin: 0;
-}
-
-.db-ha-ssl-checks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px 24px;
-    align-items: center;
-}
-
-.db-ha-ca-actions {
-    margin-bottom: 8px;
-}
-
-.db-ha-locked-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px;
-    margin-bottom: 16px;
-    border-radius: 10px;
-    border: 1px solid rgba(251, 191, 36, 0.35);
-    background: rgba(251, 191, 36, 0.1);
-    color: #fcd34d;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.db-ha-locked-banner i,
-.db-ha-locked-banner svg {
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    margin-top: 2px;
-}
-
-#db-replica-fields.is-disabled {
-    opacity: 0.45;
 }
 
 .dbmon-section-title {
@@ -3009,6 +3083,30 @@ body.light .theme-toggle:hover {
 
 .form-hint-text a {
     color: var(--accent, #60a5fa);
+}
+
+.db-ha-fieldset {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 18px 18px;
+    margin: 0 0 16px;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.db-ha-legend {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 6px;
+}
+
+.db-ha-legend-inline {
+    display: block;
+    margin: 0;
+    padding: 0;
+    color: var(--text-primary);
 }
 
 @media (max-width: 640px) {
