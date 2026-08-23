@@ -31,11 +31,11 @@ HTML;
                 <button type="button" data-range="6h">6 часов</button>
                 <button type="button" data-range="24h">сутки</button>
             </div>
-            <p class="dash-hint" id="dash-edit-hint">Клик по карточке открывает раздел. Настроить — порядок, размер и набор виджетов.</p>
+            <p class="dash-hint" id="dash-edit-hint">Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.</p>
         </div>
 
         <div class="dash-board" id="dash-board">
-            <article class="dash-widget stat-card" id="stat-nodes" data-widget="stat-nodes" data-span="3" data-href="nodes.php" data-title="Ноды онлайн">
+            <article class="dash-widget stat-card" id="stat-nodes" data-widget="stat-nodes" data-span="3" data-detail="nodes" data-href="nodes.php" data-title="Ноды онлайн">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
                     <i data-lucide="server"></i>
@@ -43,10 +43,10 @@ HTML;
                 <div class="stat-card-content">
                     <h3>Ноды онлайн</h3>
                     <div class="stat-value" id="nodes-count">0</div>
-                    <p class="stat-subtitle">из <span id="nodes-total">0</span></p>
+                    <p class="stat-subtitle" id="nodes-sub">из <span id="nodes-total">0</span></p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-alerts" data-widget="stat-alerts" data-span="3" data-href="logs.php" data-title="Алерты">
+            <article class="dash-widget stat-card" id="stat-alerts" data-widget="stat-alerts" data-span="3" data-detail="alerts" data-href="logs.php" data-title="Алерты">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
                     <i data-lucide="bell"></i>
@@ -54,10 +54,10 @@ HTML;
                 <div class="stat-card-content">
                     <h3>Алерты</h3>
                     <div class="stat-value" id="alerts-count">0</div>
-                    <p class="stat-subtitle">не закрыты</p>
+                    <p class="stat-subtitle" id="alerts-sub">не закрыты</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-cpu" data-widget="stat-cpu" data-span="3" data-href="nodes_metrics.php" data-title="CPU">
+            <article class="dash-widget stat-card" id="stat-cpu" data-widget="stat-cpu" data-span="3" data-detail="cpu" data-href="nodes_metrics.php" data-title="CPU">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #60a5fa, #2563eb);">
                     <i data-lucide="cpu"></i>
@@ -66,10 +66,10 @@ HTML;
                     <h3>CPU</h3>
                     <div class="stat-value" id="cpu-avg">0%</div>
                     <div class="hm-meter" id="cpu-meter"><span></span></div>
-                    <p class="stat-subtitle">среднее · 5 мин</p>
+                    <p class="stat-subtitle" id="cpu-sub">среднее · 5 мин</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-ram" data-widget="stat-ram" data-span="3" data-href="nodes_metrics.php" data-title="RAM">
+            <article class="dash-widget stat-card" id="stat-ram" data-widget="stat-ram" data-span="3" data-detail="ram" data-href="nodes_metrics.php" data-title="RAM">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
                     <i data-lucide="memory-stick"></i>
@@ -78,10 +78,10 @@ HTML;
                     <h3>RAM</h3>
                     <div class="stat-value" id="ram-avg">0%</div>
                     <div class="hm-meter hm-meter-ram" id="ram-meter"><span></span></div>
-                    <p class="stat-subtitle">среднее · 5 мин</p>
+                    <p class="stat-subtitle" id="ram-sub">среднее · 5 мин</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-disk" data-widget="stat-disk" data-span="3" data-href="nodes_metrics.php" data-title="Диск">
+            <article class="dash-widget stat-card" id="stat-disk" data-widget="stat-disk" data-span="3" data-detail="disk" data-href="nodes_metrics.php" data-title="Диск">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
                     <i data-lucide="hard-drive"></i>
@@ -90,10 +90,10 @@ HTML;
                     <h3>Диск</h3>
                     <div class="stat-value" id="disk-avg">0%</div>
                     <div class="hm-meter hm-meter-disk" id="disk-meter"><span></span></div>
-                    <p class="stat-subtitle">среднее · 5 мин</p>
+                    <p class="stat-subtitle" id="disk-sub">среднее · 5 мин</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-proc" data-widget="stat-proc" data-span="3" data-href="processes.php" data-title="Процессы">
+            <article class="dash-widget stat-card" id="stat-proc" data-widget="stat-proc" data-span="3" data-detail="proc" data-href="processes.php" data-title="Процессы">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #818cf8, #4f46e5);">
                     <i data-lucide="cpu"></i>
@@ -101,10 +101,10 @@ HTML;
                 <div class="stat-card-content">
                     <h3>Процессы</h3>
                     <div class="stat-value" id="proc-count">0</div>
-                    <p class="stat-subtitle">активных</p>
+                    <p class="stat-subtitle" id="proc-sub">активных</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-db" data-widget="stat-db" data-span="3" data-href="databases.php" data-title="Базы данных">
+            <article class="dash-widget stat-card" id="stat-db" data-widget="stat-db" data-span="3" data-detail="db" data-href="databases.php" data-title="Базы данных">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #a78bfa, #6d28d9);">
                     <i data-lucide="database"></i>
@@ -112,10 +112,10 @@ HTML;
                 <div class="stat-card-content">
                     <h3>Базы данных</h3>
                     <div class="stat-value" id="db-count">0</div>
-                    <p class="stat-subtitle">онлайн из <span id="db-total">0</span></p>
+                    <p class="stat-subtitle" id="db-sub">онлайн из <span id="db-total">0</span></p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-ct" data-widget="stat-ct" data-span="3" data-href="containers.php" data-title="Контейнеры">
+            <article class="dash-widget stat-card" id="stat-ct" data-widget="stat-ct" data-span="3" data-detail="ct" data-href="containers.php" data-title="Контейнеры">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);">
                     <i data-lucide="box"></i>
@@ -123,7 +123,7 @@ HTML;
                 <div class="stat-card-content">
                     <h3>Контейнеры</h3>
                     <div class="stat-value" id="ct-count">0</div>
-                    <p class="stat-subtitle">running</p>
+                    <p class="stat-subtitle" id="ct-sub">running</p>
                 </div>
             </article>
 
@@ -176,5 +176,41 @@ HTML;
             <div class="dash-catalog-list" id="dash-catalog-list"></div>
         </div>
     </section>
+
+    <div class="modal hidden" id="dash-detail-modal" aria-hidden="true">
+        <div class="modal-dialog" style="max-width: 820px;">
+            <div class="modal-header">
+                <h2 id="dash-detail-title">Подробная статистика</h2>
+                <button class="icon" type="button" id="dash-detail-close" aria-label="Закрыть">&times;</button>
+            </div>
+            <div class="modal-body" id="dash-detail-body">
+                <div class="dash-detail-kpis" id="dash-detail-kpis"></div>
+                <div class="chart-body dash-detail-chart">
+                    <canvas id="dash-detail-chart"></canvas>
+                </div>
+                <div class="table-container" style="margin-top: 16px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Нода</th>
+                                <th>Статус</th>
+                                <th>Значение</th>
+                                <th>CPU</th>
+                                <th>RAM</th>
+                                <th>Диск</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dash-detail-tbody">
+                            <tr><td colspan="6" class="text-center">Нет данных</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <a class="btn-outline" id="dash-detail-link" href="nodes_metrics.php">Открыть раздел</a>
+                <button type="button" class="primary" id="dash-detail-ok">Закрыть</button>
+            </div>
+        </div>
+    </div>
 <?php
 render_layout_end(['/frontend/js/dashboard.js']);

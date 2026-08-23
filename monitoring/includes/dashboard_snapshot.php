@@ -7,6 +7,19 @@ require_once __DIR__ . '/helpers.php';
  * Сбор данных дашборда для REST и SSE (без ping/GPU — быстрый снимок).
  */
 
+function dashboard_hot_entry(?array $row, string $valueKey): ?array
+{
+    if (!$row) {
+        return null;
+    }
+    return [
+        'id' => (int)($row['id'] ?? 0),
+        'name' => (string)($row['name'] ?? ''),
+        'host' => (string)($row['host'] ?? ''),
+        'value' => round((float)($row[$valueKey] ?? 0), 1),
+    ];
+}
+
 function dashboard_summary(PDO $pdo): array
 {
     $nodesStmt = $pdo->query("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online FROM nodes");
@@ -25,18 +38,36 @@ function dashboard_summary(PDO $pdo): array
         $containersRunning = 0;
     }
 
-    $avgSql = "SELECT AVG(cpu_percent) as avg_cpu, AVG(memory_percent) as avg_ram, AVG(disk_percent) as avg_disk
-               FROM metrics WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s)";
-    $cpuStats = $pdo->query(sprintf($avgSql, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
-    if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
-        $cpuStats = $pdo->query(sprintf($avgSql, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+    $avgSqlFull = "SELECT AVG(cpu_percent) as avg_cpu, AVG(memory_percent) as avg_ram, AVG(disk_percent) as avg_disk,
+                          MAX(cpu_percent) as max_cpu, MAX(memory_percent) as max_ram, MAX(disk_percent) as max_disk,
+                          AVG(load_avg) as avg_load, AVG(network_in) as avg_net_in, AVG(network_out) as avg_net_out
+                   FROM metrics WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s)";
+    $avgSqlBasic = "SELECT AVG(cpu_percent) as avg_cpu, AVG(memory_percent) as avg_ram, AVG(disk_percent) as avg_disk,
+                           MAX(cpu_percent) as max_cpu, MAX(memory_percent) as max_ram, MAX(disk_percent) as max_disk
+                    FROM metrics WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s)";
+    $cpuStats = null;
+    try {
+        $cpuStats = $pdo->query(sprintf($avgSqlFull, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
+        if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
+            $cpuStats = $pdo->query(sprintf($avgSqlFull, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+        }
+    } catch (Throwable $e) {
+        $cpuStats = $pdo->query(sprintf($avgSqlBasic, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
+        if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
+            $cpuStats = $pdo->query(sprintf($avgSqlBasic, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+        }
     }
 
     $alertsCount = 0;
+    $alertsCritical = 0;
     try {
         $alertsCount = (int)$pdo->query("SELECT COUNT(*) FROM alerts WHERE resolved = 0")->fetchColumn();
+        $alertsCritical = (int)$pdo->query(
+            "SELECT COUNT(*) FROM alerts WHERE resolved = 0 AND LOWER(level) IN ('critical','error','fatal')"
+        )->fetchColumn();
     } catch (Throwable $e) {
         $alertsCount = 0;
+        $alertsCritical = 0;
     }
 
     $dbTotal = 0;
@@ -50,15 +81,84 @@ function dashboard_summary(PDO $pdo): array
         $dbOnline = 0;
     }
 
+    $topCpu = [];
+    $topRam = [];
+    $topDisk = [];
+    try {
+        $latestSql = "
+            SELECT n.id, n.name, n.host, n.status,
+                   m.cpu_percent, m.memory_percent, m.disk_percent, m.load_avg,
+                   m.network_in, m.network_out, m.timestamp
+            FROM nodes n
+            INNER JOIN metrics m ON m.node_id = n.id
+            INNER JOIN (
+                SELECT node_id, MAX(timestamp) AS ts
+                FROM metrics
+                WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                GROUP BY node_id
+            ) last ON last.node_id = m.node_id AND last.ts = m.timestamp
+            ORDER BY m.cpu_percent DESC
+        ";
+        $latest = $pdo->query($latestSql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $byCpu = $latest;
+        usort($byCpu, static fn($a, $b) => (float)($b['cpu_percent'] ?? 0) <=> (float)($a['cpu_percent'] ?? 0));
+        $byRam = $latest;
+        usort($byRam, static fn($a, $b) => (float)($b['memory_percent'] ?? 0) <=> (float)($a['memory_percent'] ?? 0));
+        $byDisk = $latest;
+        usort($byDisk, static fn($a, $b) => (float)($b['disk_percent'] ?? 0) <=> (float)($a['disk_percent'] ?? 0));
+
+        $mapTop = static function (array $rows, string $key): array {
+            $out = [];
+            foreach (array_slice($rows, 0, 8) as $row) {
+                $out[] = [
+                    'id' => (int)$row['id'],
+                    'name' => (string)($row['name'] ?? ''),
+                    'host' => (string)($row['host'] ?? ''),
+                    'status' => (string)($row['status'] ?? 'offline'),
+                    'cpu' => round((float)($row['cpu_percent'] ?? 0), 1),
+                    'ram' => round((float)($row['memory_percent'] ?? 0), 1),
+                    'disk' => round((float)($row['disk_percent'] ?? 0), 1),
+                    'load' => round((float)($row['load_avg'] ?? 0), 2),
+                    'value' => round((float)($row[$key] ?? 0), 1),
+                ];
+            }
+            return $out;
+        };
+        $topCpu = $mapTop($byCpu, 'cpu_percent');
+        $topRam = $mapTop($byRam, 'memory_percent');
+        $topDisk = $mapTop($byDisk, 'disk_percent');
+    } catch (Throwable $e) {
+        $topCpu = [];
+        $topRam = [];
+        $topDisk = [];
+    }
+
+    $nodesTotal = (int)($nodesStats['total'] ?? 0);
+    $nodesOnline = (int)($nodesStats['online'] ?? 0);
+
     return [
-        'nodes_total' => (int)($nodesStats['total'] ?? 0),
-        'nodes_online' => (int)($nodesStats['online'] ?? 0),
+        'nodes_total' => $nodesTotal,
+        'nodes_online' => $nodesOnline,
+        'nodes_offline' => max(0, $nodesTotal - $nodesOnline),
         'processes_active' => $processesActive,
         'containers_running' => $containersRunning,
         'cpu_avg' => round((float)($cpuStats['avg_cpu'] ?? 0), 1),
         'ram_avg' => round((float)($cpuStats['avg_ram'] ?? 0), 1),
         'disk_avg' => round((float)($cpuStats['avg_disk'] ?? 0), 1),
+        'cpu_max' => round((float)($cpuStats['max_cpu'] ?? 0), 1),
+        'ram_max' => round((float)($cpuStats['max_ram'] ?? 0), 1),
+        'disk_max' => round((float)($cpuStats['max_disk'] ?? 0), 1),
+        'load_avg' => round((float)($cpuStats['avg_load'] ?? 0), 2),
+        'network_in_avg' => round((float)($cpuStats['avg_net_in'] ?? 0), 1),
+        'network_out_avg' => round((float)($cpuStats['avg_net_out'] ?? 0), 1),
+        'cpu_hot' => dashboard_hot_entry($topCpu[0] ?? null, 'value'),
+        'ram_hot' => dashboard_hot_entry($topRam[0] ?? null, 'value'),
+        'disk_hot' => dashboard_hot_entry($topDisk[0] ?? null, 'value'),
+        'top_cpu' => $topCpu,
+        'top_ram' => $topRam,
+        'top_disk' => $topDisk,
         'alerts_count' => $alertsCount,
+        'alerts_critical' => $alertsCritical,
         'databases_total' => $dbTotal,
         'databases_online' => $dbOnline,
     ];

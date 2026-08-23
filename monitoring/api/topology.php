@@ -99,6 +99,66 @@ function topo_kind_upnp(array $d): string
     return 'device';
 }
 
+/** uuid:xxx::urn:... → uuid:xxx */
+function topo_norm_udn(string $udn): string
+{
+    $udn = strtolower(trim($udn));
+    if ($udn === '') {
+        return '';
+    }
+    if (strpos($udn, '::') !== false) {
+        $udn = explode('::', $udn, 2)[0];
+    }
+    return $udn;
+}
+
+function topo_upnp_score(array $d): int
+{
+    $score = (int)($d['is_igd'] ?? 0) * 1000;
+    $score += topo_ports_up($d['ports'] ?? null) * 10;
+    $score += strlen((string)($d['friendly_name'] ?? ''));
+    $score += strlen((string)($d['model_name'] ?? ''));
+    $last = !empty($d['last_seen']) ? (int)strtotime((string)$d['last_seen']) : 0;
+    $score += (int)min(max($last - 1700000000, 0) / 1000, 500);
+    if ((int)($d['node_id'] ?? 0) > 0) {
+        $score += 50;
+    }
+    return $score;
+}
+
+/**
+ * Одно физическое UPnP-устройство часто приходит с разных нод / ST / USN.
+ * Схлопываем по нормализованному UDN, затем по IP хоста.
+ */
+function topo_dedupe_upnp(array $rows): array
+{
+    $byKey = [];
+    foreach ($rows as $d) {
+        if (!is_array($d)) {
+            continue;
+        }
+        $udn = topo_norm_udn((string)($d['udn'] ?? ''));
+        $host = topo_ip((string)($d['host'] ?? '')) ?: strtolower(trim((string)($d['host'] ?? '')));
+        $key = $udn !== '' ? 'u:' . $udn : ($host !== '' ? 'h:' . $host : 'i:' . (int)($d['id'] ?? 0));
+        if (!isset($byKey[$key]) || topo_upnp_score($d) > topo_upnp_score($byKey[$key])) {
+            $byKey[$key] = $d;
+        }
+    }
+
+    $byHost = [];
+    foreach ($byKey as $d) {
+        $host = topo_ip((string)($d['host'] ?? '')) ?: '';
+        if ($host === '') {
+            $byHost['id:' . (int)($d['id'] ?? 0)] = $d;
+            continue;
+        }
+        if (!isset($byHost[$host]) || topo_upnp_score($d) > topo_upnp_score($byHost[$host])) {
+            $byHost[$host] = $d;
+        }
+    }
+    return array_values($byHost);
+}
+
 function topo_ip6(string $ip): ?string
 {
     $ip = strtolower(trim(explode('%', $ip, 2)[0]));
@@ -301,7 +361,7 @@ try {
 
     $upnp = [];
     try {
-        $upnp = $pdo->query("SELECT * FROM upnp_devices")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $upnp = topo_dedupe_upnp($pdo->query("SELECT * FROM upnp_devices")->fetchAll(PDO::FETCH_ASSOC) ?: []);
     } catch (Exception $e) {
         $upnp = [];
     }

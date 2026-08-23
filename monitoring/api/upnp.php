@@ -218,6 +218,10 @@ function upnp_save_devices(PDO $pdo, ?int $nodeId, array $devices): int
         if ($udn === '') {
             continue;
         }
+        // uuid:xxx::urn:schemas... → uuid:xxx (иначе одно устройство даёт много ключей)
+        if (strpos($udn, '::') !== false) {
+            $udn = explode('::', $udn, 2)[0];
+        }
         $device = upnp_enrich_identity($device);
         $portsJson = null;
         if (!empty($device['ports']) && is_array($device['ports'])) {
@@ -428,7 +432,20 @@ try {
 
             $host = trim((string)($device['host'] ?? ''));
             $udn = trim((string)($device['udn'] ?? ''));
-            $dedupKey = $nodeId ? (string)$device['id'] : ($udn !== '' ? 'udn:' . $udn : 'host:' . $host);
+            if (strpos($udn, '::') !== false) {
+                $udn = explode('::', $udn, 2)[0];
+            }
+            $udn = strtolower($udn);
+            // При общем списке схлопываем одно устройство с разных нод
+            if ($nodeId) {
+                $dedupKey = (string)$device['id'];
+            } elseif ($udn !== '') {
+                $dedupKey = 'udn:' . $udn;
+            } elseif ($host !== '') {
+                $dedupKey = 'host:' . strtolower($host);
+            } else {
+                $dedupKey = 'id:' . (string)$device['id'];
+            }
 
             if (!isset($rowsByDevice[$dedupKey])) {
                 $device['seen_from_nodes'] = [];

@@ -1,10 +1,10 @@
 const API_BASE = window.MONITORING_API_BASE || '/api';
-const STORAGE_KEY = 'hm-dashboard-v1';
+const STORAGE_KEY = 'hm-dashboard-v2';
 const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400 };
 const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'сутки' };
 const DEFAULT_LAYOUT = {
-    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'chart-res', 'chart-net', 'list-nodes', 'list-alerts'],
-    hidden: ['stat-disk', 'stat-proc', 'stat-ct', 'stat-db'],
+    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'chart-res', 'chart-net', 'list-nodes', 'list-alerts'],
+    hidden: ['stat-proc', 'stat-ct', 'stat-db'],
     spans: {
         'stat-nodes': 3, 'stat-alerts': 3, 'stat-cpu': 3, 'stat-ram': 3,
         'stat-disk': 3, 'stat-proc': 3, 'stat-ct': 3, 'stat-db': 3,
@@ -35,11 +35,15 @@ const elements = {
 
 let resChart = null;
 let netChart = null;
+let detailChart = null;
 let layout = loadLayout();
 let editing = false;
 let timers = [];
 let sseSource = null;
 let sseConnected = false;
+let lastSummary = null;
+let lastNodes = [];
+let lastAlerts = [];
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
 const esc = (value) => String(value ?? '')
@@ -180,7 +184,7 @@ function setEditing(on) {
     if (hint) {
         hint.textContent = on
             ? 'Перетаскивайте карточки, меняйте ширину S/M/L или скрывайте лишние.'
-            : 'Клик по карточке открывает раздел. Настроить — порядок, размер и набор виджетов.';
+            : 'Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.';
     }
     widgets().forEach((el) => el.setAttribute('draggable', 'false'));
     renderCatalog();
@@ -204,14 +208,25 @@ const fetchJson = async (path) => {
     return text ? JSON.parse(text) : {};
 };
 
+const hotLabel = (hot) => {
+    if (!hot || !hot.name) return '';
+    return `${hot.name} ${hot.value}%`;
+};
+
 const updateStats = (summary) => {
     if (!summary) return;
+    lastSummary = summary;
     const online = summary.nodes_online ?? 0;
     const total = summary.nodes_total ?? 0;
+    const offline = summary.nodes_offline ?? Math.max(0, total - online);
     const alerts = summary.alerts_count ?? 0;
+    const alertsCrit = summary.alerts_critical ?? 0;
     const cpu = summary.cpu_avg ?? 0;
     const ram = summary.ram_avg ?? 0;
     const disk = summary.disk_avg ?? 0;
+    const cpuMax = summary.cpu_max ?? cpu;
+    const ramMax = summary.ram_max ?? ram;
+    const diskMax = summary.disk_max ?? disk;
     const proc = summary.processes_active ?? 0;
     const ct = summary.containers_running ?? 0;
     const dbOnline = summary.databases_online ?? 0;
@@ -231,13 +246,52 @@ const updateStats = (summary) => {
     setMeter(elements.ramMeter, ram);
     setMeter(elements.diskMeter, disk);
 
+    const nodesSub = document.getElementById('nodes-sub');
+    const alertsSub = document.getElementById('alerts-sub');
+    const cpuSub = document.getElementById('cpu-sub');
+    const ramSub = document.getElementById('ram-sub');
+    const diskSub = document.getElementById('disk-sub');
+    const procSub = document.getElementById('proc-sub');
+    const ctSub = document.getElementById('ct-sub');
+    const dbSub = document.getElementById('db-sub');
+
+    if (nodesSub) {
+        nodesSub.innerHTML = offline > 0
+            ? `из ${esc(total)} · офлайн ${esc(offline)}`
+            : `из <span id="nodes-total">${esc(total)}</span> · все онлайн`;
+    }
+    if (alertsSub) {
+        alertsSub.textContent = alerts === 0
+            ? 'всё спокойно'
+            : (alertsCrit > 0 ? `критичных: ${alertsCrit}` : 'не закрыты');
+    }
+    if (cpuSub) {
+        const hot = hotLabel(summary.cpu_hot);
+        cpuSub.textContent = hot ? `макс ${cpuMax}% · ${hot}` : `среднее ${cpu}% · макс ${cpuMax}%`;
+    }
+    if (ramSub) {
+        const hot = hotLabel(summary.ram_hot);
+        ramSub.textContent = hot ? `макс ${ramMax}% · ${hot}` : `среднее ${ram}% · макс ${ramMax}%`;
+    }
+    if (diskSub) {
+        const hot = hotLabel(summary.disk_hot);
+        diskSub.textContent = hot ? `макс ${diskMax}% · ${hot}` : `среднее ${disk}% · макс ${diskMax}%`;
+    }
+    if (procSub) procSub.textContent = proc > 0 ? 'по всем нодам' : 'нет данных';
+    if (ctSub) ctSub.textContent = ct > 0 ? 'running' : 'нет running';
+    if (dbSub) {
+        dbSub.innerHTML = dbTotal === 0
+            ? 'не настроены'
+            : `онлайн из <span id="db-total">${esc(dbTotal)}</span>`;
+    }
+
     setTone('stat-nodes', online === 0 && total > 0 ? 'bad' : (online < total ? 'warn' : 'ok'));
-    setTone('stat-alerts', alerts === 0 ? 'ok' : (alerts >= 5 ? 'bad' : 'warn'));
-    setTone('stat-cpu', toneForPct(cpu));
-    setTone('stat-ram', toneForPct(ram));
-    setTone('stat-disk', toneForPct(disk));
+    setTone('stat-alerts', alerts === 0 ? 'ok' : (alerts >= 5 || alertsCrit > 0 ? 'bad' : 'warn'));
+    setTone('stat-cpu', toneForPct(Math.max(cpu, cpuMax)));
+    setTone('stat-ram', toneForPct(Math.max(ram, ramMax)));
+    setTone('stat-disk', toneForPct(Math.max(disk, diskMax)));
     setTone('stat-proc', proc > 0 ? 'ok' : 'warn');
-    setTone('stat-ct', ct > 0 ? 'ok' : 'ok');
+    setTone('stat-ct', 'ok');
     setTone('stat-db', dbTotal === 0 ? 'warn' : (dbOnline < dbTotal ? 'bad' : 'ok'));
 };
 
@@ -413,10 +467,12 @@ const applyOverviewPayload = (payload) => {
         if (aOff !== bOff) return aOff - bOff;
         return (Number(b.cpu_usage) || 0) - (Number(a.cpu_usage) || 0);
     });
+    lastNodes = list;
     renderList(elements.nodesList, list.slice(0, 6), renderNodeItem, 'Нет данных о нодах');
 
     const alertsData = payload.alerts ?? payload.alerts_list ?? [];
-    renderList(elements.alertsList, Array.isArray(alertsData) ? alertsData.slice(0, 6) : [], renderAlertItem, 'Алертов нет');
+    lastAlerts = Array.isArray(alertsData) ? alertsData : [];
+    renderList(elements.alertsList, lastAlerts.slice(0, 6), renderAlertItem, 'Алертов нет');
 };
 
 const refreshOverview = async () => {
@@ -574,6 +630,12 @@ function bindBoard() {
         }
         if (editing) return;
         if (e.target.closest('a')) return;
+        const detailWidget = e.target.closest('[data-widget][data-detail]');
+        if (detailWidget?.dataset.detail) {
+            e.preventDefault();
+            openDetailModal(detailWidget.dataset.detail, detailWidget.dataset.title || '', detailWidget.dataset.href || '');
+            return;
+        }
         const row = e.target.closest('[data-href]');
         if (row?.dataset.href) {
             window.location.href = row.dataset.href;
@@ -583,6 +645,181 @@ function bindBoard() {
         if (widget?.dataset.href) {
             window.location.href = widget.dataset.href;
         }
+    });
+}
+
+const DETAIL_META = {
+    nodes: { title: 'Ноды', link: 'nodes.php', metric: null, topKey: null },
+    alerts: { title: 'Алерты', link: 'logs.php', metric: null, topKey: null },
+    cpu: { title: 'CPU', link: 'nodes_metrics.php', metric: 'cpu', topKey: 'top_cpu', color: '#60a5fa' },
+    ram: { title: 'RAM', link: 'nodes_metrics.php', metric: 'ram', topKey: 'top_ram', color: '#34d399' },
+    disk: { title: 'Диск', link: 'nodes_metrics.php', metric: 'disk', topKey: 'top_disk', color: '#fbbf24' },
+    proc: { title: 'Процессы', link: 'processes.php', metric: null, topKey: null },
+    db: { title: 'Базы данных', link: 'databases.php', metric: null, topKey: null },
+    ct: { title: 'Контейнеры', link: 'containers.php', metric: null, topKey: null },
+};
+
+function closeDetailModal() {
+    const modal = document.getElementById('dash-detail-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => modal.classList.add('hidden'), 180);
+    modal.setAttribute('aria-hidden', 'true');
+}
+
+function renderDetailKpis(kind, summary) {
+    const host = document.getElementById('dash-detail-kpis');
+    if (!host) return;
+    const s = summary || {};
+    const items = [];
+    if (kind === 'cpu') {
+        items.push(['Среднее', `${s.cpu_avg ?? 0}%`], ['Макс', `${s.cpu_max ?? 0}%`], ['Пик нода', hotLabel(s.cpu_hot) || '—']);
+    } else if (kind === 'ram') {
+        items.push(['Среднее', `${s.ram_avg ?? 0}%`], ['Макс', `${s.ram_max ?? 0}%`], ['Пик нода', hotLabel(s.ram_hot) || '—']);
+    } else if (kind === 'disk') {
+        items.push(['Среднее', `${s.disk_avg ?? 0}%`], ['Макс', `${s.disk_max ?? 0}%`], ['Пик нода', hotLabel(s.disk_hot) || '—']);
+    } else if (kind === 'nodes') {
+        items.push(['Онлайн', s.nodes_online ?? 0], ['Всего', s.nodes_total ?? 0], ['Офлайн', s.nodes_offline ?? 0]);
+    } else if (kind === 'alerts') {
+        items.push(['Открыто', s.alerts_count ?? 0], ['Критических', s.alerts_critical ?? 0]);
+    } else if (kind === 'proc') {
+        items.push(['Активных', s.processes_active ?? 0]);
+    } else if (kind === 'ct') {
+        items.push(['Running', s.containers_running ?? 0]);
+    } else if (kind === 'db') {
+        items.push(['Онлайн', s.databases_online ?? 0], ['Всего', s.databases_total ?? 0]);
+    }
+    host.innerHTML = items.map(([k, v]) => `
+        <div class="dash-detail-kpi">
+            <span class="dash-detail-kpi-label">${esc(k)}</span>
+            <span class="dash-detail-kpi-value">${esc(v)}</span>
+        </div>
+    `).join('');
+}
+
+function renderDetailTable(kind, summary) {
+    const tbody = document.getElementById('dash-detail-tbody');
+    if (!tbody) return;
+    const meta = DETAIL_META[kind] || {};
+    let rows = [];
+    if (meta.topKey && summary?.[meta.topKey]) {
+        rows = summary[meta.topKey];
+    } else if (kind === 'nodes') {
+        rows = lastNodes.map((n) => ({
+            name: n.name, host: n.host, status: n.status,
+            value: n.status === 'online' ? 'online' : 'offline',
+            cpu: n.cpu_usage, ram: n.memory_usage, disk: n.disk_usage,
+        }));
+    } else if (kind === 'alerts') {
+        rows = lastAlerts.map((a) => ({
+            name: a.title || 'Алерт', host: a.node || '', status: a.level || 'info',
+            value: a.level || '', cpu: '—', ram: '—', disk: '—',
+        }));
+    } else {
+        rows = lastNodes.map((n) => ({
+            name: n.name, host: n.host, status: n.status,
+            value: '—', cpu: n.cpu_usage, ram: n.memory_usage, disk: n.disk_usage,
+        }));
+    }
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((r) => `
+        <tr>
+            <td>${esc(r.name || r.host || '—')}<div class="muted" style="font-size:12px">${esc(r.host || '')}</div></td>
+            <td><span class="pill status ${esc(r.status || '')}">${esc(r.status || '—')}</span></td>
+            <td>${esc(r.value ?? '—')}${typeof r.value === 'number' ? '%' : ''}</td>
+            <td>${r.cpu != null && r.cpu !== '—' ? `${Number(r.cpu).toFixed(1)}%` : '—'}</td>
+            <td>${r.ram != null && r.ram !== '—' ? `${Number(r.ram).toFixed(1)}%` : '—'}</td>
+            <td>${r.disk != null && r.disk !== '—' ? `${Number(r.disk).toFixed(1)}%` : '—'}</td>
+        </tr>
+    `).join('');
+}
+
+async function updateDetailChart(kind) {
+    const canvas = document.getElementById('dash-detail-chart');
+    const wrap = canvas?.closest('.dash-detail-chart');
+    const meta = DETAIL_META[kind] || {};
+    if (!canvas || !window.Chart || !meta.metric) {
+        if (wrap) wrap.style.display = 'none';
+        if (detailChart) {
+            detailChart.destroy();
+            detailChart = null;
+        }
+        return;
+    }
+    if (wrap) wrap.style.display = '';
+    const seconds = RANGE_SECONDS[layout.range] || 3600;
+    const from = Math.floor(Date.now() / 1000) - seconds;
+    const metrics = await fetchJson(`/metrics?from=${from}&limit=80`).catch(() => null);
+    const points = asPoints(metrics);
+    const labels = points.map((p) => {
+        const d = new Date(p.ts || p.timestamp || Date.now());
+        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    });
+    const key = meta.metric === 'ram' ? 'ram' : meta.metric;
+    const data = points.map((p) => {
+        if (key === 'cpu') return p.cpu ?? 0;
+        if (key === 'ram') return p.ram ?? p.memory ?? 0;
+        return p.disk ?? 0;
+    });
+    if (detailChart) detailChart.destroy();
+    detailChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: meta.title,
+                borderColor: meta.color || '#60a5fa',
+                backgroundColor: colorFill(meta.color || '#60a5fa'),
+                fill: true,
+                data,
+                tension: 0.25,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${v}%` } },
+            },
+        },
+    });
+}
+
+async function openDetailModal(kind, title, href) {
+    const modal = document.getElementById('dash-detail-modal');
+    if (!modal) return;
+    const meta = DETAIL_META[kind] || { title: title || kind, link: href || '#' };
+    const titleEl = document.getElementById('dash-detail-title');
+    const linkEl = document.getElementById('dash-detail-link');
+    if (titleEl) titleEl.textContent = title || meta.title || 'Статистика';
+    if (linkEl) {
+        linkEl.href = href || meta.link || '#';
+        linkEl.textContent = 'Открыть раздел';
+    }
+    renderDetailKpis(kind, lastSummary);
+    renderDetailTable(kind, lastSummary);
+    modal.classList.remove('hidden');
+    requestAnimationFrame(() => modal.classList.add('active'));
+    modal.setAttribute('aria-hidden', 'false');
+    await updateDetailChart(kind);
+    if (window.lucide) lucide.createIcons();
+}
+
+function bindDetailModal() {
+    const modal = document.getElementById('dash-detail-modal');
+    if (!modal) return;
+    document.getElementById('dash-detail-close')?.addEventListener('click', closeDetailModal);
+    document.getElementById('dash-detail-ok')?.addEventListener('click', closeDetailModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeDetailModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) closeDetailModal();
     });
 }
 
@@ -621,6 +858,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyLayout();
     bindBoard();
     bindToolbar();
+    bindDetailModal();
     initCharts();
     refreshAll();
     connectSse();
