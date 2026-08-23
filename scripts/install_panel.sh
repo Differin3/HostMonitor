@@ -112,7 +112,7 @@ else
 fi
 
 cd "${INSTALL_DIR}"
-chmod +x install.sh scripts/install_web_debian.sh scripts/install_agent.sh 2>/dev/null || true
+chmod +x install.sh scripts/install_web_debian.sh scripts/install_agent.sh scripts/panel_git.sh 2>/dev/null || true
 
 # ----------------------------------------------------------------------
 echo "[install_panel] Запуск install.sh с параметрами БД"
@@ -136,6 +136,40 @@ if id "monitoring" &>/dev/null; then
 else
     sudo chown -R "$(whoami)":"$(whoami)" "${INSTALL_DIR}" || true
     SERVICE_USER="root"
+fi
+
+# ----------------------------------------------------------------------
+echo "[install_panel] Обновление панели из git (panel_git.sh + sudoers)"
+PANEL_GIT_SCRIPT="${INSTALL_DIR}/scripts/panel_git.sh"
+if [[ -f "${PANEL_GIT_SCRIPT}" ]]; then
+    sudo chmod 755 "${PANEL_GIT_SCRIPT}"
+fi
+if id "monitoring" &>/dev/null; then
+    PHP_USER="www-data"
+    id "${PHP_USER}" &>/dev/null || PHP_USER="nginx"
+    id "${PHP_USER}" &>/dev/null || PHP_USER=""
+    if [[ -n "${PHP_USER}" && -f "${PANEL_GIT_SCRIPT}" ]]; then
+        SUDOERS_FILE="/etc/sudoers.d/hostmonitor-panel-git"
+        sudo tee "${SUDOERS_FILE}" >/dev/null <<EOF
+# HostMonitor: обновление панели из веб-интерфейса
+${PHP_USER} ALL=(monitoring) NOPASSWD: ${PANEL_GIT_SCRIPT}
+EOF
+        sudo chmod 440 "${SUDOERS_FILE}"
+        echo "[install_panel] sudoers: ${PHP_USER} → panel_git.sh"
+    fi
+    PANEL_CFG="${INSTALL_DIR}/monitoring/data/panel.local.php"
+    if [[ ! -f "${PANEL_CFG}" ]]; then
+        sudo tee "${PANEL_CFG}" >/dev/null <<EOF
+<?php
+return [
+    'repo_root' => '${INSTALL_DIR}',
+    'git_wrapper' => '${PANEL_GIT_SCRIPT}',
+    'git_sudo_user' => 'monitoring',
+];
+EOF
+        sudo chmod 600 "${PANEL_CFG}"
+        sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${PANEL_CFG}" 2>/dev/null || true
+    fi
 fi
 
 # ----------------------------------------------------------------------

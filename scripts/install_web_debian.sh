@@ -60,6 +60,7 @@ sudo mkdir -p "${WEB_ROOT}/frontend" "${WEB_ROOT}/database" "${WEB_ROOT}/data"
 sudo rsync -a --delete \
     --exclude 'data/db.local.php' \
     --exclude 'data/db.active.php' \
+    --exclude 'data/panel.local.php' \
     --exclude 'data/retention.last' \
     "${PROJECT_ROOT}/monitoring/" "${WEB_ROOT}/"
 sudo rsync -a --delete "${PROJECT_ROOT}/frontend/" "${WEB_ROOT}/frontend/"
@@ -69,6 +70,22 @@ if [[ -f "${PROJECT_ROOT}/monitoring/data/db.local.php" && ! -f "${WEB_ROOT}/dat
 fi
 sudo cp -a "${PROJECT_ROOT}/monitoring/data/.htaccess" "${WEB_ROOT}/data/.htaccess" 2>/dev/null || true
 sudo cp -a "${PROJECT_ROOT}/monitoring/data/index.php" "${WEB_ROOT}/data/index.php" 2>/dev/null || true
+
+PANEL_CFG="${WEB_ROOT}/data/panel.local.php"
+if [[ ! -f "${PANEL_CFG}" ]]; then
+    REPO_ROOT="${PROJECT_ROOT}"
+    GIT_SCRIPT="${REPO_ROOT}/scripts/panel_git.sh"
+    sudo tee "${PANEL_CFG}" >/dev/null <<EOF
+<?php
+return [
+    'repo_root' => '${REPO_ROOT}',
+    'git_wrapper' => '${GIT_SCRIPT}',
+    'git_sudo_user' => 'monitoring',
+    'web_root' => '${WEB_ROOT}',
+];
+EOF
+    sudo chmod 600 "${PANEL_CFG}"
+fi
 
 log "nginx"
 sudo cp "${NGINX_CONF_SRC}" "${NGINX_CONF_DST}"

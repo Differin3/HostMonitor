@@ -71,7 +71,8 @@
         try {
             const data = await fetchJson(`${API}?action=check`);
             if (data.error && !data.available) {
-                if (!silent) toast(data.error, 'warning');
+                console.warn('[panel-update]', data.error);
+                if (!silent) toast(data.error.split('\n\n')[0], 'warning');
                 setUpdateAvailable(false);
                 return;
             }
