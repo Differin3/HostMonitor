@@ -167,14 +167,11 @@ if (!function_exists('nodes_ensure_agent_columns')) {
     /**
      * Добавляет agent_* колонки без долгих блокировок:
      * сначала INFORMATION_SCHEMA, ALTER только если колонки нет.
+     * Без ADD COLUMN IF NOT EXISTS — в MySQL этого синтаксиса нет.
      */
     function nodes_ensure_agent_columns(PDO $pdo): void
     {
-        static $done = false;
-        if ($done) {
-            return;
-        }
-        $done = true;
+        static $done = [];
 
         $needed = [
             'agent_version' => 'VARCHAR(32) NULL',
@@ -191,6 +188,12 @@ if (!function_exists('nodes_ensure_agent_columns')) {
             if ($dbName === '') {
                 return;
             }
+            $cacheKey = $dbName . '@' . spl_object_id($pdo);
+            if (isset($done[$cacheKey])) {
+                return;
+            }
+            $done[$cacheKey] = true;
+
             $existing = [];
             $stmt = $pdo->prepare(
                 'SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -226,6 +229,51 @@ if (!function_exists('nodes_ensure_agent_columns')) {
         } catch (Throwable $e) {
             error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());
         }
+    }
+}
+
+if (!function_exists('nodes_ensure_agent_columns_all')) {
+    /**
+     * Миграция agent_* на активной и (если есть) резервной БД.
+     * @return list<array{role:string,ok:bool,error?:string}>
+     */
+    function nodes_ensure_agent_columns_all(?PDO $active = null): array
+    {
+        $results = [];
+        if ($active instanceof PDO) {
+            nodes_ensure_agent_columns($active);
+            $results[] = ['role' => 'active', 'ok' => true];
+        }
+
+        if (!function_exists('db_config_load') || !function_exists('db_replica_enabled')) {
+            return $results;
+        }
+
+        try {
+            $cfg = db_config_load();
+            $roles = ['primary'];
+            if (db_replica_enabled($cfg)) {
+                $roles[] = 'replica';
+            }
+            foreach ($roles as $role) {
+                try {
+                    $ep = db_endpoint($cfg, $role);
+                    if (($ep['host'] ?? '') === '' || ($ep['name'] ?? '') === '') {
+                        continue;
+                    }
+                    $pdo = db_try_connect($ep, 8);
+                    nodes_ensure_agent_columns($pdo);
+                    $results[] = ['role' => $role, 'ok' => true];
+                } catch (Throwable $e) {
+                    $results[] = ['role' => $role, 'ok' => false, 'error' => $e->getMessage()];
+                    error_log('[nodes_ensure_agent_columns_all:' . $role . '] ' . $e->getMessage());
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[nodes_ensure_agent_columns_all] ' . $e->getMessage());
+        }
+
+        return $results;
     }
 }
 

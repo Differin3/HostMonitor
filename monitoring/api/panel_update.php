@@ -26,7 +26,16 @@ try {
         exit;
     }
     if ($method === 'POST' && $action === 'apply') {
-        echo json_encode(panel_update_apply());
+        $raw = file_get_contents('php://input') ?: '';
+        $body = [];
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $body = $decoded;
+            }
+        }
+        $force = !empty($_GET['force']) || !empty($_POST['force']) || !empty($body['force']);
+        echo json_encode(panel_update_apply((bool)$force));
         exit;
     }
     json_error('Invalid action', 400);

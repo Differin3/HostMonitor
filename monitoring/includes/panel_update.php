@@ -546,7 +546,10 @@ function panel_update_hint(string $output): string
     return "\n\nПодсказка: " . implode(' ', $hints);
 }
 
-function panel_update_apply(): array
+/**
+ * @param bool $discardLocal сбросить локальные правки (git reset --hard) перед pull
+ */
+function panel_update_apply(bool $discardLocal = false): array
 {
     $root = panel_repo_root();
     if ($root === null) {
@@ -557,12 +560,60 @@ function panel_update_apply(): array
     if (!$status['ok']) {
         return ['success' => false, 'error' => 'git status: ' . $status['output']];
     }
-    if (trim($status['output']) !== '') {
-        return [
-            'success' => false,
-            'error' => 'Рабочая копия содержит локальные изменения — обновление отменено',
-            'dirty' => true,
-        ];
+    $dirtyOut = trim($status['output']);
+    if ($dirtyOut !== '') {
+        $files = [];
+        foreach (preg_split('/\r\n|\r|\n/', $dirtyOut) as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            // " M path" / "?? path" / "MM path"
+            $files[] = preg_replace('/^..\\s+/', '', $line) ?: $line;
+        }
+        if (!$discardLocal) {
+            $preview = implode(', ', array_slice($files, 0, 8));
+            if (count($files) > 8) {
+                $preview .= '…';
+            }
+            return [
+                'success' => false,
+                'error' => 'Рабочая копия содержит локальные изменения — обновление отменено'
+                    . ($preview !== '' ? ": {$preview}" : ''),
+                'dirty' => true,
+                'dirty_files' => $files,
+                'hint' => 'Можно сбросить локальные правки и обновить (force), либо на сервере: '
+                    . 'cd /opt/monitoring && sudo -u monitoring git reset --hard && sudo -u monitoring git pull --ff-only',
+            ];
+        }
+        // Только tracked + index; untracked (data/*.local.php) не трогаем
+        $reset = panel_git($root, 'reset --hard HEAD', 30);
+        if (!$reset['ok']) {
+            return [
+                'success' => false,
+                'error' => 'Не удалось сбросить локальные изменения: ' . $reset['output'],
+                'dirty' => true,
+                'dirty_files' => $files,
+            ];
+        }
+        $status2 = panel_git($root, 'status --porcelain', 10);
+        $still = trim($status2['output'] ?? '');
+        if ($still !== '') {
+            // Остались только untracked — pull обычно ок
+            $blocking = [];
+            foreach (preg_split('/\r\n|\r|\n/', $still) as $line) {
+                if ($line !== '' && !str_starts_with(ltrim($line), '??')) {
+                    $blocking[] = $line;
+                }
+            }
+            if ($blocking !== []) {
+                return [
+                    'success' => false,
+                    'error' => 'После reset остались локальные изменения: ' . implode('; ', $blocking),
+                    'dirty' => true,
+                ];
+            }
+        }
     }
 
     $check = panel_update_check(true);

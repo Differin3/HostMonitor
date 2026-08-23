@@ -18,8 +18,8 @@ header('Content-Type: application/json; charset=utf-8');
 
 $pdo = getDbConnection();
 
-// Определение в helpers.php (быстрая проверка INFORMATION_SCHEMA)
-nodes_ensure_agent_columns($pdo);
+// Определение в helpers.php (быстрая проверка INFORMATION_SCHEMA) — active + replica
+nodes_ensure_agent_columns_all($pdo);
 
 function agent_desired_version(): array
 {
