@@ -64,9 +64,9 @@ function db_config_load(): array
             'password' => (string)(getenv('DB_REPLICA_PASSWORD') !== false && getenv('DB_REPLICA_PASSWORD') !== ''
                 ? getenv('DB_REPLICA_PASSWORD')
                 : ($replicaFile['password'] ?? '')),
-            // SSL-параметры загружаются из файла, но переменные окружения для них не предусмотрены (опционально)
             'ssl' => (bool)($replicaFile['ssl'] ?? false),
             'ssl_verify' => (bool)($replicaFile['ssl_verify'] ?? false),
+            'ssl_ca' => (string)($replicaFile['ssl_ca'] ?? ''),
         ],
         'from_file' => is_file($path),
         'from_env' => (bool)(getenv('DB_NAME') || getenv('DB_USER') || getenv('DB_HOST')),
@@ -114,9 +114,9 @@ function db_config_save(array $cfg): void
             'name' => (string)($replicaIn['name'] ?? $prevReplica['name'] ?? ''),
             'user' => (string)($replicaIn['user'] ?? $prevReplica['user'] ?? ''),
             'password' => $replicaPassword,
-            // Сохраняем SSL-параметры, если они переданы
             'ssl' => (bool)($replicaIn['ssl'] ?? $prevReplica['ssl'] ?? false),
             'ssl_verify' => (bool)($replicaIn['ssl_verify'] ?? $prevReplica['ssl_verify'] ?? false),
+            'ssl_ca' => (string)($replicaIn['ssl_ca'] ?? $prevReplica['ssl_ca'] ?? ''),
         ],
     ], true);
     $php = "<?php\n// Сгенерировано панелью. Не коммить.\nreturn {$export};\n";
@@ -131,11 +131,126 @@ function db_reset_pdo(): void
     getDbConnection(true);
 }
 
+function db_ssl_ca_relative(): string
+{
+    return 'ssl/replica-ca.pem';
+}
+
+function db_ssl_data_dir(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'ssl';
+}
+
+function db_ssl_ca_absolute(?string $relative = null): string
+{
+    $rel = $relative !== null && $relative !== '' ? $relative : db_ssl_ca_relative();
+    $rel = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $rel);
+    if (str_contains($rel, '..')) {
+        throw new InvalidArgumentException('Недопустимый путь к CA-сертификату');
+    }
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . $rel;
+}
+
+function db_ssl_validate_pem(string $pem): bool
+{
+    $pem = trim($pem);
+    if ($pem === '') {
+        return false;
+    }
+    return str_contains($pem, '-----BEGIN CERTIFICATE-----')
+        && str_contains($pem, '-----END CERTIFICATE-----');
+}
+
+function db_ssl_ca_resolve(?string $configured): ?string
+{
+    if ($configured !== null && $configured !== '') {
+        $path = db_ssl_ca_absolute($configured);
+        if (is_readable($path)) {
+            return $path;
+        }
+    }
+    $default = db_ssl_ca_absolute(db_ssl_ca_relative());
+    return is_readable($default) ? $default : null;
+}
+
+function db_ssl_ca_save(string $pem): string
+{
+    if (!db_ssl_validate_pem($pem)) {
+        throw new InvalidArgumentException('Файл должен содержать PEM-сертификат (-----BEGIN CERTIFICATE-----)');
+    }
+    $dir = db_ssl_data_dir();
+    if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
+        throw new RuntimeException('Не удалось создать каталог data/ssl/');
+    }
+    $path = db_ssl_ca_absolute(db_ssl_ca_relative());
+    if (file_put_contents($path, trim($pem) . "\n", LOCK_EX) === false) {
+        throw new RuntimeException('Не удалось сохранить CA-сертификат — проверьте права data/ssl/');
+    }
+    @chmod($path, 0640);
+    return db_ssl_ca_relative();
+}
+
+function db_ssl_ca_remove(): void
+{
+    $path = db_ssl_ca_absolute(db_ssl_ca_relative());
+    if (is_file($path)) {
+        @unlink($path);
+    }
+}
+
+function db_ssl_ca_info(?string $configured = null): array
+{
+    $path = db_ssl_ca_resolve($configured ?? '');
+    if ($path === null) {
+        return ['installed' => false, 'path' => '', 'relative' => ''];
+    }
+    $info = [
+        'installed' => true,
+        'path' => $path,
+        'relative' => $configured !== null && $configured !== '' ? $configured : db_ssl_ca_relative(),
+        'size' => (int)@filesize($path),
+        'modified' => (int)@filemtime($path),
+    ];
+    $pem = @file_get_contents($path);
+    if (is_string($pem) && db_ssl_validate_pem($pem) && function_exists('openssl_x509_parse')) {
+        $blocks = preg_split('/(?=-----BEGIN CERTIFICATE-----)/', $pem) ?: [];
+        $info['cert_count'] = 0;
+        foreach ($blocks as $block) {
+            $block = trim($block);
+            if ($block === '') {
+                continue;
+            }
+            $x509 = @openssl_x509_parse($block);
+            if (is_array($x509)) {
+                $info['cert_count']++;
+                if (empty($info['subject'])) {
+                    $info['subject'] = (string)($x509['name'] ?? '');
+                }
+            }
+        }
+    }
+    return $info;
+}
+
 function db_pdo_ssl_opts(array $ep): array
 {
     $opts = [];
-    if (!empty($ep['ssl'])) {
-        $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = !empty($ep['ssl_verify']);
+    if (empty($ep['ssl'])) {
+        return $opts;
+    }
+    $verify = !empty($ep['ssl_verify']);
+    $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $verify;
+
+    $caPath = db_ssl_ca_resolve((string)($ep['ssl_ca'] ?? ''));
+    if ($caPath !== null) {
+        $opts[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
+    } elseif ($verify) {
+        foreach (['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'] as $sysCa) {
+            if (is_readable($sysCa)) {
+                $opts[PDO::MYSQL_ATTR_SSL_CA] = $sysCa;
+                break;
+            }
+        }
     }
     return $opts;
 }
@@ -323,6 +438,18 @@ function db_connection_status(): array
     return $status;
 }
 
+function db_connection_editable(array $status): bool
+{
+    if (empty($status['configured'])) {
+        return true;
+    }
+    $primaryOk = !empty($status['primary']['ok']);
+    if (empty($status['replica_enabled'])) {
+        return $primaryOk;
+    }
+    return $primaryOk || !empty($status['replica']['ok']);
+}
+
 function db_render_error_page(array $status): void
 {
     $title = 'Ошибка подключения к базе данных';
@@ -331,6 +458,7 @@ function db_render_error_page(array $status): void
     $replica = $status['replica'];
     $replicaEnabled = !empty($status['replica_enabled']);
     $lastError = $status['last_error'] ?? 'Неизвестная ошибка';
+    $bothDown = !db_connection_editable($status);
     header('HTTP/1.1 503 Service Unavailable');
     header('Retry-After: 60');
     ?>
@@ -440,12 +568,13 @@ function db_render_error_page(array $status): void
             <div class="hint-box">
                 <strong>Что можно сделать:</strong><br>
                 1. Проверьте запущен ли сервер MySQL/MariaDB (systemctl status mariadb / mysqld)<br>
-                2. Убедитесь, что учётные данные и хосты в конфигурации корректны (monitoring/data/db.local.php)<br>
-                3. Если база временно перегружена — подождите 1–2 минуты и повторите попытку.<br>
-                <?php if (!$replicaEnabled): ?>
-                    <br>💡 Совет: включите резервную копию БД в разделе настроек — это позволит панели работать при падении основной.
+                2. Если база временно перегружена — подождите 1–2 минуты и повторите попытку.<br>
+                <?php if ($bothDown): ?>
+                    <br>Обе базы недоступны — изменить настройки через панель нельзя. Исправьте сервер БД или отредактируйте <code>monitoring/data/db.local.php</code> по SSH.
+                <?php elseif (!$replicaEnabled): ?>
+                    <br>💡 Совет: включите резервную базу на странице «Базы данных» — панель сможет работать при падении основной.
                 <?php else: ?>
-                    <br>Реплика <strong>включена</strong>, но сейчас обе базы недоступны — проблема скорее всего в сети или на общем сервере БД.
+                    <br>Хотя бы одна база отвечает — параметры можно изменить на странице «Базы данных».
                 <?php endif; ?>
             </div>
 
@@ -454,10 +583,12 @@ function db_render_error_page(array $status): void
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                     Повторить подключение
                 </button>
-                <a href="setup.php" class="btn btn-secondary">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    Перейти к настройкам (перенастроить)
+                <?php if (!$bothDown): ?>
+                <a href="databases.php#db-ha-panel" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+                    Настройки базы данных
                 </a>
+                <?php endif; ?>
                 <?php if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION)): ?>
                     <a href="logout.php" class="btn btn-secondary">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -496,6 +627,7 @@ function db_endpoint(array $cfg, string $role): array
             'password' => (string)(($replica['password'] ?? '') !== '' ? $replica['password'] : ($cfg['password'] ?? '')),
             'ssl' => (bool)($replica['ssl'] ?? false),
             'ssl_verify' => (bool)($replica['ssl_verify'] ?? false),
+            'ssl_ca' => (string)($replica['ssl_ca'] ?? ''),
         ];
     }
     return [
@@ -528,6 +660,15 @@ function db_public_endpoint(array $ep): array
     }
     if (array_key_exists('ssl_verify', $ep)) {
         $out['ssl_verify'] = !empty($ep['ssl_verify']);
+    }
+    $caInfo = db_ssl_ca_info((string)($ep['ssl_ca'] ?? ''));
+    $out['has_ssl_ca'] = !empty($caInfo['installed']);
+    $out['ssl_ca'] = $out['has_ssl_ca'] ? (string)($caInfo['relative'] ?? '') : '';
+    if (!empty($caInfo['subject'])) {
+        $out['ssl_ca_subject'] = (string)$caInfo['subject'];
+    }
+    if (!empty($caInfo['cert_count'])) {
+        $out['ssl_ca_cert_count'] = (int)$caInfo['cert_count'];
     }
     return $out;
 }

@@ -251,92 +251,11 @@ render_layout_start('Настройки', 'settings');
 
             <div class="tab-content" id="database-tab">
                 <div class="settings-section">
-                    <h3>База данных</h3>
-                    <p class="form-hint-text">Резерв необязателен. Если основная MySQL недоступна, панель переключится на запасную. Состояние этих подключений и чужих СУБД — в разделе «Базы данных». Двойная запись на каждый запрос не ведётся — для постоянной синхронизации лучше репликация MySQL, разовое копирование — кнопками ниже.</p>
-                    <div class="ha-status-row" id="ha-status-row">
-                        <div class="ha-pill" id="ha-pill-active">Активная: …</div>
-                        <div class="ha-pill" id="ha-pill-primary">Основная: …</div>
-                        <div class="ha-pill" id="ha-pill-replica">Резерв: …</div>
-                    </div>
-                    <div class="ha-grid">
-                        <div class="form-field">
-                            <label for="db-host">Хост основной</label>
-                            <input type="text" id="db-host" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-port">Порт</label>
-                            <input type="number" id="db-port" min="1" max="65535">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-name">Имя базы</label>
-                            <input type="text" id="db-name" pattern="[A-Za-z0-9_]+">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-user">Пользователь</label>
-                            <input type="text" id="db-user" autocomplete="off">
-                        </div>
-                        <div class="form-field ha-span-2">
-                            <label for="db-password">Пароль основной</label>
-                            <input type="password" id="db-password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password">
-                        </div>
-                    </div>
-                    <div class="form-field">
-                        <label>
-                            <input type="checkbox" id="db-replica-enabled">
-                            Включить резервную базу
-                        </label>
-                    </div>
-                    <div class="form-field">
-                        <label>
-                            <input type="checkbox" id="db-replica-failback" checked>
-                            Автоматически вернуться на основную, когда она снова доступна
-                        </label>
-                    </div>
-                    <div class="ha-grid" id="db-replica-fields">
-                        <div class="form-field">
-                            <label for="db-replica-host">Хост резерва</label>
-                            <input type="text" id="db-replica-host" placeholder="db-standby" autocomplete="off">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-replica-port">Порт резерва</label>
-                            <input type="number" id="db-replica-port" value="3306" min="1" max="65535">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-replica-name">Имя базы резерва</label>
-                            <input type="text" id="db-replica-name" placeholder="как у основной">
-                        </div>
-                        <div class="form-field">
-                            <label for="db-replica-user">Пользователь резерва</label>
-                            <input type="text" id="db-replica-user" placeholder="как у основной">
-                        </div>
-                        <div class="form-field ha-span-2">
-                            <label for="db-replica-password">Пароль резерва</label>
-                            <input type="password" id="db-replica-password" placeholder="Пусто — не менять / как у основной" autocomplete="new-password">
-                        </div>
-                        <!-- Добавленные SSL-чекбоксы -->
-                        <div class="form-field ha-span-2" style="display:flex; gap:20px; align-items:center; margin-top:4px;">
-                            <label>
-                                <input type="checkbox" id="db-replica-ssl" value="1">
-                                Использовать SSL
-                            </label>
-                            <label>
-                                <input type="checkbox" id="db-replica-ssl-verify" value="1">
-                                Проверять сертификат
-                            </label>
-                        </div>
-                    </div>
-                    <div class="ha-actions">
-                        <button type="button" class="primary" id="db-ha-save">Сохранить подключения</button>
-                        <button type="button" class="btn-outline" id="db-ha-ping">Проверить</button>
-                        <button type="button" class="btn-outline" id="db-ha-failback">Вернуться на основную</button>
-                    </div>
-                    <h3 class="ha-subhead">Синхронизация</h3>
-                    <p class="form-hint-text">Копирует таблицы целиком (схема + данные). На большой базе может занять несколько минут. Не запускайте, если обе стороны пишут одновременно.</p>
-                    <div class="ha-actions">
-                        <button type="button" class="btn-outline" id="db-ha-to-replica">Основная → резерв</button>
-                        <button type="button" class="btn-outline" id="db-ha-to-primary">Резерв → основная</button>
-                    </div>
-                    <pre class="ha-log hidden" id="db-ha-log"></pre>
+                    <p class="form-hint-text">Те же параметры, что на странице <a href="databases.php#db-ha-panel">Базы данных</a>. Мониторинг сторонних СУБД — там же, ниже блока подключений.</p>
+                    <?php
+                    require_once __DIR__ . '/includes/db_ha_form.php';
+                    render_db_ha_panel(['context' => 'settings', 'show_intro' => false]);
+                    ?>
                 </div>
             </div>
         </div>
@@ -347,4 +266,4 @@ render_layout_start('Настройки', 'settings');
         </div>
     </div>
 <?php
-render_layout_end(['/frontend/js/settings.js']);
+render_layout_end(['/frontend/js/db_ha.js', '/frontend/js/settings.js']);

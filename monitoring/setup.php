@@ -55,10 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $port = trim((string)($_POST['port'] ?? '3306'));
     $name = trim((string)($_POST['name'] ?? ''));
     $user = trim((string)($_POST['user'] ?? ''));
-        $password = (string)($_POST['password'] ?? '');
-        if ($password === '' && ($cfg['password'] ?? '') !== '') {
-            $password = (string)$cfg['password'];
-        }
+    $password = (string)($_POST['password'] ?? '');
+    if ($password === '' && ($cfg['password'] ?? '') !== '') {
+        $password = (string)$cfg['password'];
+    }
     $admin = trim((string)($_POST['username'] ?? ''));
     $adminPass = (string)($_POST['admin_password'] ?? '');
     $adminPass2 = (string)($_POST['admin_password2'] ?? '');
@@ -130,6 +130,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         db_config_save($next);
+
+        if ($replicaEnabled && $replicaSslVerify) {
+            $replicaSslCaPem = trim((string)($_POST['replica_ssl_ca_pem'] ?? ''));
+            if ($replicaSslCaPem !== '') {
+                db_ssl_ca_save($replicaSslCaPem);
+            }
+        }
 
         $webHost = trim((string)($_POST['web_host'] ?? '0.0.0.0'));
         $webPort = trim((string)($_POST['web_port'] ?? '8080'));
@@ -204,77 +211,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" class="login-form" autocomplete="off">
-                <div class="setup-section">
-                    <h2><i data-lucide="database"></i> База данных</h2>
-                    <div class="setup-grid">
+                <fieldset class="setup-section db-ha-fieldset">
+                    <legend class="db-ha-legend"><i data-lucide="database"></i> Основная база</legend>
+                    <div class="ha-grid">
                         <div class="form-field">
-                            <label class="form-label">Хост</label>
-                            <input type="text" name="host" value="<?= htmlspecialchars((string)$old['host']) ?>" placeholder="localhost" required>
+                            <label class="form-label" for="setup-host">Хост</label>
+                            <input type="text" id="setup-host" name="host" value="<?= htmlspecialchars((string)$old['host']) ?>" placeholder="localhost" required>
                         </div>
                         <div class="form-field">
-                            <label class="form-label">Порт</label>
-                            <input type="number" name="port" value="<?= htmlspecialchars((string)$old['port']) ?>" min="1" max="65535" required>
+                            <label class="form-label" for="setup-port">Порт</label>
+                            <input type="number" id="setup-port" name="port" value="<?= htmlspecialchars((string)$old['port']) ?>" min="1" max="65535" required>
                         </div>
-                        <div class="form-field span-2">
-                            <label class="form-label">Имя базы</label>
-                            <input type="text" name="name" value="<?= htmlspecialchars((string)$old['name']) ?>" placeholder="monitoring" pattern="[A-Za-z0-9_]+" required>
-                        </div>
-                        <div class="form-field">
-                            <label class="form-label">Пользователь MySQL</label>
-                            <input type="text" name="user" value="<?= htmlspecialchars((string)$old['user']) ?>" placeholder="root" required>
+                        <div class="form-field ha-span-2">
+                            <label class="form-label" for="setup-name">Имя базы</label>
+                            <input type="text" id="setup-name" name="name" value="<?= htmlspecialchars((string)$old['name']) ?>" placeholder="monitoring" pattern="[A-Za-z0-9_]+" required>
                         </div>
                         <div class="form-field">
-                            <label class="form-label">Пароль MySQL</label>
-                            <input type="password" name="password" value="" placeholder="Пароль к MySQL" autocomplete="new-password">
+                            <label class="form-label" for="setup-user">Пользователь</label>
+                            <input type="text" id="setup-user" name="user" value="<?= htmlspecialchars((string)$old['user']) ?>" placeholder="root" required>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="setup-password">Пароль</label>
+                            <input type="password" id="setup-password" name="password" value="" placeholder="Пароль к MySQL" autocomplete="new-password">
                         </div>
                     </div>
-                    <p class="setup-hint">Если базы нет — панель попробует создать её. Нужны права CREATE DATABASE либо уже существующая пустая база.</p>
-                </div>
+                    <p class="form-hint-text">Если базы нет — панель попробует создать её. Нужны права CREATE DATABASE либо уже существующая пустая база.</p>
 
-                <details class="setup-section setup-optional" <?= !empty($old['replica_enabled']) ? 'open' : '' ?>>
-                    <summary>
-                        <i data-lucide="hard-drive"></i>
-                        Резервная база (необязательно)
-                    </summary>
-                    <p class="setup-hint">Если основная MySQL упадёт, панель переключится на эту. Постоянную синхронизацию лучше настроить репликацией MySQL; в настройках есть кнопка разового копирования.</p>
-                    <label class="setup-check">
-                        <input type="checkbox" name="replica_enabled" id="replica_enabled" value="1" <?= !empty($old['replica_enabled']) ? 'checked' : '' ?>>
-                        Включить резерв
-                    </label>
-                    <div class="setup-grid" id="replica-fields" <?= empty($old['replica_enabled']) ? 'hidden' : '' ?>>
-                        <div class="form-field">
-                            <label class="form-label">Хост резерва</label>
-                            <input type="text" name="replica_host" value="<?= htmlspecialchars((string)$old['replica_host']) ?>" placeholder="db-standby">
+                    <div class="form-field db-ha-check-row">
+                        <label class="db-ha-check">
+                            <input type="checkbox" name="replica_enabled" id="replica_enabled" value="1" <?= !empty($old['replica_enabled']) ? 'checked' : '' ?>>
+                            <span>Включить резервную базу</span>
+                        </label>
+                    </div>
+
+                    <div class="ha-grid" id="replica-fields" <?= empty($old['replica_enabled']) ? 'hidden' : '' ?>>
+                        <div class="form-field ha-span-2">
+                            <span class="db-ha-legend db-ha-legend-inline">Резервная база</span>
+                            <p class="form-hint-text">При падении основной панель переключится на резерв. Постоянную синхронизацию лучше настроить репликацией MySQL; в настройках есть кнопка разового копирования.</p>
                         </div>
                         <div class="form-field">
-                            <label class="form-label">Порт</label>
-                            <input type="number" name="replica_port" value="<?= htmlspecialchars((string)$old['replica_port']) ?>" min="1" max="65535">
+                            <label class="form-label" for="setup-replica-host">Хост</label>
+                            <input type="text" id="setup-replica-host" name="replica_host" value="<?= htmlspecialchars((string)$old['replica_host']) ?>" placeholder="db-standby">
                         </div>
                         <div class="form-field">
-                            <label class="form-label">Имя базы</label>
-                            <input type="text" name="replica_name" value="<?= htmlspecialchars((string)$old['replica_name']) ?>" placeholder="как у основной" pattern="[A-Za-z0-9_]*">
+                            <label class="form-label" for="setup-replica-port">Порт</label>
+                            <input type="number" id="setup-replica-port" name="replica_port" value="<?= htmlspecialchars((string)$old['replica_port']) ?>" min="1" max="65535">
                         </div>
                         <div class="form-field">
-                            <label class="form-label">Пользователь</label>
-                            <input type="text" name="replica_user" value="<?= htmlspecialchars((string)$old['replica_user']) ?>" placeholder="как у основной">
+                            <label class="form-label" for="setup-replica-name">Имя базы</label>
+                            <input type="text" id="setup-replica-name" name="replica_name" value="<?= htmlspecialchars((string)$old['replica_name']) ?>" placeholder="как у основной" pattern="[A-Za-z0-9_]*">
                         </div>
-                        <div class="form-field span-2">
-                            <label class="form-label">Пароль резерва</label>
-                            <input type="password" name="replica_password" value="" placeholder="Пусто — как у основной" autocomplete="new-password">
+                        <div class="form-field">
+                            <label class="form-label" for="setup-replica-user">Пользователь</label>
+                            <input type="text" id="setup-replica-user" name="replica_user" value="<?= htmlspecialchars((string)$old['replica_user']) ?>" placeholder="как у основной">
                         </div>
-                        <!-- Добавленные SSL-чекбоксы -->
-                        <div class="form-field span-2" style="display:flex; gap:20px; align-items:center; margin-top:8px;">
-                            <label class="setup-check">
-                                <input type="checkbox" name="replica_ssl" value="1" <?= $old['replica_ssl'] ? 'checked' : '' ?>>
-                                Использовать SSL
+                        <div class="form-field ha-span-2">
+                            <label class="form-label" for="setup-replica-password">Пароль</label>
+                            <input type="password" id="setup-replica-password" name="replica_password" value="" placeholder="Пусто — как у основной" autocomplete="new-password">
+                        </div>
+                        <div class="form-field ha-span-2 db-ha-ssl-checks">
+                            <label class="db-ha-check">
+                                <input type="checkbox" name="replica_ssl" id="replica_ssl" value="1" <?= $old['replica_ssl'] ? 'checked' : '' ?>>
+                                <span>Использовать SSL</span>
                             </label>
-                            <label class="setup-check">
-                                <input type="checkbox" name="replica_ssl_verify" value="1" <?= $old['replica_ssl_verify'] ? 'checked' : '' ?>>
-                                Проверять сертификат
+                            <label class="db-ha-check">
+                                <input type="checkbox" name="replica_ssl_verify" id="replica_ssl_verify" value="1" <?= $old['replica_ssl_verify'] ? 'checked' : '' ?>>
+                                <span>Проверять сертификат</span>
                             </label>
+                        </div>
+                        <div class="form-field ha-span-2" id="replica-ssl-ca-block">
+                            <label class="form-label" for="replica_ssl_ca_pem">CA-сертификат (PEM)</label>
+                            <p class="form-hint-text">Для SkySQL / MariaDB Sky. Вставьте текст сертификата (можно позже загрузить файл в настройках).</p>
+                            <textarea id="replica_ssl_ca_pem" name="replica_ssl_ca_pem" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
                         </div>
                     </div>
-                </details>
+                </fieldset>
 
                 <div class="setup-section">
                     <h2><i data-lucide="server"></i> Веб-сервер панели</h2>
@@ -327,11 +338,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (typeof lucide !== 'undefined') lucide.createIcons();
         const replicaOn = document.getElementById('replica_enabled');
         const replicaFields = document.getElementById('replica-fields');
-        if (replicaOn && replicaFields) {
-            replicaOn.addEventListener('change', () => {
+        const sslVerify = document.getElementById('replica_ssl_verify');
+        const caBlock = document.getElementById('replica-ssl-ca-block');
+        const toggleReplica = () => {
+            if (replicaFields && replicaOn) {
                 replicaFields.hidden = !replicaOn.checked;
-            });
+            }
+        };
+        const toggleCa = () => {
+            if (caBlock && sslVerify && replicaOn) {
+                caBlock.hidden = !replicaOn.checked || !sslVerify.checked;
+            }
+        };
+        if (replicaOn) {
+            replicaOn.addEventListener('change', () => { toggleReplica(); toggleCa(); });
         }
+        if (sslVerify) {
+            sslVerify.addEventListener('change', toggleCa);
+        }
+        toggleReplica();
+        toggleCa();
     </script>
 </body>
 </html>

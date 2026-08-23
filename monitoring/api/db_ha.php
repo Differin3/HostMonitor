@@ -37,14 +37,29 @@ function db_ha_status_payload(bool $ping): array
             'last_primary_try' => $state['last_primary_try'],
         ],
         'ping' => null,
+        'editable' => true,
     ];
     if ($ping) {
         $out['ping'] = [
             'primary' => db_ping_endpoint($primary, 3),
             'replica' => $enabled ? db_ping_endpoint($replica, 3) : ['ok' => false, 'ms' => 0, 'error' => 'Резерв выключен'],
         ];
+        $out['editable'] = db_connection_editable([
+            'configured' => true,
+            'replica_enabled' => $enabled,
+            'primary' => $out['ping']['primary'],
+            'replica' => $out['ping']['replica'],
+        ]);
     }
     return $out;
+}
+
+function db_ha_require_editable(): void
+{
+    $payload = db_ha_status_payload(true);
+    if (empty($payload['editable'])) {
+        json_error('Настройки недоступны: нет соединения ни с основной, ни с резервной базой', 503);
+    }
 }
 
 try {
@@ -65,6 +80,7 @@ try {
     $action = (string)($data['action'] ?? '');
 
     if ($action === 'save') {
+        db_ha_require_editable();
         $host = trim((string)($data['host'] ?? ''));
         $port = trim((string)($data['port'] ?? '3306'));
         $name = trim((string)($data['name'] ?? ''));
@@ -110,6 +126,7 @@ try {
                 'password' => (string)($replicaIn['password'] ?? ''),
                 'ssl' => !empty($replicaIn['ssl']),
                 'ssl_verify' => !empty($replicaIn['ssl_verify']),
+                'ssl_ca' => (string)($replicaIn['ssl_ca'] ?? db_config_load()['replica']['ssl_ca'] ?? ''),
             ],
         ]);
         getDbConnection(true);
@@ -129,7 +146,48 @@ try {
         exit;
     }
 
+    if ($action === 'upload_ssl_ca') {
+        db_ha_require_editable();
+        $pem = trim((string)($data['pem'] ?? ''));
+        if ($pem === '' && !empty($data['pem_base64'])) {
+            $decoded = base64_decode((string)$data['pem_base64'], true);
+            $pem = is_string($decoded) ? trim($decoded) : '';
+        }
+        if (!db_ssl_validate_pem($pem)) {
+            json_error('Некорректный PEM: нужен текст с -----BEGIN CERTIFICATE-----');
+        }
+        $rel = db_ssl_ca_save($pem);
+        $cfg = db_config_load();
+        $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+        db_config_save(array_merge($cfg, [
+            'replica' => array_merge($replica, ['ssl_ca' => $rel]),
+        ]));
+        getDbConnection(true);
+        echo json_encode(array_merge(db_ha_status_payload(true), [
+            'ssl_ca' => db_ssl_ca_info($rel),
+            'message' => 'CA-сертификат сохранён',
+        ]), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'remove_ssl_ca') {
+        db_ha_require_editable();
+        db_ssl_ca_remove();
+        $cfg = db_config_load();
+        $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+        db_config_save(array_merge($cfg, [
+            'replica' => array_merge($replica, ['ssl_ca' => '']),
+        ]));
+        getDbConnection(true);
+        echo json_encode(array_merge(db_ha_status_payload(true), [
+            'ssl_ca' => db_ssl_ca_info(''),
+            'message' => 'CA-сертификат удалён',
+        ]), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'prefer_primary') {
+        db_ha_require_editable();
         $cfg = db_config_load();
         try {
             db_try_connect(db_endpoint($cfg, 'primary'), 3);
@@ -143,6 +201,7 @@ try {
     }
 
     if ($action === 'sync') {
+        db_ha_require_editable();
         $direction = (string)($data['direction'] ?? 'to_replica');
         if ($direction !== 'to_replica' && $direction !== 'to_primary') {
             json_error('direction: to_replica или to_primary');

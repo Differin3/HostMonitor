@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/includes/db_ha_form.php';
 
 render_layout_start(
     'Базы данных',
@@ -8,6 +9,9 @@ render_layout_start(
     . '<button class="primary" type="button" id="dbmon-add"><i data-lucide="plus"></i> Добавить базу</button>'
 );
 ?>
+    <?php render_db_ha_panel(['context' => 'databases']); ?>
+
+    <h3 class="dbmon-section-title">Мониторинг баз данных</h3>
     <div class="page-controls">
         <div class="search-control">
             <input type="text" id="dbmon-search" placeholder="Поиск по имени, хосту, версии...">
@@ -144,4 +148,4 @@ render_layout_start(
         </div>
     </div>
 <?php
-render_layout_end(['/frontend/js/databases.js']);
+render_layout_end(['/frontend/js/db_ha.js', '/frontend/js/databases.js']);

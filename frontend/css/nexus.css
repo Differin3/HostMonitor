@@ -798,6 +798,36 @@ input:focus, textarea:focus, select:focus {
     max-width: 560px;
 }
 
+.login-card .db-ha-fieldset {
+    text-align: left;
+    padding: 14px 16px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.2);
+    margin-bottom: 16px;
+}
+
+.login-card .db-ha-fieldset .db-ha-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.login-card .db-ha-fieldset textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    resize: vertical;
+}
+
 .setup-section {
     text-align: left;
     padding: 14px 14px 8px;

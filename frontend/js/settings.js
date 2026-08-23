@@ -1,6 +1,5 @@
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const SETTINGS_API = `${API_BASE}/settings.php`;
-const DB_HA_API = `${API_BASE}/db_ha.php`;
 
 const TEXT_FIELDS = {
     system_name: 'system_name',
@@ -37,7 +36,6 @@ const CHECK_FIELDS = {
     notify_telegram_enabled: 'notify_telegram_enabled',
 };
 
-let dbHaLoaded = false;
 let lastSettings = {};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -72,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
         apiBase.value = `${location.origin}${API_BASE}`;
     }
 
-    initDbHa();
+    loadSettings();
+
     document.getElementById('cleanup-history-now')?.addEventListener('click', async () => {
         const log = document.getElementById('cleanup-history-log');
         if (log) {
@@ -125,8 +124,8 @@ function activateSettingsTab(tabId) {
     if (footer) {
         footer.classList.toggle('hidden', tabId === 'database');
     }
-    if (tabId === 'database') {
-        loadDbHa();
+    if (tabId === 'database' && typeof window.loadDbHa === 'function') {
+        window.loadDbHa(true);
     }
     const url = tabId === 'general' ? 'settings.php' : `settings.php#${tabId}`;
     history.replaceState(null, '', url);
@@ -270,176 +269,4 @@ function updateCollectIntervalWarning() {
     warning.classList.toggle('hidden', !message);
     warning.classList.toggle('is-warning', level === 'warning');
     warning.textContent = message;
-}
-
-function dbHaLog(message, isError) {
-    const log = val('db-ha-log');
-    if (!log) return;
-    log.classList.remove('hidden');
-    log.textContent = message;
-    log.classList.toggle('is-error', !!isError);
-}
-
-function setHaPill(id, label, ok, extra) {
-    const el = val(id);
-    if (!el) return;
-    el.textContent = extra ? `${label}: ${extra}` : label;
-    el.classList.remove('ok', 'fail', 'warn');
-    if (ok === true) el.classList.add('ok');
-    if (ok === false) el.classList.add('fail');
-    if (ok === 'warn') el.classList.add('warn');
-}
-
-function fillDbHaForm(data) {
-    const primary = data.primary || {};
-    const replica = data.replica || {};
-    const setv = (id, value) => {
-        const el = val(id);
-        if (el) el.value = value ?? '';
-    };
-    setv('db-host', primary.host);
-    setv('db-port', primary.port);
-    setv('db-name', primary.name);
-    setv('db-user', primary.user);
-    setv('db-replica-host', replica.host);
-    setv('db-replica-port', replica.port || '3306');
-    setv('db-replica-name', replica.name);
-    setv('db-replica-user', replica.user);
-
-    // Чекбоксы SSL
-    const sslEl = val('db-replica-ssl');
-    const sslVerifyEl = val('db-replica-ssl-verify');
-    if (sslEl) sslEl.checked = !!replica.ssl;
-    if (sslVerifyEl) sslVerifyEl.checked = !!replica.ssl_verify;
-
-    const enabled = val('db-replica-enabled');
-    const failback = val('db-replica-failback');
-    if (enabled) enabled.checked = !!data.replica_enabled;
-    if (failback) failback.checked = data.replica_failback !== false;
-    toggleReplicaFields();
-    paintDbHaStatus(data);
-}
-
-function paintDbHaStatus(data) {
-    const ping = data.ping || {};
-    setHaPill('ha-pill-active', 'Активная', data.active_role === 'replica' ? 'warn' : true, data.active_role === 'replica' ? 'резерв' : 'основная');
-    const pOk = ping.primary ? ping.primary.ok : null;
-    const rOk = ping.replica ? ping.replica.ok : null;
-    setHaPill('ha-pill-primary', 'Основная', pOk, pOk ? `${ping.primary.ms} мс` : (ping.primary?.error || 'нет ответа'));
-    if (!data.replica_enabled) {
-        setHaPill('ha-pill-replica', 'Резерв', false, 'выключен');
-    } else {
-        setHaPill('ha-pill-replica', 'Резерв', rOk, rOk ? `${ping.replica.ms} мс` : (ping.replica?.error || 'нет ответа'));
-    }
-}
-
-function toggleReplicaFields() {
-    const enabled = val('db-replica-enabled');
-    const fields = val('db-replica-fields');
-    if (!fields || !enabled) return;
-    fields.style.opacity = enabled.checked ? '1' : '0.45';
-    fields.querySelectorAll('input').forEach((input) => {
-        input.disabled = !enabled.checked;
-    });
-}
-
-async function dbHaRequest(payload) {
-    const opts = payload
-        ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(payload),
-        }
-        : { credentials: 'include' };
-    const response = await fetch(DB_HA_API, opts);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    return data;
-}
-
-async function loadDbHa(force) {
-    if (dbHaLoaded && !force) return;
-    try {
-        const data = await dbHaRequest(null);
-        dbHaLoaded = true;
-        fillDbHaForm(data);
-    } catch (e) {
-        dbHaLog(e.message, true);
-        showToast(e.message, 'error');
-    }
-}
-
-function collectDbHaPayload() {
-    return {
-        action: 'save',
-        host: val('db-host')?.value.trim() || '',
-        port: val('db-port')?.value.trim() || '3306',
-        name: val('db-name')?.value.trim() || '',
-        user: val('db-user')?.value.trim() || '',
-        password: val('db-password')?.value || '',
-        replica_enabled: !!val('db-replica-enabled')?.checked,
-        replica_failback: !!val('db-replica-failback')?.checked,
-        replica: {
-            host: val('db-replica-host')?.value.trim() || '',
-            port: val('db-replica-port')?.value.trim() || '3306',
-            name: val('db-replica-name')?.value.trim() || '',
-            user: val('db-replica-user')?.value.trim() || '',
-            password: val('db-replica-password')?.value || '',
-            ssl: !!val('db-replica-ssl')?.checked,
-            ssl_verify: !!val('db-replica-ssl-verify')?.checked,
-        },
-    };
-}
-
-function initDbHa() {
-    const enabled = val('db-replica-enabled');
-    if (!enabled) return;
-    enabled.addEventListener('change', toggleReplicaFields);
-    val('db-ha-save')?.addEventListener('click', async () => {
-        try {
-            const data = await dbHaRequest(collectDbHaPayload());
-            fillDbHaForm(data);
-            if (val('db-password')) val('db-password').value = '';
-            if (val('db-replica-password')) val('db-replica-password').value = '';
-            dbHaLog('Подключения сохранены.', false);
-            showToast('Подключения к БД сохранены', 'success');
-        } catch (e) {
-            dbHaLog(e.message, true);
-            showToast(e.message, 'error');
-        }
-    });
-    val('db-ha-ping')?.addEventListener('click', async () => {
-        dbHaLoaded = false;
-        await loadDbHa(true);
-        showToast('Проверка завершена', 'info');
-    });
-    val('db-ha-failback')?.addEventListener('click', async () => {
-        try {
-            const data = await dbHaRequest({ action: 'prefer_primary' });
-            fillDbHaForm(data);
-            dbHaLog('Панель снова на основной базе.', false);
-            showToast('Основная база активна', 'success');
-        } catch (e) {
-            dbHaLog(e.message, true);
-            showToast(e.message, 'error');
-        }
-    });
-    const sync = async (direction, label) => {
-        if (!confirm(`${label}. Таблицы на приёмнике будут перезаписаны. Продолжить?`)) return;
-        dbHaLog('Копирование… это может занять несколько минут.', false);
-        try {
-            const data = await dbHaRequest({ action: 'sync', direction });
-            if (data.status) fillDbHaForm(data.status);
-            const copied = data.copied || {};
-            dbHaLog(`Готово: таблиц ${copied.table_count ?? 0}, строк ${copied.row_count ?? 0}.`, false);
-            showToast('Синхронизация завершена', 'success');
-        } catch (e) {
-            dbHaLog(e.message, true);
-            showToast(e.message, 'error');
-        }
-    };
-    val('db-ha-to-replica')?.addEventListener('click', () => sync('to_replica', 'Скопировать основную базу на резерв'));
-    val('db-ha-to-primary')?.addEventListener('click', () => sync('to_primary', 'Скопировать резервную базу на основную'));
-    toggleReplicaFields();
 }
