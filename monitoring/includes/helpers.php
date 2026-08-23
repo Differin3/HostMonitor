@@ -261,7 +261,8 @@ if (!function_exists('nodes_ensure_agent_columns_all')) {
                     if (($ep['host'] ?? '') === '' || ($ep['name'] ?? '') === '') {
                         continue;
                     }
-                    $pdo = db_try_connect($ep, 8);
+                    // Короткий таймаут: иначе UI ждёт недоступную replica
+                    $pdo = db_try_connect($ep, 2);
                     nodes_ensure_agent_columns($pdo);
                     $results[] = ['role' => $role, 'ok' => true];
                 } catch (Throwable $e) {
