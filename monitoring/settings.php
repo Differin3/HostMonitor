@@ -1,6 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/layout.php';
 
+$dbHaCfg = db_config_load();
+$dbHaPrimary = db_public_endpoint(db_endpoint($dbHaCfg, 'primary'));
+$dbHaReplica = db_public_endpoint(db_endpoint($dbHaCfg, 'replica'));
+$dbHaReplicaEnabled = db_replica_enabled($dbHaCfg);
+$dbHaReplicaFailback = ($dbHaCfg['replica_failback'] ?? true) !== false;
+$dbHaEsc = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+
 render_layout_start('Настройки', 'settings');
 ?>
     <div class="settings-container">
@@ -267,35 +274,35 @@ render_layout_start('Настройки', 'settings');
                     <div class="ha-grid">
                         <div class="form-field">
                             <label for="db-host">Хост основной</label>
-                            <input type="text" id="db-host" autocomplete="off">
+                            <input type="text" id="db-host" value="<?= $dbHaEsc($dbHaPrimary['host']) ?>" autocomplete="off">
                         </div>
                         <div class="form-field">
                             <label for="db-port">Порт</label>
-                            <input type="number" id="db-port" min="1" max="65535">
+                            <input type="number" id="db-port" value="<?= $dbHaEsc($dbHaPrimary['port'] ?: '3306') ?>" min="1" max="65535">
                         </div>
                         <div class="form-field">
                             <label for="db-name">Имя базы</label>
-                            <input type="text" id="db-name" pattern="[A-Za-z0-9_]+">
+                            <input type="text" id="db-name" value="<?= $dbHaEsc($dbHaPrimary['name']) ?>" pattern="[A-Za-z0-9_]+">
                         </div>
                         <div class="form-field">
                             <label for="db-user">Пользователь</label>
-                            <input type="text" id="db-user" autocomplete="off">
+                            <input type="text" id="db-user" value="<?= $dbHaEsc($dbHaPrimary['user']) ?>" autocomplete="off">
                         </div>
                         <div class="form-field ha-span-2">
                             <label for="db-password">Пароль основной</label>
-                            <input type="password" id="db-password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password">
+                            <input type="password" id="db-password" placeholder="<?= !empty($dbHaPrimary['has_password']) ? 'Сохранён, оставьте пустым' : 'Оставьте пустым, чтобы не менять' ?>" autocomplete="new-password">
                         </div>
                     </div>
 
                     <div class="form-field">
                         <label>
-                            <input type="checkbox" id="db-replica-enabled">
+                            <input type="checkbox" id="db-replica-enabled"<?= $dbHaReplicaEnabled ? ' checked' : '' ?>>
                             Включить резервную базу
                         </label>
                     </div>
                     <div class="form-field">
                         <label>
-                            <input type="checkbox" id="db-replica-failback" checked>
+                            <input type="checkbox" id="db-replica-failback"<?= $dbHaReplicaFailback ? ' checked' : '' ?>>
                             Автоматически вернуться на основную, когда она снова доступна
                         </label>
                     </div>
@@ -303,31 +310,31 @@ render_layout_start('Настройки', 'settings');
                     <div class="ha-grid" id="db-replica-fields">
                         <div class="form-field">
                             <label for="db-replica-host">Хост резерва</label>
-                            <input type="text" id="db-replica-host" placeholder="db-standby" autocomplete="off">
+                            <input type="text" id="db-replica-host" value="<?= $dbHaEsc($dbHaReplica['host']) ?>" placeholder="db-standby" autocomplete="off">
                         </div>
                         <div class="form-field">
                             <label for="db-replica-port">Порт резерва</label>
-                            <input type="number" id="db-replica-port" value="3306" min="1" max="65535">
+                            <input type="number" id="db-replica-port" value="<?= $dbHaEsc($dbHaReplica['port'] ?: '3306') ?>" min="1" max="65535">
                         </div>
                         <div class="form-field">
                             <label for="db-replica-name">Имя базы резерва</label>
-                            <input type="text" id="db-replica-name" placeholder="как у основной">
+                            <input type="text" id="db-replica-name" value="<?= $dbHaEsc($dbHaReplica['name']) ?>" placeholder="как у основной">
                         </div>
                         <div class="form-field">
                             <label for="db-replica-user">Пользователь резерва</label>
-                            <input type="text" id="db-replica-user" placeholder="как у основной">
+                            <input type="text" id="db-replica-user" value="<?= $dbHaEsc($dbHaReplica['user']) ?>" placeholder="как у основной">
                         </div>
                         <div class="form-field ha-span-2">
                             <label for="db-replica-password">Пароль резерва</label>
-                            <input type="password" id="db-replica-password" placeholder="Пусто — не менять / как у основной" autocomplete="new-password">
+                            <input type="password" id="db-replica-password" placeholder="<?= !empty($dbHaReplica['has_password']) ? 'Сохранён, оставьте пустым' : 'Пусто — не менять / как у основной' ?>" autocomplete="new-password">
                         </div>
                         <div class="form-field ha-span-2 db-ha-ssl-checks">
                             <label>
-                                <input type="checkbox" id="db-replica-ssl" value="1">
+                                <input type="checkbox" id="db-replica-ssl" value="1"<?= !empty($dbHaReplica['ssl']) ? ' checked' : '' ?>>
                                 Использовать SSL
                             </label>
                             <label>
-                                <input type="checkbox" id="db-replica-ssl-verify" value="1">
+                                <input type="checkbox" id="db-replica-ssl-verify" value="1"<?= !empty($dbHaReplica['ssl_verify']) ? ' checked' : '' ?>>
                                 Проверять сертификат
                             </label>
                         </div>

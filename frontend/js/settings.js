@@ -301,9 +301,17 @@ function setDbHaEditable(editable) {
     section.querySelectorAll('input, textarea, select, button').forEach((el) => {
         if (el.id === 'db-ha-ping') {
             el.disabled = false;
+            el.readOnly = false;
             return;
         }
-        el.disabled = !dbHaEditable;
+        const textLike = el.tagName === 'TEXTAREA'
+            || (el.tagName === 'INPUT' && !['checkbox', 'file', 'button', 'submit', 'reset'].includes(el.type));
+        if (textLike) {
+            el.readOnly = !dbHaEditable;
+            el.disabled = false;
+        } else {
+            el.disabled = !dbHaEditable;
+        }
     });
     if (dbHaEditable) {
         toggleReplicaFields();
@@ -334,16 +342,35 @@ function fillDbHaForm(data) {
     const replica = data.replica || {};
     const setv = (id, value) => {
         const el = val(id);
-        if (el) el.value = value ?? '';
+        if (!el) return;
+        const ro = el.readOnly;
+        el.readOnly = false;
+        el.value = value != null && value !== '' ? String(value) : '';
+        if (ro) el.readOnly = true;
     };
     setv('db-host', primary.host);
-    setv('db-port', primary.port);
+    setv('db-port', primary.port || '3306');
     setv('db-name', primary.name);
     setv('db-user', primary.user);
     setv('db-replica-host', replica.host);
     setv('db-replica-port', replica.port || '3306');
     setv('db-replica-name', replica.name);
     setv('db-replica-user', replica.user);
+
+    const passPrimary = val('db-password');
+    if (passPrimary) {
+        passPrimary.value = '';
+        passPrimary.placeholder = primary.has_password
+            ? 'Сохранён, оставьте пустым'
+            : 'Оставьте пустым, чтобы не менять';
+    }
+    const passReplica = val('db-replica-password');
+    if (passReplica) {
+        passReplica.value = '';
+        passReplica.placeholder = replica.has_password
+            ? 'Сохранён, оставьте пустым'
+            : 'Пусто — не менять / как у основной';
+    }
 
     const sslEl = val('db-replica-ssl');
     const sslVerifyEl = val('db-replica-ssl-verify');
@@ -414,7 +441,7 @@ async function dbHaRequest(payload) {
 }
 
 async function loadDbHa(force) {
-    if (!val('db-replica-enabled')) return;
+    if (!val('db-host')) return;
     if (dbHaLoaded && !force) return;
     try {
         const data = await dbHaRequest(null);
@@ -491,10 +518,9 @@ async function removeSslCa() {
 }
 
 function initDbHa() {
-    const enabled = val('db-replica-enabled');
-    if (!enabled) return;
+    if (!val('db-host')) return;
 
-    enabled.addEventListener('change', toggleReplicaFields);
+    val('db-replica-enabled')?.addEventListener('change', toggleReplicaFields);
     val('db-replica-ssl-verify')?.addEventListener('change', toggleSslCaBlock);
 
     val('db-ha-save')?.addEventListener('click', async () => {

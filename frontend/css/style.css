@@ -2831,6 +2831,12 @@ body.light .theme-toggle:hover {
     border-top: 1px solid var(--border-color);
 }
 
+.settings-section input[readonly],
+.settings-section textarea[readonly] {
+    opacity: 0.85;
+    cursor: not-allowed;
+}
+
 .ha-subhead {
     margin-top: 16px;
     margin-bottom: 8px;
