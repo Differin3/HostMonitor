@@ -572,9 +572,9 @@ function db_render_error_page(array $status): void
                 <?php if ($bothDown): ?>
                     <br>Обе базы недоступны — изменить настройки через панель нельзя. Исправьте сервер БД или отредактируйте <code>monitoring/data/db.local.php</code> по SSH.
                 <?php elseif (!$replicaEnabled): ?>
-                    <br>💡 Совет: включите резервную базу на странице «Базы данных» — панель сможет работать при падении основной.
+                    <br>💡 Совет: включите резервную базу в «Настройки → База данных» — панель сможет работать при падении основной.
                 <?php else: ?>
-                    <br>Хотя бы одна база отвечает — параметры можно изменить на странице «Базы данных».
+                    <br>Хотя бы одна база отвечает — параметры можно изменить в «Настройки → База данных».
                 <?php endif; ?>
             </div>
 
@@ -584,7 +584,7 @@ function db_render_error_page(array $status): void
                     Повторить подключение
                 </button>
                 <?php if (!$bothDown): ?>
-                <a href="databases.php#db-ha-panel" class="btn btn-secondary">
+                <a href="settings.php#database" class="btn btn-secondary">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
                     Настройки базы данных
                 </a>

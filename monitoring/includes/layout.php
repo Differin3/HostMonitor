@@ -199,7 +199,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
             <?php if (function_exists('db_active_role') && db_active_role() === 'replica'): ?>
             <div class="db-ha-banner">
                 Панель работает на <strong>резервной базе</strong>. Основная MySQL недоступна.
-                <a href="databases.php#db-ha-panel">Настройки БД</a>
+                <a href="settings.php#database">Настройки БД</a>
             </div>
             <?php endif; ?>
             <div class="container">
