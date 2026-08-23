@@ -131,6 +131,15 @@ function db_reset_pdo(): void
     getDbConnection(true);
 }
 
+function db_pdo_ssl_opts(array $ep): array
+{
+    $opts = [];
+    if (!empty($ep['ssl'])) {
+        $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = !empty($ep['ssl_verify']);
+    }
+    return $opts;
+}
+
 function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 8): PDO
 {
     $host = $cfg['host'] ?: 'localhost';
@@ -147,6 +156,7 @@ function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 8): PDO
     if (defined('PDO::MYSQL_ATTR_CONNECT_TIMEOUT')) {
         $opts[PDO::MYSQL_ATTR_CONNECT_TIMEOUT] = $timeout;
     }
+    $opts = array_replace($opts, db_pdo_ssl_opts($cfg));
     return new PDO($dsn, (string)$cfg['user'], (string)$cfg['password'], $opts);
 }
 
@@ -168,7 +178,7 @@ function db_schema_path(): string
     $name = 'schema_mysql.sql';
     $here = dirname(__DIR__);
     $candidates = [
-        dirname($here) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $
+        dirname($here) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $name,
         $here . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . $name,
         $here . DIRECTORY_SEPARATOR . $name,
         $here . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . $name,
@@ -484,6 +494,8 @@ function db_endpoint(array $cfg, string $role): array
             'name' => (string)(($replica['name'] ?? '') !== '' ? $replica['name'] : ($cfg['name'] ?? 'monitoring')),
             'user' => (string)(($replica['user'] ?? '') !== '' ? $replica['user'] : ($cfg['user'] ?? 'root')),
             'password' => (string)(($replica['password'] ?? '') !== '' ? $replica['password'] : ($cfg['password'] ?? '')),
+            'ssl' => (bool)($replica['ssl'] ?? false),
+            'ssl_verify' => (bool)($replica['ssl_verify'] ?? false),
         ];
     }
     return [
@@ -504,13 +516,20 @@ function db_endpoint_same(array $a, array $b): bool
 
 function db_public_endpoint(array $ep): array
 {
-    return [
+    $out = [
         'host' => (string)($ep['host'] ?? ''),
         'port' => (string)($ep['port'] ?? ''),
         'name' => (string)($ep['name'] ?? ''),
         'user' => (string)($ep['user'] ?? ''),
         'has_password' => ($ep['password'] ?? '') !== '',
     ];
+    if (array_key_exists('ssl', $ep)) {
+        $out['ssl'] = !empty($ep['ssl']);
+    }
+    if (array_key_exists('ssl_verify', $ep)) {
+        $out['ssl_verify'] = !empty($ep['ssl_verify']);
+    }
+    return $out;
 }
 
 function db_ha_state_load(): array

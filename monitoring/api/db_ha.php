@@ -108,6 +108,8 @@ try {
                 'name' => $replicaName,
                 'user' => $replicaUser,
                 'password' => (string)($replicaIn['password'] ?? ''),
+                'ssl' => !empty($replicaIn['ssl']),
+                'ssl_verify' => !empty($replicaIn['ssl_verify']),
             ],
         ]);
         getDbConnection(true);

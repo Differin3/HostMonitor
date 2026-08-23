@@ -160,6 +160,16 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                         <span class="mini-avatar"><img src="https://api.dicebear.com/9.x/notionists/svg?seed=Mia&backgroundColor=1e293b" alt=""></span>
                         <span class="mini-avatar"><img src="https://api.dicebear.com/9.x/notionists/svg?seed=Ken&backgroundColor=1e293b" alt=""></span>
                     </div>
+                    <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
+                    <div class="panel-update-actions" id="panelUpdateActions">
+                        <button type="button" class="icon-btn panel-update-check" id="panelUpdateCheckBtn" title="Проверить обновление панели" aria-label="Проверить обновление панели">
+                            <i data-lucide="refresh-cw"></i>
+                        </button>
+                        <button type="button" class="icon-btn panel-update-apply hidden" id="panelUpdateApplyBtn" title="Обновить панель из репозитория" aria-label="Обновить панель">
+                            <i data-lucide="download"></i>
+                        </button>
+                    </div>
+                    <?php endif; ?>
                     <div class="user-menu-wrapper hm-drop">
                         <div class="user-menu" id="userMenuToggle" data-drop="userDropdown" role="button" tabindex="0">
                             <div class="user-avatar">
@@ -357,6 +367,9 @@ function render_layout_end(array $scripts = []): void
             });
         </script>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/panels.js')) ?>"></script>
+        <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
+        <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/panel_update.js')) ?>"></script>
+        <?php endif; ?>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/selects.js')) ?>"></script>
         <?php foreach ($scripts as $script): ?>
             <script src="<?= htmlspecialchars(monitoring_asset($script)) ?>"></script>
