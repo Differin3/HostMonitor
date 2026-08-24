@@ -511,6 +511,11 @@ async function installUpdates() {
         });
     
         showToast('Отправка команды установки...', 'info');
+        window.HostJobs?.start('pkg-install', {
+            title: 'Установка пакетов',
+            detail: `${selected.length} пакет(ов) в очереди`,
+            pct: 5,
+        });
         const result = await fetchJson('/updates.php?action=install', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -527,24 +532,44 @@ async function installUpdates() {
             } else {
                 showToast(`Команда отправлена: ${queued} обновлений поставлено в очередь`, 'success');
             }
+            window.HostJobs?.update('pkg-install', {
+                detail: queued > 0 ? `В очереди: ${queued}` : (result.message || 'Ошибка очереди'),
+                pct: queued > 0 ? 15 : 0,
+            });
             // Обновляем список сразу чтобы показать статус "pending"
             await checkUpdates(true); // silent обновление
             loadHistory();
             // Автообновление статуса установки каждые 2 секунды в течение 2 минут
             let refreshCount = 0;
-            const statusInterval = setInterval(() => {
-                checkUpdates(true); // silent обновление
+            const statusInterval = setInterval(async () => {
+                await checkUpdates(true); // silent обновление
                 loadHistory();
                 refreshCount++;
+                const pending = (updatesData || []).filter((u) => ['pending', 'installing'].includes(u.install_status)).length;
+                if (window.HostJobs) {
+                    if (pending > 0) {
+                        window.HostJobs.update('pkg-install', {
+                            detail: `Устанавливается / в очереди: ${pending}`,
+                            pct: Math.min(95, 15 + refreshCount),
+                        });
+                    } else if (refreshCount >= 3) {
+                        window.HostJobs.done('pkg-install', 'Установка завершена');
+                        clearInterval(statusInterval);
+                        return;
+                    }
+                }
                 if (refreshCount >= 60) { // 60 * 2 = 120 секунд
+                    window.HostJobs?.done('pkg-install', 'Опрос завершён');
                     clearInterval(statusInterval);
                 }
             }, 2000);
         } else {
+            window.HostJobs?.fail('pkg-install', result.error || 'Ошибка установки');
             showToast(result.error || 'Ошибка установки', 'error');
         }
     } catch (error) {
         console.error('Error installing updates:', error);
+        window.HostJobs?.fail('pkg-install', error.message || 'Ошибка установки');
         showToast('Ошибка установки обновлений', 'error');
     } finally {
         // Снимаем флаг блокировки
@@ -733,6 +758,11 @@ async function installSingleUpdate(index) {
 
     try {
         showToast('Отправка команды установки...', 'info');
+        window.HostJobs?.start('pkg-install', {
+            title: `Установка: ${update.package}`,
+            detail: update.node_name || 'нода',
+            pct: 5,
+        });
             const result = await fetchJson('/updates.php?action=install', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -741,24 +771,42 @@ async function installSingleUpdate(index) {
             
             if (result.success) {
                 showToast('Команда отправлена. Обновление поставлено в очередь.', 'success');
+                window.HostJobs?.update('pkg-install', { detail: 'В очереди агента', pct: 15 });
                 // Обновляем список сразу чтобы показать статус "pending"
                 await checkUpdates(true); // silent обновление
                 loadHistory();
                 // Автообновление статуса установки каждые 2 секунды в течение 2 минут
                 let refreshCount = 0;
-            const statusInterval = setInterval(() => {
-                checkUpdates(true); // silent обновление
+            const statusInterval = setInterval(async () => {
+                await checkUpdates(true); // silent обновление
                 loadHistory();
                 refreshCount++;
+                const pending = (updatesData || []).some(
+                    (u) => u.package === update.package
+                        && String(u.node_id) === String(update.node_id)
+                        && ['pending', 'installing'].includes(u.install_status)
+                );
+                if (!pending && refreshCount >= 2) {
+                    window.HostJobs?.done('pkg-install', `${update.package} — готово`);
+                    clearInterval(statusInterval);
+                    return;
+                }
+                window.HostJobs?.update('pkg-install', {
+                    detail: pending ? 'Устанавливается…' : 'Ожидание статуса…',
+                    pct: Math.min(95, 15 + refreshCount),
+                });
                 if (refreshCount >= 60) { // 60 * 2 = 120 секунд
+                    window.HostJobs?.done('pkg-install', 'Опрос завершён');
                     clearInterval(statusInterval);
                 }
             }, 2000);
         } else {
+            window.HostJobs?.fail('pkg-install', result.error || 'Ошибка установки');
             showToast(result.error || 'Ошибка установки', 'error');
         }
     } catch (error) {
         console.error('Error installing update:', error);
+        window.HostJobs?.fail('pkg-install', error.message || 'Ошибка установки');
         showToast('Ошибка установки обновления', 'error');
     } finally {
         // Снимаем флаг блокировки
@@ -974,9 +1022,32 @@ function startAgentPoll() {
         agentPollTicks += 1;
         await loadAgentUpdates(true);
         const stillBusy = agentNodesCache.some((n) => ['updating', 'checking'].includes(agentJobOf(n)));
+        const updating = agentNodesCache.filter((n) => agentJobOf(n) === 'updating').length;
+        const checking = agentNodesCache.filter((n) => agentJobOf(n) === 'checking').length;
+        if (window.HostJobs) {
+            if (updating > 0) {
+                window.HostJobs.update('agent-update', {
+                    title: 'Обновление агентов',
+                    detail: `${updating} нод(ы) обновляются`,
+                    pct: Math.min(95, 10 + agentPollTicks),
+                });
+            } else if (checking > 0) {
+                window.HostJobs.update('agent-update', {
+                    title: 'Проверка агентов',
+                    detail: `${checking} нод(ы) проверяются`,
+                    pct: Math.min(95, 10 + agentPollTicks),
+                });
+            }
+        }
         if (!stillBusy || agentPollTicks >= 90) {
             stopAgentPoll();
             setAgentHeaderBusy(false);
+            if (!stillBusy) {
+                window.HostJobs?.done('agent-update', updating || checking ? 'Готово' : 'Завершено');
+            } else {
+                window.HostJobs?.update('agent-update', { detail: 'Таймаут опроса — смотрите таблицу', pct: 100 });
+                window.HostJobs?.done('agent-update', 'Опрос остановлен');
+            }
         }
     }, 2000);
 }
@@ -1112,6 +1183,11 @@ async function checkAgentUpdates() {
             return;
         }
         markNodesJob(ids, 'checking');
+        window.HostJobs?.start('agent-update', {
+            title: 'Проверка агентов',
+            detail: `${ids.length} нод(ы)`,
+            pct: 5,
+        });
         startAgentPoll();
         const result = await queueAgentCommand(ids, 'check');
         showToast(result?.message || `В очередь: ${result?.queued || 0}`, 'success');
@@ -1149,6 +1225,11 @@ async function applyAgentUpdates() {
         }
 
         markNodesJob(ids, 'updating');
+        window.HostJobs?.start('agent-update', {
+            title: 'Обновление агентов',
+            detail: `${ids.length} нод(ы)`,
+            pct: 5,
+        });
         startAgentPoll();
         showToast(`Обновление агентов (${ids.length})...`, 'info');
         const result = await queueAgentCommand(ids, 'apply');
@@ -1183,6 +1264,11 @@ async function applyAgentUpdateOne(nodeId) {
         agentBusy = true;
         setAgentHeaderBusy(true, 'update');
         markNodesJob([id], 'updating');
+        window.HostJobs?.start('agent-update', {
+            title: `Обновление агента: ${name}`,
+            detail: 'В очереди',
+            pct: 5,
+        });
         startAgentPoll();
         const result = await queueAgentCommand([id], 'apply');
         const queued = result?.queued ?? 0;

@@ -137,8 +137,9 @@ function handleGet($pdo) {
         }
 
         if ($targetId) {
-            // Забираем pending → running. Повторно отдаём только если running «завис»
-            // (агент упал: last_seen старше 3 мин) — иначе длинный apt перезапустится.
+            // pending → running. Reclaim running только если:
+            // - агент offline (last_seen > 3м), ИЛИ
+            // - короткая команда (check/update-agent) зависла > 3м при живом heartbeat
             $claim = $pdo->prepare(
                 "UPDATE nodes
                  SET command_status = 'running', last_seen = NOW(), status = 'online',
@@ -150,7 +151,18 @@ function handleGet($pdo) {
                        command_status = 'pending'
                        OR (
                            command_status = 'running'
-                           AND (last_seen IS NULL OR last_seen < DATE_SUB(NOW(), INTERVAL 3 MINUTE))
+                           AND (
+                               last_seen IS NULL
+                               OR last_seen < DATE_SUB(NOW(), INTERVAL 3 MINUTE)
+                               OR (
+                                   command_timestamp IS NOT NULL
+                                   AND command_timestamp < DATE_SUB(NOW(), INTERVAL 3 MINUTE)
+                                   AND last_command IN (
+                                       'check-agent-update', 'check-agent-updates',
+                                       'update-agent', 'upgrade-agent', 'check-updates'
+                                   )
+                               )
+                           )
                        )
                    )"
             );
@@ -471,25 +483,27 @@ function handleGet($pdo) {
 }
 
 function calculateUptime($node) {
-    // Uptime - это время с момента первого heartbeat (first_seen) или created_at
-    // Если нода offline или нет last_seen - uptime = 0
-    if (!$node['last_seen'] || $node['status'] !== 'online') {
+    // Реальный uptime ОС: now − boot_time (от агента).
+    // Раньше ошибочно считали от created_at/first_seen (= возраст записи в панели).
+    if (empty($node['last_seen']) || ($node['status'] ?? '') !== 'online') {
         return 0;
     }
-    
-    // Используем first_seen если есть, иначе created_at, иначе last_seen (как fallback)
-    $startTime = null;
-    if (!empty($node['first_seen'])) {
-        $startTime = strtotime($node['first_seen']);
-    } elseif (!empty($node['created_at'])) {
-        $startTime = strtotime($node['created_at']);
-    } else {
-        // Fallback: считаем от last_seen (неправильно, но лучше чем 0)
-        $startTime = strtotime($node['last_seen']);
+
+    $bootRaw = $node['boot_time'] ?? null;
+    if ($bootRaw === null || $bootRaw === '' || $bootRaw === 0 || $bootRaw === '0') {
+        return 0;
     }
-    
-    $now = time();
-    return max(0, $now - $startTime);
+
+    if (is_numeric($bootRaw)) {
+        $bootTs = (int)$bootRaw;
+    } else {
+        $bootTs = (int)strtotime((string)$bootRaw);
+    }
+    if ($bootTs <= 0) {
+        return 0;
+    }
+
+    return max(0, time() - $bootTs);
 }
 
 function pingNode($host) {
@@ -717,6 +731,10 @@ function handlePost($pdo) {
         } else {
             $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
             $updateStmt->execute([$nodeId]);
+        }
+
+        if (array_key_exists('boot_time', $data)) {
+            nodes_store_boot_time($pdo, (int)$nodeId, $data['boot_time']);
         }
         
         echo json_encode([

@@ -287,6 +287,7 @@ function render_layout_end(array $scripts = []): void
         </div>
         <div class="toast-host" id="toast-host" aria-live="polite"></div>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/notify.js')) ?>"></script>
+        <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/jobs.js')) ?>"></script>
         <script>
             const pageLoader = document.getElementById('page-loader');
             const hidePageLoader = () => {

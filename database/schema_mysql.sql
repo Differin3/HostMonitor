@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     agent_branch VARCHAR(64) NULL,
     agent_update_available TINYINT(1) NOT NULL DEFAULT 0,
     agent_updated_at TIMESTAMP NULL,
+    boot_time INT UNSIGNED NULL,
     INDEX idx_status (status),
     INDEX idx_provider (provider_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -201,18 +201,11 @@ function render() {
     els.online.textContent = String(online.length);
     els.conn.textContent = String(allDatabases.reduce((s, d) => s + Number(d.metrics?.threads_connected || 0), 0));
     els.size.textContent = formatBytes(allDatabases.reduce((s, d) => s + Number(d.metrics?.data_bytes || 0), 0));
-
-    // Карточка HA живёт в той же сетке — не уничтожаем её при re-render
-    const haCard = document.getElementById('dbmon-ha-card');
-    if (haCard) haCard.remove();
-
     if (!list.length) {
         els.grid.innerHTML = '<div class="card"><p class="list-empty">Нет баз. Добавьте удалённую MySQL или дождитесь опроса базы панели.</p></div>';
     } else {
         els.grid.innerHTML = list.map(cardHtml).join('');
     }
-    if (haCard) els.grid.prepend(haCard);
-
     const prev = els.chartTarget.value;
     els.chartTarget.innerHTML = '<option value="">Выберите базу</option>' + allDatabases
         .filter((d) => d.status === 'online' || d.id === Number(prev))
@@ -498,19 +491,11 @@ function setHostLabel(el, text) {
 function setHaPill(id, label, ok, extra) {
     const el = document.getElementById(id);
     if (!el) return;
-    if (label) {
-        el.textContent = extra ? `${label}: ${extra}` : label;
-    } else {
-        el.textContent = extra || '—';
-    }
+    el.textContent = extra ? `${label}: ${extra}` : label;
     el.classList.remove('ok', 'fail', 'warn', 'online', 'offline');
-    if (ok === true) {
-        el.classList.add('ok', 'online');
-    } else if (ok === false) {
-        el.classList.add('fail', 'offline');
-    } else if (ok === 'warn') {
-        el.classList.add('warn');
-    }
+    if (ok === true) el.classList.add('ok');
+    if (ok === false) el.classList.add('fail');
+    if (ok === 'warn') el.classList.add('warn');
 }
 
 function setDbmonSyncUi(running) {
@@ -540,6 +525,13 @@ function updateDbmonSyncProgress(label, pct, detail) {
         if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     }
     if (detailEl && detail != null) detailEl.textContent = detail;
+    if (window.HostJobs) {
+        window.HostJobs.update('db-sync', {
+            title: label || 'Синхронизация БД',
+            detail: detail || '',
+            pct: pct,
+        });
+    }
 }
 
 function showDbmonSyncResult(message, isError) {
@@ -561,7 +553,7 @@ function paintDbmonHa(data) {
 
     setHaPill(
         'dbmon-pill-active',
-        '',
+        'Активная',
         data.active_role === 'replica' ? 'warn' : true,
         data.active_role === 'replica' ? 'резерв' : 'основная'
     );
@@ -682,6 +674,13 @@ async function runDbmonSync(direction) {
     dbSyncAbort = false;
     hideDbmonSyncResult();
     setDbmonSyncUi(true);
+    window.HostJobs?.start('db-sync', {
+        title: direction === 'to_primary' ? 'Синхронизация: резерв → основная' : 'Синхронизация: основная → резерв',
+        detail: 'Подготовка…',
+        pct: 0,
+        cancelable: true,
+        onCancel: () => { dbSyncAbort = true; },
+    });
     updateDbmonSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');
 
     let directionUsed = direction;
@@ -772,6 +771,7 @@ async function runDbmonSync(direction) {
             `Готово: ${total} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`,
             false
         );
+        window.HostJobs?.done('db-sync', `Готово: ${total} табл., ${totalRows.toLocaleString('ru-RU')} строк`);
         window.showToast?.('Копирование завершено', 'success');
         await loadDbmonHa();
     } catch (e) {
@@ -781,10 +781,12 @@ async function runDbmonSync(direction) {
             } catch (_) { /* ignore */ }
             updateDbmonSyncProgress('Отменено', 0, '');
             showDbmonSyncResult('Копирование прервано.', true);
+            window.HostJobs?.fail('db-sync', 'Отменено');
             window.showToast?.('Копирование отменено', 'info');
         } else {
             updateDbmonSyncProgress('Ошибка', 0, e.message);
             showDbmonSyncResult(e.message, true);
+            window.HostJobs?.fail('db-sync', e.message);
             window.showToast?.(e.message, 'error');
         }
     } finally {
@@ -822,9 +824,6 @@ if (haEls.card) {
 
 // Без probe на открытии — иначе N×12с к недоступным БД → Gateway Timeout
 load(false).catch((e) => {
-    const haCard = document.getElementById('dbmon-ha-card');
-    if (haCard) haCard.remove();
     els.grid.innerHTML = `<div class="card"><p class="list-empty">${esc(e.message)}</p></div>`;
-    if (haCard) els.grid.prepend(haCard);
 });
 setInterval(() => load(false).catch(() => {}), 60000);

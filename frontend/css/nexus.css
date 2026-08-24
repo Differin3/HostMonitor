@@ -1487,6 +1487,241 @@ select optgroup {
     pointer-events: none;
 }
 
+/* --- Фоновые задачи (всплывающая панель сверху) --- */
+.hm-jobs-panel {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4500;
+    width: min(560px, calc(100vw - 24px));
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--glass-strong, rgba(18, 22, 32, 0.92));
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--text-primary);
+    display: grid;
+    gap: 8px;
+    animation: hm-jobs-in 0.22s ease;
+}
+
+.hm-jobs-panel.hidden {
+    display: none;
+}
+
+@keyframes hm-jobs-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.hm-jobs-panel.has-active {
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+.hm-jobs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.hm-jobs-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.hm-jobs-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    flex-shrink: 0;
+}
+
+.hm-jobs-icon i,
+.hm-jobs-icon svg {
+    width: 14px;
+    height: 14px;
+    color: #60a5fa;
+}
+
+.hm-jobs-brand strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.2;
+}
+
+.hm-jobs-brand small {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.hm-jobs-head-actions {
+    display: inline-flex;
+    gap: 6px;
+}
+
+.hm-jobs-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 0 !important;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.hm-jobs-chip:hover {
+    color: var(--text-primary);
+    border-color: rgba(96, 165, 250, 0.4);
+}
+
+.hm-jobs-chip i,
+.hm-jobs-chip svg {
+    width: 14px;
+    height: 14px;
+}
+
+.hm-jobs-list {
+    display: grid;
+    gap: 8px;
+    max-height: min(42vh, 320px);
+    overflow: auto;
+}
+
+.hm-jobs-panel.is-collapsed .hm-jobs-list {
+    max-height: none;
+    overflow: visible;
+}
+
+.hm-jobs-item {
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.hm-jobs-item.is-done {
+    border-color: rgba(74, 222, 128, 0.35);
+}
+
+.hm-jobs-item.is-fail {
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+.hm-jobs-item-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.hm-jobs-item-top > i,
+.hm-jobs-item-top > svg {
+    width: 15px;
+    height: 15px;
+    color: #60a5fa;
+    flex-shrink: 0;
+}
+
+.hm-jobs-item.is-done .hm-jobs-item-top > i,
+.hm-jobs-item.is-done .hm-jobs-item-top > svg { color: #4ade80; }
+.hm-jobs-item.is-fail .hm-jobs-item-top > i,
+.hm-jobs-item.is-fail .hm-jobs-item-top > svg { color: #f87171; }
+
+.hm-jobs-item-text {
+    min-width: 0;
+}
+
+.hm-jobs-item-text strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hm-jobs-item-text small {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hm-jobs-pct {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--text-secondary, #9aa3b2);
+    font-variant-numeric: tabular-nums;
+}
+
+.hm-jobs-meter {
+    margin-top: 8px;
+    height: 6px;
+}
+
+.hm-jobs-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.hm-jobs-mini.muted { color: var(--text-muted); }
+
+.hm-jobs-mini i,
+.hm-jobs-mini svg {
+    width: 14px;
+    height: 14px;
+    color: #60a5fa;
+    flex-shrink: 0;
+}
+
+.hm-jobs-mini em {
+    margin-left: auto;
+    font-style: normal;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--text-muted);
+}
+
+.hm-jobs-panel .spinning {
+    animation: hm-jobs-spin 0.9s linear infinite;
+}
+
+@keyframes hm-jobs-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+    .hm-jobs-panel {
+        top: 8px;
+        width: calc(100vw - 16px);
+    }
+}
+
 .toast-card {
     pointer-events: auto;
     position: relative;
@@ -2081,26 +2316,62 @@ select optgroup {
 }
 .dbmon-chart-card { margin-top: 8px; }
 
-/* --- Резерв панели: карточка в той же сетке, что и базы --- */
+/* --- Резерв панели: отдельный блок над сеткой баз --- */
 .dbmon-ha-card {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
+}
+
+.dbmon-ha-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px 12px;
     min-width: 0;
 }
 
-.dbmon-ha-card .dbmon-top h3 {
-    display: flex;
+.dbmon-ha-brand {
+    display: inline-flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+}
+
+.dbmon-ha-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    flex-shrink: 0;
+}
+
+.dbmon-ha-icon i,
+.dbmon-ha-icon svg {
+    width: 14px;
+    height: 14px;
+    color: #60a5fa;
+}
+
+.dbmon-ha-brand strong {
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text-primary);
+    white-space: nowrap;
 }
 
 .dbmon-ha-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     align-items: center;
+    min-width: 0;
 }
 
 .dbmon-ha-pills .ha-pill {
@@ -2110,18 +2381,42 @@ select optgroup {
     margin: 0;
 }
 
+.dbmon-ha-toolbtns {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.dbmon-ha-card .dbmon-ha-tool,
 .dbmon-ha-card .dbmon-ha-act,
-.dbmon-ha-card .dbmon-ha-footer .btn-outline,
-.dbmon-ha-card #dbmon-sync-cancel,
-.dbmon-ha-card .dbmon-ha-footer a {
+.dbmon-ha-card #dbmon-sync-cancel {
     margin: 0 !important;
     box-sizing: border-box;
 }
 
+.dbmon-ha-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+    border-radius: 8px;
+}
+
+.dbmon-ha-tool i,
+.dbmon-ha-tool svg {
+    width: 13px;
+    height: 13px;
+}
+
 .dbmon-ha-hosts {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     min-width: 0;
 }
 
@@ -2154,11 +2449,17 @@ select optgroup {
     text-overflow: ellipsis;
 }
 
+.dbmon-ha-note {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
 .dbmon-ha-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     min-width: 0;
 }
 
@@ -2171,11 +2472,15 @@ select optgroup {
     height: 34px;
     padding: 0 10px;
     border-radius: 8px;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    background: rgba(96, 165, 250, 0.08);
+    color: var(--text-primary);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 
 .dbmon-ha-act > span {
@@ -2183,30 +2488,33 @@ select optgroup {
     text-overflow: ellipsis;
 }
 
-.dbmon-ha-act:disabled,
-.dbmon-ha-footer button:disabled {
-    opacity: 0.45;
+.dbmon-ha-act:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.16);
+    border-color: rgba(96, 165, 250, 0.55);
+}
+
+.dbmon-ha-act:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
 .dbmon-ha-act i,
 .dbmon-ha-act svg {
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     flex-shrink: 0;
+    color: #60a5fa;
 }
 
-.dbmon-ha-footer {
-    margin-top: 4px;
-    flex-wrap: wrap;
+.dbmon-ha-act-muted {
+    border-color: var(--border-color);
+    background: rgba(255, 255, 255, 0.03);
+    font-weight: 500;
 }
 
-.dbmon-ha-footer a.btn-outline {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    min-width: 36px;
+.dbmon-ha-act-muted i,
+.dbmon-ha-act-muted svg {
+    color: var(--text-muted);
 }
 
 .dbmon-ha-actions.is-busy {
@@ -2217,5 +2525,25 @@ select optgroup {
 #dbmon-sync-progress,
 #dbmon-sync-result {
     margin-top: 0;
+}
+
+@media (max-width: 900px) {
+    .dbmon-ha-bar {
+        grid-template-columns: auto 1fr;
+    }
+    .dbmon-ha-toolbtns {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .dbmon-ha-hosts,
+    .dbmon-ha-actions {
+        grid-template-columns: 1fr;
+    }
+    .dbmon-ha-tool span {
+        display: none;
+    }
 }
 

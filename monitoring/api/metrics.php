@@ -208,6 +208,14 @@ function handlePost($pdo) {
     $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
     $updateStmt->execute([$nodeId]);
 
+    if (isset($row['boot_time']) || isset($row['uptime_sec'])) {
+        $boot = $row['boot_time'] ?? null;
+        if (($boot === null || $boot === '' || $boot === 0) && !empty($row['uptime_sec'])) {
+            $boot = time() - (int)$row['uptime_sec'];
+        }
+        nodes_store_boot_time($pdo, (int)$nodeId, $boot);
+    }
+
     $stmt = $pdo->prepare(
         "INSERT INTO metrics
             (node_id, cpu_percent, memory_percent, disk_percent, network_in, network_out,

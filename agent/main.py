@@ -339,6 +339,13 @@ class MonitoringAgent:
             "network_in_total": bytes_recv,
             "network_out_total": bytes_sent,
         }
+        try:
+            if hasattr(psutil, "boot_time"):
+                boot_ts = int(psutil.boot_time())
+                metrics["boot_time"] = boot_ts
+                metrics["uptime_sec"] = max(0, int(time.time()) - boot_ts)
+        except Exception:
+            pass
 
         if gpu_info:
             metrics['gpu'] = gpu_info
@@ -2960,6 +2967,13 @@ class MonitoringAgent:
                 'timestamp': datetime.now().isoformat(),
                 **info,
             }
+            try:
+                if hasattr(psutil, 'boot_time'):
+                    boot_ts = int(psutil.boot_time())
+                    payload['boot_time'] = boot_ts
+                    payload['uptime_sec'] = max(0, int(time.time()) - boot_ts)
+            except Exception:
+                pass
             resp = _request_with_retry(
                 "POST",
                 f"{self.master_url}/api/nodes.php?action=heartbeat",

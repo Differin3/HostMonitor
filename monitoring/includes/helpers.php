@@ -209,10 +209,12 @@ if (!function_exists('nodes_ensure_agent_columns')) {
             'agent_update_available' => 'TINYINT(1) NOT NULL DEFAULT 0',
             'agent_updated_at' => 'TIMESTAMP NULL',
             'command_result' => 'TEXT NULL',
+            // Unix timestamp загрузки ОС (для реального uptime ноды)
+            'boot_time' => 'INT UNSIGNED NULL',
         ];
 
         $markerDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
-        $marker = $markerDir . DIRECTORY_SEPARATOR . '.agent_columns_ok';
+        $marker = $markerDir . DIRECTORY_SEPARATOR . '.agent_columns_ok_v2';
         // Уже мигрировали недавно — не трогаем БД (важно для php-cgi на каждый heartbeat)
         if (is_file($marker) && (time() - (int)@filemtime($marker)) < 86400) {
             return;
@@ -269,6 +271,34 @@ if (!function_exists('nodes_ensure_agent_columns')) {
             }
         } catch (Throwable $e) {
             error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('nodes_store_boot_time')) {
+    /** Сохранить boot_time ноды (unix timestamp загрузки ОС). */
+    function nodes_store_boot_time(PDO $pdo, int $nodeId, $bootTime): void
+    {
+        if ($nodeId <= 0) {
+            return;
+        }
+        $bootTs = 0;
+        if (is_numeric($bootTime)) {
+            $bootTs = (int)$bootTime;
+        } elseif (is_string($bootTime) && $bootTime !== '') {
+            $parsed = strtotime($bootTime);
+            $bootTs = $parsed !== false ? (int)$parsed : 0;
+        }
+        $now = time();
+        if ($bootTs <= 0 || $bootTs > $now + 60 || $bootTs < $now - (86400 * 365 * 30)) {
+            return;
+        }
+        try {
+            nodes_ensure_agent_columns($pdo);
+            $stmt = $pdo->prepare('UPDATE nodes SET boot_time = ? WHERE id = ?');
+            $stmt->execute([$bootTs, $nodeId]);
+        } catch (Throwable $e) {
+            error_log('[nodes_store_boot_time] ' . $e->getMessage());
         }
     }
 }

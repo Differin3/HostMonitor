@@ -353,6 +353,13 @@ function updateDbSyncProgress(label, pct, detail) {
         if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     }
     if (detailEl && detail != null) detailEl.textContent = detail;
+    if (window.HostJobs) {
+        window.HostJobs.update('db-sync', {
+            title: label || 'Синхронизация БД',
+            detail: detail || '',
+            pct: pct,
+        });
+    }
 }
 
 function showDbSyncResult(message, isError) {
@@ -385,6 +392,13 @@ async function runDbSync(direction) {
     dbSyncAbort = false;
     hideDbSyncResult();
     setDbSyncUi(true);
+    window.HostJobs?.start('db-sync', {
+        title: direction === 'to_primary' ? 'Синхронизация: резерв → основная' : 'Синхронизация: основная → резерв',
+        detail: 'Подготовка…',
+        pct: 0,
+        cancelable: true,
+        onCancel: () => { dbSyncAbort = true; },
+    });
     updateDbSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');
 
     let directionUsed = direction;
@@ -488,6 +502,7 @@ async function runDbSync(direction) {
         const summary = `Готово: ${total} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`;
         showDbSyncResult(summary, false);
         dbHaLog(summary, false);
+        window.HostJobs?.done('db-sync', summary);
         showToast('Копирование завершено', 'success');
         await loadDbHa(true);
     } catch (e) {
@@ -500,11 +515,13 @@ async function runDbSync(direction) {
             updateDbSyncProgress('Отменено', 0, '');
             showDbSyncResult('Копирование прервано.', true);
             dbHaLog('Копирование прервано.', true);
+            window.HostJobs?.fail('db-sync', 'Отменено');
             showToast('Копирование отменено', 'info');
         } else {
             updateDbSyncProgress('Ошибка', 0, e.message);
             showDbSyncResult(e.message, true);
             dbHaLog(e.message, true);
+            window.HostJobs?.fail('db-sync', e.message);
             showToast(e.message, 'error');
         }
     } finally {

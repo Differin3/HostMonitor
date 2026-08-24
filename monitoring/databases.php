@@ -72,68 +72,70 @@ render_layout_start(
         </div>
     </div>
 
-    <div id="dbmon-grid" class="dbmon-grid">
-        <article class="card dbmon-card dbmon-ha-card" id="dbmon-ha-card" aria-label="Резерв и синхронизация панели">
-            <div class="dbmon-top">
-                <div>
-                    <h3>Резерв панели</h3>
-                    <p class="dbmon-host" id="dbmon-ha-note">Загрузка статуса…</p>
-                </div>
-                <span class="pill status" id="dbmon-pill-active">…</span>
+    <section class="card dbmon-ha-card" id="dbmon-ha-card" aria-label="Резерв и синхронизация панели">
+        <header class="dbmon-ha-bar">
+            <div class="dbmon-ha-brand">
+                <span class="dbmon-ha-icon" aria-hidden="true"><i data-lucide="database-backup"></i></span>
+                <strong>Резерв панели</strong>
             </div>
-
             <div class="dbmon-ha-pills" id="dbmon-ha-pills">
+                <span class="ha-pill" id="dbmon-pill-active">Активная: …</span>
                 <span class="ha-pill" id="dbmon-pill-primary">Основная: …</span>
                 <span class="ha-pill" id="dbmon-pill-replica">Резерв: …</span>
             </div>
-
-            <div class="dbmon-ha-hosts" id="dbmon-ha-info">
-                <div class="dbmon-ha-host">
-                    <span>Основная</span>
-                    <code id="dbmon-ha-primary-label" title="">—</code>
-                </div>
-                <div class="dbmon-ha-host">
-                    <span>Резерв</span>
-                    <code id="dbmon-ha-replica-label" title="">—</code>
-                </div>
-            </div>
-
-            <div class="dbmon-ha-actions" id="dbmon-sync-actions">
-                <button type="button" class="btn-outline dbmon-ha-act" id="dbmon-sync-to-replica" data-direction="to_replica" disabled>
-                    <i data-lucide="arrow-right"></i>
-                    <span>Основная → резерв</span>
+            <div class="dbmon-ha-toolbtns">
+                <button type="button" class="btn-outline dbmon-ha-tool" id="dbmon-ha-ping" title="Проверить связь">
+                    <i data-lucide="activity"></i><span>Проверить</span>
                 </button>
-                <button type="button" class="btn-outline dbmon-ha-act" id="dbmon-sync-to-primary" data-direction="to_primary" disabled>
-                    <i data-lucide="arrow-left"></i>
-                    <span>Резерв → основная</span>
-                </button>
-                <div class="dbmon-actions dbmon-ha-footer">
-                    <button type="button" class="btn-outline" id="dbmon-ha-ping" title="Проверить связь">
-                        <i data-lucide="activity"></i> Проверить
-                    </button>
-                    <button type="button" class="btn-outline" id="dbmon-ha-failback" title="Переключить панель на основную" disabled>
-                        <i data-lucide="rotate-ccw"></i> На основную
-                    </button>
-                    <a class="btn-outline" href="settings.php#database" title="Настройки подключений">
-                        <i data-lucide="settings"></i>
-                    </a>
-                </div>
+                <a class="btn-outline dbmon-ha-tool" href="settings.php#database" title="Настройки подключений">
+                    <i data-lucide="settings"></i><span>Настройки</span>
+                </a>
             </div>
+        </header>
 
-            <div class="db-sync-progress hidden" id="dbmon-sync-progress" aria-live="polite">
-                <div class="db-sync-progress-head">
-                    <span id="dbmon-sync-progress-label">Подготовка…</span>
-                    <span id="dbmon-sync-progress-pct">0%</span>
-                </div>
-                <div class="hm-meter db-sync-meter" data-tone="ok"><span id="dbmon-sync-progress-bar" style="width:0%"></span></div>
-                <p class="db-sync-progress-detail" id="dbmon-sync-progress-detail"></p>
-                <div class="ha-actions">
-                    <button type="button" class="btn-outline" id="dbmon-sync-cancel"><i data-lucide="x"></i> Отменить</button>
-                </div>
+        <div class="dbmon-ha-hosts" id="dbmon-ha-info">
+            <div class="dbmon-ha-host">
+                <span>Основная</span>
+                <code id="dbmon-ha-primary-label" title="">—</code>
             </div>
-            <div class="db-sync-result hidden" id="dbmon-sync-result"></div>
-        </article>
-    </div>
+            <div class="dbmon-ha-host">
+                <span>Резерв</span>
+                <code id="dbmon-ha-replica-label" title="">—</code>
+            </div>
+        </div>
+
+        <p class="dbmon-ha-note" id="dbmon-ha-note">Загрузка статуса…</p>
+
+        <div class="dbmon-ha-actions" id="dbmon-sync-actions">
+            <button type="button" class="dbmon-ha-act" id="dbmon-sync-to-replica" data-direction="to_replica" disabled>
+                <i data-lucide="arrow-right"></i>
+                <span>Основная → резерв</span>
+            </button>
+            <button type="button" class="dbmon-ha-act" id="dbmon-sync-to-primary" data-direction="to_primary" disabled>
+                <i data-lucide="arrow-left"></i>
+                <span>Резерв → основная</span>
+            </button>
+            <button type="button" class="dbmon-ha-act dbmon-ha-act-muted" id="dbmon-ha-failback" title="Переключить панель на основную" disabled>
+                <i data-lucide="rotate-ccw"></i>
+                <span>На основную</span>
+            </button>
+        </div>
+
+        <div class="db-sync-progress hidden" id="dbmon-sync-progress" aria-live="polite">
+            <div class="db-sync-progress-head">
+                <span id="dbmon-sync-progress-label">Подготовка…</span>
+                <span id="dbmon-sync-progress-pct">0%</span>
+            </div>
+            <div class="hm-meter db-sync-meter" data-tone="ok"><span id="dbmon-sync-progress-bar" style="width:0%"></span></div>
+            <p class="db-sync-progress-detail" id="dbmon-sync-progress-detail"></p>
+            <div class="ha-actions">
+                <button type="button" class="btn-outline" id="dbmon-sync-cancel"><i data-lucide="x"></i> Отменить</button>
+            </div>
+        </div>
+        <div class="db-sync-result hidden" id="dbmon-sync-result"></div>
+    </section>
+
+    <div id="dbmon-grid" class="dbmon-grid"></div>
 
     <article class="card dbmon-chart-card">
         <div class="card-header">

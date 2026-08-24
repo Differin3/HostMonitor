@@ -208,6 +208,10 @@ function agent_job_state(array $row): string
     if (in_array($status, ['failed', 'error'], true)) {
         return 'failed';
     }
+    // Зависший running/pending после claim — не крутим «Проверка» вечно
+    if (agent_pending_age_sec($row) > 180) {
+        return 'idle';
+    }
     if (in_array($status, ['pending', 'running', 'installing', 'in_progress'], true) || $status === '') {
         if (agent_is_update_cmd($cmd)) {
             return 'updating';
@@ -243,19 +247,31 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force
     $pending = trim((string)($row['last_command'] ?? ''));
     $status = (string)($row['command_status'] ?? '');
     $age = agent_pending_age_sec($row);
+    $busy = in_array($status, ['pending', 'running', 'installing', 'in_progress'], true);
 
-    // Протухший pending (>3 мин) всегда можно заменить
-    if ($status === 'pending' && $pending !== '' && $age > 180) {
+    // Протухший pending/running (>3 мин) всегда можно заменить
+    if ($busy && $pending !== '' && $age > 180) {
         $force = true;
     }
 
-    if (!$force && $status === 'pending' && $pending !== '' && $pending !== $command) {
-        // Команды обновления агента с панели всегда имеют приоритет
+    if (!$force && $busy && $pending !== '' && $pending !== $command) {
+        // Команды обновления агента с панели всегда имеют приоритет над чужим слотом
         if (agent_is_agent_cmd($command)) {
             $force = true;
         } elseif ($age < 45) {
             return false;
         }
+    }
+
+    // Не перебивать свежий running update-agent (идёт pull)
+    if (
+        !$force
+        && $status === 'running'
+        && agent_is_update_cmd($pending)
+        && $age < 600
+        && $pending !== $command
+    ) {
+        return false;
     }
 
     $upd = $pdo->prepare(
@@ -265,13 +281,14 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force
     return true;
 }
 
+/** Чистит зависшие pending и running (после claim get-command). */
 function agent_clear_stale_pending(PDO $pdo, int $maxAgeSec = 180): int
 {
     try {
         $stmt = $pdo->prepare(
             "UPDATE nodes
              SET last_command = NULL, command_status = NULL, command_timestamp = NULL
-             WHERE command_status = 'pending'
+             WHERE command_status IN ('pending', 'running', 'installing', 'in_progress')
                AND last_command IS NOT NULL
                AND last_command != ''
                AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL ? SECOND))"
