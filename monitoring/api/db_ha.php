@@ -15,6 +15,7 @@ if (!isset($_SESSION['user_id'])) {
 if (($_SESSION['role'] ?? 'admin') !== 'admin') {
     json_error('Forbidden', 403);
 }
+session_write_close();
 
 function db_ha_status_payload(bool $ping): array
 {

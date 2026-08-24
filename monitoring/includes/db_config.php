@@ -262,10 +262,36 @@ function db_pdo_ssl_opts(array $ep): array
     return $opts;
 }
 
-function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 8): PDO
+function db_tcp_preflight(string $host, int $port, float $timeoutSec): void
+{
+    if ($host === '' || $host === 'localhost' || $host === '127.0.0.1' || $host === '::1') {
+        return;
+    }
+    $timeoutSec = max(0.5, min($timeoutSec, 5.0));
+    $errno = 0;
+    $errstr = '';
+    $fp = @stream_socket_client(
+        "tcp://{$host}:{$port}",
+        $errno,
+        $errstr,
+        $timeoutSec,
+        STREAM_CLIENT_CONNECT
+    );
+    if (!is_resource($fp)) {
+        throw new RuntimeException("TCP {$host}:{$port} недоступен ({$errno}: {$errstr})");
+    }
+    fclose($fp);
+}
+
+function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 3): PDO
 {
     $host = $cfg['host'] ?: 'localhost';
-    $port = $cfg['port'] ?: '3306';
+    $port = (int)($cfg['port'] ?: 3306);
+    $timeout = max(1, min($timeout, 8));
+    // PDO/SSL часто игнорирует ATTR_TIMEOUT — сначала жёсткий TCP
+    db_tcp_preflight($host, $port, (float)$timeout);
+    $prevSock = ini_get('default_socket_timeout');
+    @ini_set('default_socket_timeout', (string)$timeout);
     $dsn = $dbname
         ? "mysql:host={$host};port={$port};dbname={$dbname};charset=utf8mb4"
         : "mysql:host={$host};port={$port};charset=utf8mb4";
@@ -279,7 +305,13 @@ function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 8): PDO
         $opts[PDO::MYSQL_ATTR_CONNECT_TIMEOUT] = $timeout;
     }
     $opts = array_replace($opts, db_pdo_ssl_opts($cfg));
-    return new PDO($dsn, (string)$cfg['user'], (string)$cfg['password'], $opts);
+    try {
+        return new PDO($dsn, (string)$cfg['user'], (string)$cfg['password'], $opts);
+    } finally {
+        if ($prevSock !== false) {
+            @ini_set('default_socket_timeout', (string)$prevSock);
+        }
+    }
 }
 
 function db_ident(string $name): string

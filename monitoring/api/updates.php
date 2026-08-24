@@ -21,6 +21,7 @@ if ($method === 'GET') {
         echo json_encode(['error' => 'Unauthorized']);
         exit;
     }
+    session_write_close();
 } elseif ($method === 'POST' && ($action === 'report' || $action === 'result')) {
     // Для action=report и action=result проверяем токен агента
     $auth = require_api_auth($pdo);
@@ -41,6 +42,7 @@ if ($method === 'GET') {
         echo json_encode(['error' => 'Unauthorized']);
         exit;
     }
+    session_write_close();
 }
 
 try {

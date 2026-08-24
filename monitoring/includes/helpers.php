@@ -66,7 +66,12 @@ if (!function_exists('require_api_auth')) {
 
         $nodeInfo = null;
         if (isset($_SESSION['user_id'])) {
-            return ['user' => (int)$_SESSION['user_id'], 'node' => null];
+            $userId = (int)$_SESSION['user_id'];
+            // Не держим session lock на время SQL/ответа — иначе другие вкладки виснут
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+            return ['user' => $userId, 'node' => null];
         }
 
         // Пробуем получить заголовок Authorization разными способами
@@ -91,6 +96,9 @@ if (!function_exists('require_api_auth')) {
             $nodeInfo = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($nodeInfo) {
                 error_log("[require_api_auth] Node found: id=" . $nodeInfo['id'] . ", name=" . $nodeInfo['name']);
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    session_write_close();
+                }
                 return ['user' => null, 'node' => $nodeInfo];
             } else {
                 // Проверяем, есть ли вообще ноды с токенами
@@ -110,6 +118,9 @@ if (!function_exists('require_api_auth')) {
             error_log("[require_api_auth] No Authorization header found. HTTP_AUTHORIZATION: " . ($_SERVER['HTTP_AUTHORIZATION'] ?? 'NOT SET'));
         }
 
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
         json_error('Unauthorized', 401);
     }
 }

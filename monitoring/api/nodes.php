@@ -48,6 +48,9 @@ if (!$isAuthorized) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 
 try {
     switch ($method) {

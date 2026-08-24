@@ -8,6 +8,7 @@ if (!isset($_SESSION['user_id'])) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
+session_write_close();
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/dashboard_snapshot.php';

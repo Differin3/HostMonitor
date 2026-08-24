@@ -35,6 +35,9 @@ if (!$isAuthorized) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 
 function logs_per_page(PDO $pdo): int
 {

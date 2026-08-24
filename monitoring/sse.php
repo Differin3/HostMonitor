@@ -16,6 +16,8 @@ if (!isset($_SESSION['user_id'])) {
     echo 'Unauthorized';
     exit;
 }
+// SSE держит соединение минутами — нельзя оставлять session lock
+session_write_close();
 
 require_once __DIR__ . '/includes/database.php';
 require_once __DIR__ . '/includes/dashboard_snapshot.php';

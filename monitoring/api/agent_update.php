@@ -148,6 +148,9 @@ try {
     if (!isset($_SESSION['user_id'])) {
         json_error('Unauthorized', 401);
     }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
 
     if ($method === 'GET' && ($action === '' || $action === 'status')) {
         $desired = agent_desired_version();

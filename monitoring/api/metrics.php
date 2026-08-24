@@ -19,6 +19,7 @@ if ($method === 'GET') {
         echo json_encode(['error' => 'Unauthorized']);
         exit;
     }
+    session_write_close();
 } else {
     $auth = require_api_auth($pdo);
     $nodeInfo = $auth['node'];

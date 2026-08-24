@@ -59,4 +59,8 @@ if ((time() - $last) > ($timeoutMin * 60)) {
     exit;
 }
 $_SESSION['last_activity'] = time();
+// Важно: отпускаем file-lock сессии, иначе параллельные API/вкладки ждут до CGI timeout
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 

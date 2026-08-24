@@ -12,6 +12,7 @@ if (session_status() === PHP_SESSION_NONE) {
 if (!isset($_SESSION['user_id'])) {
     json_error('Unauthorized', 401);
 }
+session_write_close();
 
 try {
     $pdo = getDbConnection();

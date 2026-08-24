@@ -39,6 +39,9 @@ if (!$isAuthorized) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 
 function containers_ensure_schema(PDO $pdo): void
 {
