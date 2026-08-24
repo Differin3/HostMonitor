@@ -20,6 +20,12 @@ run_git() {
 }
 
 echo "[update_agent] root=${ROOT}"
+
+# Навсегда: dubious ownership (root/monitoring/TrueNAS)
+run_git config --local --add safe.directory "${ROOT}" 2>/dev/null || true
+git config --global --add safe.directory "${ROOT}" 2>/dev/null || true
+git config --system --add safe.directory "${ROOT}" 2>/dev/null || true
+
 run_git fetch origin --prune
 # Сброс любых локальных правок tracked-файлов
 run_git reset --hard origin/main

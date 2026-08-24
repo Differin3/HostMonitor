@@ -397,6 +397,8 @@ async function runDbSync(direction) {
         detail: 'Подготовка…',
         pct: 0,
         cancelable: true,
+        maxMs: 0, // без жёсткого лимита — копирование всех таблиц может идти часами
+        staleMs: 15 * 60 * 1000, // прервать только если 15 мин нет прогресса
         onCancel: () => { dbSyncAbort = true; },
     });
     updateDbSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');

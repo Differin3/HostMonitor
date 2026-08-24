@@ -8,6 +8,10 @@ Type=simple
 # User=root убран из-за ошибки 217/USER в некоторых конфигурациях systemd
 WorkingDirectory=/opt/monitoring/agent
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/monitoring/.venv/bin"
+# Обход «dubious ownership» при git fetch/reset (agent vs owner репозитория)
+Environment=GIT_CONFIG_COUNT=1
+Environment=GIT_CONFIG_KEY_0=safe.directory
+Environment=GIT_CONFIG_VALUE_0=*
 # Переменные будут загружены из node.conf через load_node_conf() в main.py
 ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/agent/main.py
 # Пассивный LLDP (scapy) без полного root

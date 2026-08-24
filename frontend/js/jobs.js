@@ -1,16 +1,23 @@
 /**
  * Всплывающая панель фоновых процессов (синхронизация БД, обновления и т.п.).
  * API: HostJobs.start / update / done / fail / cancel
+ *
+ * Таймауты:
+ * - maxMs > 0 — жёсткий лимит от старта (0 = без лимита, для миграции БД)
+ * - staleMs — нет update() дольше N мс → «зависла» (по умолчанию 10 мин)
  */
 (function () {
     if (window.__HOSTMONITOR_JOBS_INIT) return;
     window.__HOSTMONITOR_JOBS_INIT = true;
 
     const STORE_KEY = 'hm_bg_jobs_v1';
+    const DEFAULT_MAX_MS = 180000;
+    const DEFAULT_STALE_MS = 600000; // 10 мин без прогресса
     const jobs = new Map();
     const cancelHandlers = new Map();
     let collapsed = false;
     let panel = null;
+    let watchdogTimer = null;
 
     function paintIcons(root) {
         if (!window.lucide || typeof lucide.createIcons !== 'function') return;
@@ -33,6 +40,7 @@
                 startedAt: j.startedAt,
                 updatedAt: j.updatedAt,
                 maxMs: j.maxMs,
+                staleMs: j.staleMs,
             }));
             sessionStorage.setItem(STORE_KEY, JSON.stringify({ collapsed, jobs: list }));
         } catch (_) { /* ignore */ }
@@ -49,10 +57,10 @@
                 if (!j?.id) return;
                 // Старые done/fail старше 2 мин — не поднимаем
                 if (['done', 'fail'].includes(j.status) && now - (j.updatedAt || 0) > 120000) return;
-                // running без живого хендлера после перезагрузки страницы — помечаем как прерванный
-                if (j.status === 'running' && now - (j.updatedAt || 0) > 30000) {
+                // running после перезагрузки страницы: клиентский цикл уже мёртв
+                if (j.status === 'running') {
                     j.status = 'fail';
-                    j.detail = j.detail || 'Прервано (страница перезагружена)';
+                    j.detail = 'Прервано (страница перезагружена или вкладка закрыта)';
                     j.pct = j.pct ?? 0;
                 }
                 jobs.set(j.id, {
@@ -64,7 +72,8 @@
                     cancelable: !!j.cancelable,
                     startedAt: j.startedAt || j.updatedAt || now,
                     updatedAt: j.updatedAt || now,
-                    maxMs: j.maxMs || 180000,
+                    maxMs: j.maxMs == null ? DEFAULT_MAX_MS : Number(j.maxMs),
+                    staleMs: j.staleMs == null ? DEFAULT_STALE_MS : Number(j.staleMs),
                 });
             });
         } catch (_) { /* ignore */ }
@@ -196,9 +205,47 @@
             .replace(/"/g, '&quot;');
     }
 
+    function jobTimedOut(job, now = Date.now()) {
+        if (!job || job.status !== 'running') return null;
+        const maxMs = Number(job.maxMs);
+        // maxMs === 0 → без жёсткого лимита (миграция БД)
+        if (maxMs > 0 && job.startedAt && now - job.startedAt > maxMs) {
+            return 'Таймаут фоновой задачи';
+        }
+        const staleMs = Number(job.staleMs);
+        if (staleMs > 0 && job.updatedAt && now - job.updatedAt > staleMs) {
+            return 'Нет прогресса — задача зависла';
+        }
+        return null;
+    }
+
+    function enforceTimeouts() {
+        const now = Date.now();
+        [...jobs.values()].forEach((job) => {
+            const reason = jobTimedOut(job, now);
+            if (!reason) return;
+            const fn = cancelHandlers.get(job.id);
+            if (typeof fn === 'function') {
+                try { fn(); } catch (_) { /* ignore */ }
+            }
+            finish(job.id, 'fail', reason);
+        });
+    }
+
+    function ensureWatchdog() {
+        if (watchdogTimer) return;
+        watchdogTimer = setInterval(() => {
+            const hasRunning = [...jobs.values()].some((j) => j.status === 'running');
+            if (!hasRunning) return;
+            enforceTimeouts();
+        }, 15000);
+    }
+
     function start(id, opts = {}) {
         const key = String(id || `job-${Date.now()}`);
         const now = Date.now();
+        const maxMs = opts.maxMs == null ? DEFAULT_MAX_MS : Number(opts.maxMs);
+        const staleMs = opts.staleMs == null ? DEFAULT_STALE_MS : Number(opts.staleMs);
         const job = {
             id: key,
             title: opts.title || 'Задача',
@@ -208,13 +255,15 @@
             cancelable: !!opts.cancelable,
             startedAt: now,
             updatedAt: now,
-            maxMs: Number(opts.maxMs) > 0 ? Number(opts.maxMs) : 180000,
+            maxMs: Number.isFinite(maxMs) ? maxMs : DEFAULT_MAX_MS,
+            staleMs: Number.isFinite(staleMs) ? staleMs : DEFAULT_STALE_MS,
         };
         jobs.set(key, job);
         if (typeof opts.onCancel === 'function') {
             cancelHandlers.set(key, opts.onCancel);
         }
         collapsed = false;
+        ensureWatchdog();
         render();
         save();
         return key;
@@ -224,17 +273,23 @@
         const key = String(id);
         const job = jobs.get(key);
         if (!job) return;
+        if (job.status === 'fail' || job.status === 'done') return;
         if (opts.title != null) job.title = opts.title;
         if (opts.detail != null) job.detail = opts.detail;
         if (opts.pct != null && !Number.isNaN(Number(opts.pct))) job.pct = Number(opts.pct);
         if (opts.cancelable != null) job.cancelable = !!opts.cancelable;
         if (typeof opts.onCancel === 'function') cancelHandlers.set(key, opts.onCancel);
+        if (opts.maxMs != null && Number.isFinite(Number(opts.maxMs))) job.maxMs = Number(opts.maxMs);
+        if (opts.staleMs != null && Number.isFinite(Number(opts.staleMs))) job.staleMs = Number(opts.staleMs);
         job.updatedAt = Date.now();
         if (job.status !== 'running') job.status = 'running';
-        // Авто-таймаут: update не продлевает жизнь бесконечно
-        const maxMs = job.maxMs || 180000;
-        if (job.startedAt && Date.now() - job.startedAt > maxMs) {
-            finish(key, 'fail', job.detail || 'Таймаут фоновой задачи');
+        const reason = jobTimedOut(job);
+        if (reason) {
+            const fn = cancelHandlers.get(key);
+            if (typeof fn === 'function') {
+                try { fn(); } catch (_) { /* ignore */ }
+            }
+            finish(key, 'fail', reason);
             return;
         }
         render();
@@ -253,7 +308,7 @@
         cancelHandlers.delete(key);
         render();
         save();
-        // Автоочистка завершённых через 12 с
+        // Автоочистка завершённых
         setTimeout(() => {
             const cur = jobs.get(key);
             if (cur && (cur.status === 'done' || cur.status === 'fail')) {
@@ -282,6 +337,7 @@
     window.HostJobs = { start, update, done, fail, cancel, remove, render };
 
     load();
+    ensureWatchdog();
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', render);
     } else {

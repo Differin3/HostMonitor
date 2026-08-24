@@ -853,8 +853,36 @@ class MonitoringAgent:
         return a.startswith(b) or b.startswith(a)
 
     def _git_cmd(self, root: pathlib.Path, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
-        cmd = ['git', '-c', f'safe.directory={root}', '-C', str(root), *args]
+        # safe.directory=* — обход «dubious ownership» (root vs monitoring, TrueNAS dataset)
+        cmd = [
+            'git',
+            '-c', 'safe.directory=*',
+            '-c', f'safe.directory={root}',
+            '-C', str(root),
+            *args,
+        ]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    def _ensure_git_safe_directory(self, root: pathlib.Path) -> None:
+        """Пишем safe.directory в local/global — помогает даже старым обёрткам без -c."""
+        root_s = str(root)
+        for scope in ('--local', '--global'):
+            try:
+                subprocess.run(
+                    ['git', 'config', scope, '--add', 'safe.directory', root_s],
+                    cwd=root_s if scope == '--local' else None,
+                    capture_output=True, text=True, timeout=10,
+                )
+            except Exception:
+                pass
+        try:
+            # system — если агент под root
+            subprocess.run(
+                ['git', 'config', '--system', '--add', 'safe.directory', root_s],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
 
     def agent_version_info(self) -> dict:
         root = self.install_root()
@@ -889,6 +917,7 @@ class MonitoringAgent:
 
     def check_agent_update(self) -> dict:
         root = self.install_root()
+        self._ensure_git_safe_directory(root)
         info = self.agent_version_info()
         if not (root / '.git').is_dir():
             return {
