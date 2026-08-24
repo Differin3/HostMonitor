@@ -659,142 +659,41 @@ async function loadDbmonHa() {
 
 async function runDbmonSync(direction) {
     if (!dbHaEditable || dbSyncRunning) return;
-
-    const titles = {
-        to_replica: 'Скопировать основную базу на резерв',
-        to_primary: 'Скопировать резервную базу на основную',
-    };
-    const confirmed = await window.showConfirm?.(
-        `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Копирование идёт короткими порциями.\n\nПродолжить?`,
-        'Копирование базы',
-        'warning'
-    );
-    if (!confirmed) return;
-
-    dbSyncAbort = false;
-    hideDbmonSyncResult();
-    setDbmonSyncUi(true);
-    window.HostJobs?.start('db-sync', {
-        title: direction === 'to_primary' ? 'Синхронизация: резерв → основная' : 'Синхронизация: основная → резерв',
-        detail: 'Подготовка…',
-        pct: 0,
-        cancelable: true,
-        maxMs: 0, // без жёсткого лимита — копирование всех таблиц может идти часами
-        staleMs: 15 * 60 * 1000, // прервать только если 15 мин нет прогресса
-        onCancel: () => { dbSyncAbort = true; },
-    });
-    updateDbmonSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');
-
-    let directionUsed = direction;
-    let totalRows = 0;
-
-    try {
-        const prep = await dbHaRequest({ action: 'sync_prepare', direction });
-        directionUsed = prep.direction || direction;
-        const tables = prep.tables || [];
-        const total = tables.length;
-        const chunkLimit = Number(prep.chunk_limit) || 200;
-        if (!total) throw new Error('В источнике нет таблиц для копирования');
-
-        const srcLabel = prep.source_label || 'источник';
-        const dstLabel = prep.target_label || 'приёмник';
-        const srcName = prep.source_name ? ` (${prep.source_name})` : '';
-        const dstName = prep.target_name ? ` (${prep.target_name})` : '';
-        updateDbmonSyncProgress(
-            'Копирование…',
-            0,
-            `${srcLabel}${srcName} → ${dstLabel}${dstName} · таблиц: ${total}`
-        );
-
-        for (let i = 0; i < total; i++) {
-            if (dbSyncAbort) throw new Error('Отменено пользователем');
-
-            const table = tables[i];
-            let offset = 0;
-            let cursor = null;
-            let tableRows = 0;
-            let guard = 0;
-
-            updateDbmonSyncProgress(
-                `Таблица ${i + 1} из ${total}`,
-                (i / total) * 100,
-                `Создание схемы «${table}»…`
-            );
-            await dbHaRequest({
-                action: 'sync_table_schema',
-                direction: directionUsed,
-                table,
-            });
-
-            while (true) {
-                if (dbSyncAbort) throw new Error('Отменено пользователем');
-                if (++guard > 50000) {
-                    throw new Error(`Слишком много порций для таблицы «${table}» — прервано`);
-                }
-
-                const basePct = (i / total) * 100;
-                const within = Math.min(99, (tableRows / Math.max(tableRows + chunkLimit, 1)) * (100 / total));
-                updateDbmonSyncProgress(
-                    `Таблица ${i + 1} из ${total}`,
-                    basePct + within,
-                    `«${table}» · уже ${tableRows.toLocaleString('ru-RU')} строк…`
-                );
-
-                const res = await dbHaRequest({
-                    action: 'sync_table',
-                    direction: directionUsed,
-                    table,
-                    index: i,
-                    total,
-                    offset,
-                    cursor,
-                    limit: Math.min(chunkLimit, 200),
-                });
-
-                const rows = Number(res.rows) || 0;
-                tableRows += rows;
-                totalRows += rows;
-                offset = Number(res.next_offset) || (offset + rows);
-                cursor = res.next_cursor ?? null;
-
-                updateDbmonSyncProgress(
-                    `Таблица ${i + 1} из ${total}`,
-                    ((i + (res.table_done ? 1 : 0.55)) / total) * 100,
-                    `«${table}» — ${tableRows.toLocaleString('ru-RU')} строк`
-                );
-
-                if (res.status) paintDbmonHa(res.status);
-                if (res.table_done || rows === 0) break;
-            }
-        }
-
-        updateDbmonSyncProgress('Готово', 100, `Скопировано таблиц: ${total}, строк: ${totalRows.toLocaleString('ru-RU')}`);
-        showDbmonSyncResult(
-            `Готово: ${total} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`,
-            false
-        );
-        window.HostJobs?.done('db-sync', `Готово: ${total} табл., ${totalRows.toLocaleString('ru-RU')} строк`);
-        window.showToast?.('Копирование завершено', 'success');
-        await loadDbmonHa();
-    } catch (e) {
-        if (dbSyncAbort || e.message === 'Отменено пользователем') {
-            try {
-                await dbHaRequest({ action: 'sync_abort', direction: directionUsed });
-            } catch (_) { /* ignore */ }
-            updateDbmonSyncProgress('Отменено', 0, '');
-            showDbmonSyncResult('Копирование прервано.', true);
-            window.HostJobs?.fail('db-sync', 'Отменено');
-            window.showToast?.('Копирование отменено', 'info');
-        } else {
-            updateDbmonSyncProgress('Ошибка', 0, e.message);
-            showDbmonSyncResult(e.message, true);
-            window.HostJobs?.fail('db-sync', e.message);
-            window.showToast?.(e.message, 'error');
-        }
-    } finally {
-        setDbmonSyncUi(false);
-        dbSyncAbort = false;
+    if (window.DbSyncRunner?.isRunning()) {
+        window.showToast?.('Синхронизация уже выполняется', 'info');
+        setDbmonSyncUi(true);
+        return;
     }
+    hideDbmonSyncResult();
+    const started = await window.DbSyncRunner?.start(direction);
+    if (started) setDbmonSyncUi(true);
+}
+
+window.addEventListener('hm:db-sync', (ev) => {
+    const d = ev.detail || {};
+    if (d.status === 'running' || d.detail) {
+        setDbmonSyncUi(true);
+        updateDbmonSyncProgress(
+            d.label || (d.status === 'running' ? 'Копирование…' : ''),
+            d.pct,
+            d.detail || ''
+        );
+    }
+    if (d.status === 'done') {
+        setDbmonSyncUi(false);
+        updateDbmonSyncProgress('Готово', 100, d.detail || '');
+        showDbmonSyncResult(d.detail || 'Готово', false);
+        loadDbmonHa();
+    }
+    if (d.status === 'cancelled' || d.status === 'error') {
+        setDbmonSyncUi(false);
+        updateDbmonSyncProgress(d.status === 'cancelled' ? 'Отменено' : 'Ошибка', d.pct || 0, d.detail || '');
+        showDbmonSyncResult(d.detail || 'Ошибка', true);
+    }
+});
+
+if (window.DbSyncRunner?.isRunning()) {
+    setDbmonSyncUi(true);
 }
 
 if (haEls.card) {
@@ -815,12 +714,12 @@ if (haEls.card) {
     haEls.toReplica?.addEventListener('click', () => runDbmonSync('to_replica'));
     haEls.toPrimary?.addEventListener('click', () => runDbmonSync('to_primary'));
     haEls.cancel?.addEventListener('click', () => {
-        if (!dbSyncRunning) return;
-        dbSyncAbort = true;
+        if (!dbSyncRunning && !window.DbSyncRunner?.isRunning()) return;
+        window.DbSyncRunner?.cancel();
         const pct = parseFloat(String(document.getElementById('dbmon-sync-progress-pct')?.textContent || '0').replace('%', '')) || 0;
         updateDbmonSyncProgress('Отмена…', pct, 'Дождитесь завершения текущей порции');
     });
-    setDbmonSyncUi(false);
+    setDbmonSyncUi(!!window.DbSyncRunner?.isRunning());
     loadDbmonHa().catch(() => {});
 }
 

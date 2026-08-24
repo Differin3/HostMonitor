@@ -37,6 +37,7 @@
                 pct: j.pct,
                 status: j.status,
                 cancelable: !!j.cancelable,
+                resumable: !!j.resumable,
                 startedAt: j.startedAt,
                 updatedAt: j.updatedAt,
                 maxMs: j.maxMs,
@@ -57,11 +58,16 @@
                 if (!j?.id) return;
                 // Старые done/fail старше 2 мин — не поднимаем
                 if (['done', 'fail'].includes(j.status) && now - (j.updatedAt || 0) > 120000) return;
-                // running после перезагрузки страницы: клиентский цикл уже мёртв
-                if (j.status === 'running') {
+                const resumable = !!j.resumable || j.id === 'db-sync' || String(j.id).startsWith('agent-');
+                // Не-resumable running после смены страницы — клиентский цикл мёртв
+                if (j.status === 'running' && !resumable) {
                     j.status = 'fail';
                     j.detail = 'Прервано (страница перезагружена или вкладка закрыта)';
                     j.pct = j.pct ?? 0;
+                }
+                // resumable: оставляем running — runner на новой странице продолжит
+                if (j.status === 'running' && resumable) {
+                    j.detail = j.detail || 'Продолжение…';
                 }
                 jobs.set(j.id, {
                     id: j.id,
@@ -70,6 +76,7 @@
                     pct: j.pct == null ? null : Number(j.pct),
                     status: j.status || 'running',
                     cancelable: !!j.cancelable,
+                    resumable,
                     startedAt: j.startedAt || j.updatedAt || now,
                     updatedAt: j.updatedAt || now,
                     maxMs: j.maxMs == null ? DEFAULT_MAX_MS : Number(j.maxMs),
@@ -244,16 +251,24 @@
     function start(id, opts = {}) {
         const key = String(id || `job-${Date.now()}`);
         const now = Date.now();
-        const maxMs = opts.maxMs == null ? DEFAULT_MAX_MS : Number(opts.maxMs);
-        const staleMs = opts.staleMs == null ? DEFAULT_STALE_MS : Number(opts.staleMs);
+        const existing = jobs.get(key);
+        const maxMs = opts.maxMs == null
+            ? (existing?.maxMs ?? DEFAULT_MAX_MS)
+            : Number(opts.maxMs);
+        const staleMs = opts.staleMs == null
+            ? (existing?.staleMs ?? DEFAULT_STALE_MS)
+            : Number(opts.staleMs);
         const job = {
             id: key,
-            title: opts.title || 'Задача',
-            detail: opts.detail || '',
-            pct: opts.pct == null ? 0 : Number(opts.pct),
+            title: opts.title || existing?.title || 'Задача',
+            detail: opts.detail != null ? opts.detail : (existing?.detail || ''),
+            pct: opts.pct == null ? (existing?.pct ?? 0) : Number(opts.pct),
             status: 'running',
-            cancelable: !!opts.cancelable,
-            startedAt: now,
+            cancelable: opts.cancelable != null ? !!opts.cancelable : !!existing?.cancelable,
+            resumable: opts.resumable != null
+                ? !!opts.resumable
+                : !!(existing?.resumable || key === 'db-sync' || String(key).startsWith('agent-')),
+            startedAt: existing?.startedAt || now,
             updatedAt: now,
             maxMs: Number.isFinite(maxMs) ? maxMs : DEFAULT_MAX_MS,
             staleMs: Number.isFinite(staleMs) ? staleMs : DEFAULT_STALE_MS,

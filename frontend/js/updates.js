@@ -1042,7 +1042,13 @@ function untrackAgentJob(jobId) {
 }
 
 function startAgentPoll(jobId) {
-    if (jobId) agentJobIds.add(String(jobId));
+    if (jobId) {
+        agentJobIds.add(String(jobId));
+        window.AgentJobsRunner?.track(jobId);
+    }
+    // Глобальный AgentJobsRunner ведёт опрос на всех страницах;
+    // локальный таймер — только если runner недоступен (старый layout).
+    if (window.AgentJobsRunner) return;
     if (agentPollTimer) return;
     agentPollTicks = 0;
     agentPollTimer = setInterval(async () => {
@@ -1241,6 +1247,7 @@ async function checkAgentUpdates() {
             detail: `${ids.length} нод(ы)`,
             pct: 5,
             maxMs: 120000,
+            resumable: true,
         });
         startAgentPoll(jobId);
         const result = await queueAgentCommand(ids, 'check');
@@ -1285,6 +1292,7 @@ async function applyAgentUpdates() {
             detail: `${ids.length} нод(ы): ${(status.nodes || []).filter((n) => ids.includes(Number(n.id))).map((n) => n.name).join(', ')}`,
             pct: 5,
             maxMs: 600000,
+            resumable: true,
         });
         startAgentPoll(jobId);
         showToast(`Обновление агентов (${ids.length})...`, 'info');
@@ -1331,6 +1339,7 @@ async function applyAgentUpdateOne(nodeId) {
             detail: 'В очереди',
             pct: 5,
             maxMs: 600000,
+            resumable: true,
         });
         startAgentPoll(jobId);
         const result = await queueAgentCommand([id], 'apply');
