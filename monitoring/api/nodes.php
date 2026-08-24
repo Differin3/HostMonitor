@@ -137,13 +137,16 @@ function handleGet($pdo) {
         }
 
         if ($targetId) {
-            // pending → running. Reclaim running только если:
-            // - агент offline (last_seen > 3м), ИЛИ
-            // - короткая команда (check/update-agent) зависла > 3м при живом heartbeat
+            // pending → running. Reclaim:
+            // - offline (last_seen > 3м)
+            // - check-agent-* / check-updates зависли > 90с
+            // - update-agent > 10м
+            // command_timestamp: при первом claim не трогаем (возраст очереди для UI);
+            // при reclaim running — обновляем, чтобы не выдавать команду на каждом poll.
             $claim = $pdo->prepare(
                 "UPDATE nodes
                  SET command_status = 'running', last_seen = NOW(), status = 'online',
-                     command_timestamp = IF(command_status = 'pending', NOW(), command_timestamp)
+                     command_timestamp = IF(command_status = 'running', NOW(), command_timestamp)
                  WHERE id = ?
                    AND last_command IS NOT NULL
                    AND last_command <> ''
@@ -156,11 +159,15 @@ function handleGet($pdo) {
                                OR last_seen < DATE_SUB(NOW(), INTERVAL 3 MINUTE)
                                OR (
                                    command_timestamp IS NOT NULL
-                                   AND command_timestamp < DATE_SUB(NOW(), INTERVAL 3 MINUTE)
+                                   AND command_timestamp < DATE_SUB(NOW(), INTERVAL 90 SECOND)
                                    AND last_command IN (
-                                       'check-agent-update', 'check-agent-updates',
-                                       'update-agent', 'upgrade-agent', 'check-updates'
+                                       'check-agent-update', 'check-agent-updates', 'check-updates'
                                    )
+                               )
+                               OR (
+                                   command_timestamp IS NOT NULL
+                                   AND command_timestamp < DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+                                   AND last_command IN ('update-agent', 'upgrade-agent')
                                )
                            )
                        )
@@ -173,10 +180,12 @@ function handleGet($pdo) {
                 $stmt->execute([$targetId]);
                 $node = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($node && $node['last_command']) {
+                    // В ответе всегда pending: старые агенты принимают только pending,
+                    // в БД уже running (чтобы не выдавать команду повторно).
                     $result = [
                         'status' => 'ok',
                         'command' => $node['last_command'],
-                        'command_status' => 'running',
+                        'command_status' => 'pending',
                         'command_timestamp' => $node['command_timestamp'],
                     ];
                 }
@@ -792,7 +801,14 @@ function handlePost($pdo) {
         // Не затираем чужую/новую команду: очищаем слот только если совпадает
         $sameCommand = ($command === '' || $currentCmd === '' || $command === $currentCmd);
         
-        if (($commandStatus === 'completed' || $commandStatus === 'failed') && $sameCommand) {
+        if ($commandStatus === 'failed' && $sameCommand) {
+            // Оставляем last_command — UI показывает «ошибка» + command_result
+            $updateStmt = $pdo->prepare(
+                "UPDATE nodes SET command_status = 'failed', last_seen = NOW(), status = 'online' WHERE id = ?"
+            );
+            $updateStmt->execute([$targetNodeId]);
+            error_log("Command marked failed (kept last_command={$currentCmd})");
+        } elseif ($commandStatus === 'completed' && $sameCommand) {
             $updateStmt = $pdo->prepare(
                 "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL,
                  last_seen = NOW(), status = 'online' WHERE id = ?"
@@ -1199,6 +1215,35 @@ function executeNodeAction($pdo, $nodeId, $action) {
     }
     
     // Сохраняем команду в БД для выполнения агентом
+    // Не затираем свежий update-agent проверкой/другой короткой командой
+    $cur = $pdo->prepare('SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?');
+    $cur->execute([$nodeId]);
+    $curRow = $cur->fetch(PDO::FETCH_ASSOC) ?: [];
+    $pending = trim((string)($curRow['last_command'] ?? ''));
+    $pStatus = strtolower(trim((string)($curRow['command_status'] ?? '')));
+    $pBusy = in_array($pStatus, ['pending', 'running', 'installing', 'in_progress'], true);
+    $pAge = 999999;
+    if (!empty($curRow['command_timestamp'])) {
+        $ts = strtotime((string)$curRow['command_timestamp']);
+        if ($ts) {
+            $pAge = max(0, time() - $ts);
+        }
+    }
+    if (
+        $pBusy
+        && in_array($pending, ['update-agent', 'upgrade-agent'], true)
+        && $pAge < 600
+        && !in_array($action, ['update-agent', 'upgrade-agent'], true)
+    ) {
+        echo json_encode([
+            'success' => false,
+            'error' => "Нода уже обновляет агент (команда «{$pending}»). Дождитесь завершения.",
+            'node_id' => $nodeId,
+            'action' => $action,
+        ]);
+        return;
+    }
+
     $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
     $stmt->execute([$action, $nodeId]);
     

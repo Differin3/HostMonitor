@@ -942,19 +942,32 @@ let agentPollTimer = null;
 let agentPollTicks = 0;
 let agentBusy = false;
 let agentNodesCache = [];
+/** @type {Set<string>} */
+const agentJobIds = new Set();
 
 function agentJobOf(node) {
-    if (node?.agent_job) return node.agent_job;
+    if (node?.agent_job) {
+        const age = Number(node.command_age_sec) || 0;
+        // Подстраховка UI: не крутить «Проверка» дольше 3м / update 10м
+        if (node.agent_job === 'checking' && age > 180) return 'idle';
+        if (node.agent_job === 'updating' && age > 600) return 'idle';
+        return node.agent_job;
+    }
     const cmd = String(node?.last_command || '');
     const status = String(node?.command_status || '').toLowerCase();
+    const age = Number(node?.command_age_sec) || 0;
+    const result = String(node?.command_result || '').trim();
+    if (['failed', 'error'].includes(status) && (
+        ['update-agent', 'upgrade-agent', 'check-agent-update', 'check-agent-updates'].includes(cmd)
+        || result
+    )) {
+        return 'failed';
+    }
     if (['update-agent', 'upgrade-agent'].includes(cmd) && ['pending', 'running', 'installing', 'in_progress', ''].includes(status)) {
-        return 'updating';
+        return age > 600 ? 'idle' : 'updating';
     }
     if (['check-agent-update', 'check-agent-updates'].includes(cmd) && ['pending', 'running', 'installing', 'in_progress', ''].includes(status)) {
-        return 'checking';
-    }
-    if (['failed', 'error'].includes(status) && ['update-agent', 'upgrade-agent', 'check-agent-update', 'check-agent-updates'].includes(cmd)) {
-        return 'failed';
+        return age > 180 ? 'idle' : 'checking';
     }
     return 'idle';
 }
@@ -966,7 +979,7 @@ function formatAgentAge(sec) {
     return ` ${Math.floor(n / 60)}м`;
 }
 
-function agentProgressHtml(job, ageSec) {
+function agentProgressHtml(job, ageSec, errMsg) {
     if (job === 'updating') {
         return `<div class="progress-bar agent-progress" title="Агент обновляется">
             <div class="agent-progress-fill updating"></div>
@@ -980,7 +993,8 @@ function agentProgressHtml(job, ageSec) {
         </div>`;
     }
     if (job === 'failed') {
-        return '<span class="status pill" style="background:#ef4444;color:#fff;">ошибка</span>';
+        const tip = errMsg ? escHtml(errMsg) : 'Ошибка обновления/проверки агента';
+        return `<span class="status pill" style="background:#ef4444;color:#fff;" title="${tip}">ошибка</span>`;
     }
     return '';
 }
@@ -1015,39 +1029,69 @@ function stopAgentPoll() {
     agentPollTicks = 0;
 }
 
-function startAgentPoll() {
+function finishTrackedAgentJobs(ok, message) {
+    [...agentJobIds].forEach((id) => {
+        if (ok) window.HostJobs?.done(id, message || 'Готово');
+        else window.HostJobs?.fail(id, message || 'Таймаут');
+    });
+    agentJobIds.clear();
+}
+
+function untrackAgentJob(jobId) {
+    if (jobId) agentJobIds.delete(String(jobId));
+}
+
+function startAgentPoll(jobId) {
+    if (jobId) agentJobIds.add(String(jobId));
     if (agentPollTimer) return;
     agentPollTicks = 0;
     agentPollTimer = setInterval(async () => {
         agentPollTicks += 1;
         await loadAgentUpdates(true);
         const stillBusy = agentNodesCache.some((n) => ['updating', 'checking'].includes(agentJobOf(n)));
-        const updating = agentNodesCache.filter((n) => agentJobOf(n) === 'updating').length;
-        const checking = agentNodesCache.filter((n) => agentJobOf(n) === 'checking').length;
-        if (window.HostJobs) {
-            if (updating > 0) {
-                window.HostJobs.update('agent-update', {
-                    title: 'Обновление агентов',
-                    detail: `${updating} нод(ы) обновляются`,
-                    pct: Math.min(95, 10 + agentPollTicks),
+        const updating = agentNodesCache.filter((n) => agentJobOf(n) === 'updating');
+        const checking = agentNodesCache.filter((n) => agentJobOf(n) === 'checking');
+        // check ~2м (60 тиков), update ~10м (300 тиков)
+        const maxTicks = updating.length || [...agentJobIds].some((id) => String(id).includes('update'))
+            ? 300
+            : 60;
+
+        [...agentJobIds].forEach((id) => {
+            const sid = String(id);
+            if (sid.startsWith('agent-update-batch') || sid.startsWith('agent-check-')) {
+                const isCheck = sid.startsWith('agent-check-');
+                window.HostJobs?.update(id, {
+                    title: isCheck ? 'Проверка агентов' : 'Обновление агентов',
+                    detail: updating.length
+                        ? `Обновляются: ${updating.map((n) => n.name).join(', ')}`
+                        : (checking.length ? `Проверка: ${checking.map((n) => n.name).join(', ')}` : 'Ожидание…'),
+                    pct: Math.min(95, 10 + Math.floor((agentPollTicks / maxTicks) * 85)),
                 });
-            } else if (checking > 0) {
-                window.HostJobs.update('agent-update', {
-                    title: 'Проверка агентов',
-                    detail: `${checking} нод(ы) проверяются`,
-                    pct: Math.min(95, 10 + agentPollTicks),
-                });
+                return;
             }
-        }
-        if (!stillBusy || agentPollTicks >= 90) {
+            const m = sid.match(/^agent-update-(\d+)/);
+            if (m) {
+                const node = agentNodesCache.find((n) => String(n.id) === m[1]);
+                const job = node ? agentJobOf(node) : 'idle';
+                const err = String(node?.command_result || '').trim();
+                if (job === 'idle' || job === 'failed') {
+                    if (job === 'failed') window.HostJobs?.fail(id, err || 'Ошибка обновления');
+                    else window.HostJobs?.done(id, `${node?.name || m[1]} — готово`);
+                    agentJobIds.delete(id);
+                } else {
+                    window.HostJobs?.update(id, {
+                        detail: job === 'updating' ? 'Обновляется…' : 'Проверка…',
+                        pct: Math.min(95, 10 + Math.floor((agentPollTicks / maxTicks) * 85)),
+                    });
+                }
+            }
+        });
+
+        if (!stillBusy || agentPollTicks >= maxTicks) {
             stopAgentPoll();
             setAgentHeaderBusy(false);
-            if (!stillBusy) {
-                window.HostJobs?.done('agent-update', updating || checking ? 'Готово' : 'Завершено');
-            } else {
-                window.HostJobs?.update('agent-update', { detail: 'Таймаут опроса — смотрите таблицу', pct: 100 });
-                window.HostJobs?.done('agent-update', 'Опрос остановлен');
-            }
+            if (!stillBusy) finishTrackedAgentJobs(true, 'Готово');
+            else finishTrackedAgentJobs(false, 'Таймаут — нажмите Проверить ещё раз');
         }
     }, 2000);
 }
@@ -1071,17 +1115,25 @@ function renderAgentNodes(nodes, desired, outdatedCount) {
             || n.outdated || Number(n.agent_update_available) === 1;
         const online = n.status === 'online';
         const age = n.command_age_sec;
-        let badge = agentProgressHtml(job, age);
+        const errMsg = String(n.command_result || '').trim();
+        const local = String(n.agent_commit || '');
+        const remote = String(n.agent_remote_commit || '');
+        const desiredCommit = String(desired.desired_commit || '');
+        const onOrigin = !!(local && remote && (local === remote || remote.startsWith(local) || local.startsWith(remote)));
+        const panelAhead = !!(onOrigin && desiredCommit && !(desiredCommit === local || local.startsWith(desiredCommit) || desiredCommit.startsWith(local)));
+        let badge = agentProgressHtml(job, age, errMsg);
         if (!badge) {
             if (state === 'unknown') {
                 badge = '<span class="status pill" style="background:#64748b;color:#fff;" title="Агент не сообщил commit — нужна проверка/обновление">нет данных</span>';
+            } else if (panelAhead) {
+                badge = `<span class="status pill" style="background:#f59e0b;color:#111;" title="Агент на origin (${escHtml(remote)}), панель впереди (${escHtml(desiredCommit)}) — сделайте git push с машины разработки">ждёт push</span>`;
             } else if (outdated) {
                 badge = '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>';
             } else {
                 badge = '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
             }
         }
-        const canUpdate = online && outdated && job === 'idle';
+        const canUpdate = online && outdated && !panelAhead && (job === 'idle' || job === 'failed');
         const rowClass = job === 'updating' ? 'agent-job-updating' : (job === 'checking' ? 'agent-job-checking' : (job === 'failed' ? 'agent-job-failed' : ''));
         const action = canUpdate
             ? `<button type="button" class="btn-outline" onclick="applyAgentUpdateOne(${Number(n.id)})" title="Обновить агент на этой ноде"><i data-lucide="download"></i></button>`
@@ -1183,12 +1235,14 @@ async function checkAgentUpdates() {
             return;
         }
         markNodesJob(ids, 'checking');
-        window.HostJobs?.start('agent-update', {
+        const jobId = `agent-check-${Date.now()}`;
+        window.HostJobs?.start(jobId, {
             title: 'Проверка агентов',
             detail: `${ids.length} нод(ы)`,
             pct: 5,
+            maxMs: 120000,
         });
-        startAgentPoll();
+        startAgentPoll(jobId);
         const result = await queueAgentCommand(ids, 'check');
         showToast(result?.message || `В очередь: ${result?.queued || 0}`, 'success');
         await loadAgentUpdates(true);
@@ -1225,12 +1279,14 @@ async function applyAgentUpdates() {
         }
 
         markNodesJob(ids, 'updating');
-        window.HostJobs?.start('agent-update', {
+        const jobId = `agent-update-batch-${Date.now()}`;
+        window.HostJobs?.start(jobId, {
             title: 'Обновление агентов',
-            detail: `${ids.length} нод(ы)`,
+            detail: `${ids.length} нод(ы): ${(status.nodes || []).filter((n) => ids.includes(Number(n.id))).map((n) => n.name).join(', ')}`,
             pct: 5,
+            maxMs: 600000,
         });
-        startAgentPoll();
+        startAgentPoll(jobId);
         showToast(`Обновление агентов (${ids.length})...`, 'info');
         const result = await queueAgentCommand(ids, 'apply');
         const queued = result?.queued ?? 0;
@@ -1239,6 +1295,12 @@ async function applyAgentUpdates() {
             result?.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
             queued > 0 ? 'success' : 'warning'
         );
+        if (queued > 0) {
+            window.HostJobs?.update(jobId, { detail: `В очереди: ${queued}`, pct: 15 });
+        } else {
+            untrackAgentJob(jobId);
+            window.HostJobs?.fail(jobId, result?.message || 'Не поставлено в очередь');
+        }
         await loadAgentUpdates(true);
     } catch (e) {
         showToast(e.message || 'Ошибка обновления агентов', 'error');
@@ -1249,7 +1311,6 @@ async function applyAgentUpdates() {
 }
 
 async function applyAgentUpdateOne(nodeId) {
-    if (agentBusy) return;
     const id = Number(nodeId);
     if (!id) return;
     const node = agentNodesCache.find((n) => Number(n.id) === id);
@@ -1260,25 +1321,35 @@ async function applyAgentUpdateOne(nodeId) {
         'warning'
     );
     if (!confirmed) return;
+    let jobId = null;
     try {
-        agentBusy = true;
         setAgentHeaderBusy(true, 'update');
         markNodesJob([id], 'updating');
-        window.HostJobs?.start('agent-update', {
-            title: `Обновление агента: ${name}`,
+        jobId = `agent-update-${id}-${Date.now()}`;
+        window.HostJobs?.start(jobId, {
+            title: `Обновление: ${name}`,
             detail: 'В очереди',
             pct: 5,
+            maxMs: 600000,
         });
-        startAgentPoll();
+        startAgentPoll(jobId);
         const result = await queueAgentCommand([id], 'apply');
         const queued = result?.queued ?? 0;
         showToast(result?.message || (queued ? `Обновление «${name}» в очереди` : `Не удалось поставить обновление «${name}»`), queued > 0 ? 'success' : 'warning');
+        if (queued > 0) {
+            window.HostJobs?.update(jobId, { detail: 'Ожидание агента…', pct: 20 });
+        } else {
+            untrackAgentJob(jobId);
+            window.HostJobs?.fail(jobId, result?.message || 'Не поставлено');
+        }
         await loadAgentUpdates(true);
     } catch (e) {
         showToast(e.message || 'Ошибка обновления агента', 'error');
+        if (jobId) {
+            untrackAgentJob(jobId);
+            window.HostJobs?.fail(jobId, e.message || 'Ошибка');
+        }
         setAgentHeaderBusy(false);
-    } finally {
-        agentBusy = false;
     }
 }
 

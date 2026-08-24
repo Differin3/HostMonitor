@@ -202,14 +202,24 @@ function agent_job_state(array $row): string
 {
     $cmd = trim((string)($row['last_command'] ?? ''));
     $status = strtolower(trim((string)($row['command_status'] ?? '')));
+    $result = trim((string)($row['command_result'] ?? ''));
+
+    // Ошибка обновления/проверки: last_command мог уже очиститься — смотрим status + result
+    if (in_array($status, ['failed', 'error'], true)) {
+        if (agent_is_agent_cmd($cmd) || $result !== '') {
+            return 'failed';
+        }
+    }
     if (!agent_is_agent_cmd($cmd)) {
         return 'idle';
     }
-    if (in_array($status, ['failed', 'error'], true)) {
-        return 'failed';
-    }
     // Зависший running/pending после claim — не крутим «Проверка» вечно
-    if (agent_pending_age_sec($row) > 180) {
+    // check: 3м (git fetch до 120с), update: 10м
+    $age = agent_pending_age_sec($row);
+    if (agent_is_check_cmd($cmd) && $age > 180) {
+        return 'idle';
+    }
+    if (agent_is_update_cmd($cmd) && $age > 600) {
         return 'idle';
     }
     if (in_array($status, ['pending', 'running', 'installing', 'in_progress'], true) || $status === '') {
@@ -249,8 +259,10 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force
     $age = agent_pending_age_sec($row);
     $busy = in_array($status, ['pending', 'running', 'installing', 'in_progress'], true);
 
-    // Протухший pending/running (>3 мин) всегда можно заменить
-    if ($busy && $pending !== '' && $age > 180) {
+    // Протухший pending/running: check >3м, update >10м
+    if ($busy && $pending !== '' && agent_is_update_cmd($pending) && $age > 600) {
+        $force = true;
+    } elseif ($busy && $pending !== '' && $age > 180 && !agent_is_update_cmd($pending)) {
         $force = true;
     }
 
@@ -263,7 +275,17 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force
         }
     }
 
-    // Не перебивать свежий running update-agent (идёт pull)
+    // Не перебивать свежий running/pending update-agent (идёт pull)
+    if (
+        agent_is_update_cmd($pending)
+        && $busy
+        && $age < 600
+        && !agent_is_update_cmd($command)
+    ) {
+        return false;
+    }
+
+    // Не перебивать свежий running update-agent другой update-командой без force
     if (
         !$force
         && $status === 'running'
@@ -281,22 +303,54 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force
     return true;
 }
 
-/** Чистит зависшие pending и running (после claim get-command). */
-function agent_clear_stale_pending(PDO $pdo, int $maxAgeSec = 180): int
+/**
+ * Чистит зависшие pending/running.
+ * update-agent держим дольше (git pull), иначе опрос status/вторая очередь сносит живые обновления.
+ */
+function agent_clear_stale_pending(PDO $pdo, int $maxAgeSec = 600): int
 {
+    $cleared = 0;
     try {
+        // Короткие команды (check) — 3м (fetch может быть долгим)
         $stmt = $pdo->prepare(
+            "UPDATE nodes
+             SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+             WHERE command_status IN ('pending', 'running', 'installing', 'in_progress')
+               AND last_command IN ('check-agent-update', 'check-agent-updates', 'check-updates')
+               AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL 180 SECOND))"
+        );
+        $stmt->execute();
+        $cleared += (int)$stmt->rowCount();
+
+        // update-agent / upgrade-agent — не трогаем раньше 10 мин
+        $stmtUpd = $pdo->prepare(
+            "UPDATE nodes
+             SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+             WHERE command_status IN ('pending', 'running', 'installing', 'in_progress')
+               AND last_command IN ('update-agent', 'upgrade-agent')
+               AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL 600 SECOND))"
+        );
+        $stmtUpd->execute();
+        $cleared += (int)$stmtUpd->rowCount();
+
+        // Прочие команды — maxAgeSec (по умолчанию 10м)
+        $stmt2 = $pdo->prepare(
             "UPDATE nodes
              SET last_command = NULL, command_status = NULL, command_timestamp = NULL
              WHERE command_status IN ('pending', 'running', 'installing', 'in_progress')
                AND last_command IS NOT NULL
                AND last_command != ''
+               AND last_command NOT IN (
+                   'check-agent-update', 'check-agent-updates', 'check-updates',
+                   'update-agent', 'upgrade-agent'
+               )
                AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL ? SECOND))"
         );
-        $stmt->execute([$maxAgeSec]);
-        return $stmt->rowCount();
+        $stmt2->execute([max(90, (int)$maxAgeSec)]);
+        $cleared += (int)$stmt2->rowCount();
+        return $cleared;
     } catch (Throwable $e) {
-        return 0;
+        return $cleared;
     }
 }
 
@@ -332,6 +386,7 @@ try {
         $branch = substr((string)($data['agent_branch'] ?? ''), 0, 64);
         $available = !empty($data['update_available']) ? 1 : 0;
         $msg = substr((string)($data['message'] ?? $data['error'] ?? ''), 0, 2000);
+        $ok = array_key_exists('ok', $data) ? !empty($data['ok']) : (trim((string)($data['error'] ?? '')) === '');
 
         $stmt = $pdo->prepare(
             "UPDATE nodes SET
@@ -348,16 +403,28 @@ try {
         );
         $stmt->execute([$version, $commit, $remote, $branch, $available, $msg, $nodeId]);
 
-        // Снимаем зависший check/update-agent после отчёта (рестарт агента часто не успевает command-status)
-        $clr = $pdo->prepare(
-            "UPDATE nodes
-             SET last_command = NULL, command_status = NULL, command_timestamp = NULL
-             WHERE id = ?
-               AND last_command IN ('check-agent-update','check-agent-updates','update-agent','upgrade-agent')"
-        );
-        $clr->execute([$nodeId]);
+        if ($ok) {
+            // Успех: снимаем слот (рестарт агента часто не успевает command-status)
+            $clr = $pdo->prepare(
+                "UPDATE nodes
+                 SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+                 WHERE id = ?
+                   AND last_command IN ('check-agent-update','check-agent-updates','update-agent','upgrade-agent')"
+            );
+            $clr->execute([$nodeId]);
+        } else {
+            // Ошибка: оставляем failed + текст в command_result для UI
+            $fail = $pdo->prepare(
+                "UPDATE nodes
+                 SET command_status = 'failed',
+                     command_result = COALESCE(NULLIF(?, ''), command_result)
+                 WHERE id = ?
+                   AND last_command IN ('check-agent-update','check-agent-updates','update-agent','upgrade-agent')"
+            );
+            $fail->execute([$msg !== '' ? $msg : 'Ошибка обновления агента', $nodeId]);
+        }
 
-        echo json_encode(['ok' => true, 'node_id' => $nodeId], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => true, 'node_id' => $nodeId, 'reported_ok' => $ok], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -369,7 +436,20 @@ try {
     }
 
     if ($method === 'GET' && ($action === '' || $action === 'status')) {
-        agent_clear_stale_pending($pdo, 180);
+        // Сразу снимаем залипшие check; update-agent не трогаем раньше 10м
+        agent_clear_stale_pending($pdo, 600);
+        // check старше 3м — UI не должен висеть (fetch timeout агента 120с)
+        try {
+            $pdo->exec(
+                "UPDATE nodes
+                 SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+                 WHERE last_command IN ('check-agent-update', 'check-agent-updates')
+                   AND command_status IN ('pending', 'running')
+                   AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL 180 SECOND))"
+            );
+        } catch (Throwable $e) {
+            // ignore
+        }
         $desired = agent_desired_version();
         try {
             $rows = $pdo->query(
@@ -443,7 +523,7 @@ try {
         // С панели всегда force: иначе чужой/зависший pending блокирует обновление
         $force = !isset($data['force']) || !empty($data['force']);
 
-        agent_clear_stale_pending($pdo, 120);
+        agent_clear_stale_pending($pdo, 600);
 
         $desired = agent_desired_version();
         $explicitIds = is_array($ids) && count($ids) > 0;
@@ -455,14 +535,16 @@ try {
             }
             $ph = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare(
-                "SELECT id, name, agent_version, agent_commit, agent_update_available, status
+                "SELECT id, name, agent_version, agent_commit, agent_update_available, status,
+                        last_command, command_status, command_timestamp
                  FROM nodes WHERE id IN ($ph)"
             );
             $stmt->execute($ids);
             $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
             $nodes = $pdo->query(
-                "SELECT id, name, agent_version, agent_commit, agent_update_available, status
+                "SELECT id, name, agent_version, agent_commit, agent_update_available, status,
+                        last_command, command_status, command_timestamp
                  FROM nodes WHERE status = 'online'"
             )->fetchAll(PDO::FETCH_ASSOC);
         }
@@ -481,6 +563,44 @@ try {
                 $nodes,
                 static fn(array $row): bool => (string)($row['status'] ?? '') === 'online'
             ));
+        }
+
+        // Сбрасываем залипшее только у целевых нод (не трогаем чужие очереди)
+        $targetIds = array_values(array_map(static fn($n) => (int)$n['id'], $nodes));
+        if ($targetIds) {
+            $ph = implode(',', array_fill(0, count($targetIds), '?'));
+            try {
+                // check: сбрасываем любой зависший check у цели
+                if ($action === 'check') {
+                    $clr = $pdo->prepare(
+                        "UPDATE nodes
+                         SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+                         WHERE id IN ($ph)
+                           AND last_command IN ('check-agent-update','check-agent-updates')
+                           AND command_status IN ('pending','running')"
+                    );
+                    $clr->execute($targetIds);
+                }
+                // apply: сбрасываем только stale (>10м) или check — не убиваем свежий update-agent
+                if ($action === 'apply') {
+                    $clr = $pdo->prepare(
+                        "UPDATE nodes
+                         SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+                         WHERE id IN ($ph)
+                           AND (
+                               last_command IN ('check-agent-update','check-agent-updates')
+                               OR (
+                                   last_command IN ('update-agent','upgrade-agent')
+                                   AND command_status IN ('pending','running')
+                                   AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL 600 SECOND))
+                               )
+                           )"
+                    );
+                    $clr->execute($targetIds);
+                }
+            } catch (Throwable $e) {
+                // ignore
+            }
         }
 
         $queued = 0;

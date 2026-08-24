@@ -30,7 +30,9 @@
                 pct: j.pct,
                 status: j.status,
                 cancelable: !!j.cancelable,
+                startedAt: j.startedAt,
                 updatedAt: j.updatedAt,
+                maxMs: j.maxMs,
             }));
             sessionStorage.setItem(STORE_KEY, JSON.stringify({ collapsed, jobs: list }));
         } catch (_) { /* ignore */ }
@@ -60,7 +62,9 @@
                     pct: j.pct == null ? null : Number(j.pct),
                     status: j.status || 'running',
                     cancelable: !!j.cancelable,
+                    startedAt: j.startedAt || j.updatedAt || now,
                     updatedAt: j.updatedAt || now,
+                    maxMs: j.maxMs || 180000,
                 });
             });
         } catch (_) { /* ignore */ }
@@ -194,6 +198,7 @@
 
     function start(id, opts = {}) {
         const key = String(id || `job-${Date.now()}`);
+        const now = Date.now();
         const job = {
             id: key,
             title: opts.title || 'Задача',
@@ -201,7 +206,9 @@
             pct: opts.pct == null ? 0 : Number(opts.pct),
             status: 'running',
             cancelable: !!opts.cancelable,
-            updatedAt: Date.now(),
+            startedAt: now,
+            updatedAt: now,
+            maxMs: Number(opts.maxMs) > 0 ? Number(opts.maxMs) : 180000,
         };
         jobs.set(key, job);
         if (typeof opts.onCancel === 'function') {
@@ -224,6 +231,12 @@
         if (typeof opts.onCancel === 'function') cancelHandlers.set(key, opts.onCancel);
         job.updatedAt = Date.now();
         if (job.status !== 'running') job.status = 'running';
+        // Авто-таймаут: update не продлевает жизнь бесконечно
+        const maxMs = job.maxMs || 180000;
+        if (job.startedAt && Date.now() - job.startedAt > maxMs) {
+            finish(key, 'fail', job.detail || 'Таймаут фоновой задачи');
+            return;
+        }
         render();
         save();
     }

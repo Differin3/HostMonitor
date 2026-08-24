@@ -844,6 +844,18 @@ class MonitoringAgent:
         # /opt/monitoring/agent/main.py → /opt/monitoring
         return pathlib.Path(__file__).resolve().parent.parent
 
+    @staticmethod
+    def _commit_same(a: str, b: str) -> bool:
+        a = (a or '').strip().lower()
+        b = (b or '').strip().lower()
+        if not a or not b:
+            return False
+        return a.startswith(b) or b.startswith(a)
+
+    def _git_cmd(self, root: pathlib.Path, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
+        cmd = ['git', '-c', f'safe.directory={root}', '-C', str(root), *args]
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
     def agent_version_info(self) -> dict:
         root = self.install_root()
         version = '0.0.0'
@@ -858,19 +870,13 @@ class MonitoringAgent:
         dirty = False
         try:
             if (root / '.git').exists():
-                git_base = ['git', '-c', f'safe.directory={root}', '-C', str(root)]
-                commit = subprocess.check_output(
-                    git_base + ['rev-parse', '--short', 'HEAD'],
-                    text=True, stderr=subprocess.DEVNULL, timeout=10,
-                ).strip()
-                branch = subprocess.check_output(
-                    git_base + ['rev-parse', '--abbrev-ref', 'HEAD'],
-                    text=True, stderr=subprocess.DEVNULL, timeout=10,
-                ).strip()
-                dirty = subprocess.call(
-                    git_base + ['diff', '--quiet'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
-                ) != 0
+                probe = self._git_cmd(root, 'rev-parse', '--short', 'HEAD', timeout=10)
+                if probe.returncode == 0:
+                    commit = (probe.stdout or '').strip()
+                br = self._git_cmd(root, 'rev-parse', '--abbrev-ref', 'HEAD', timeout=10)
+                if br.returncode == 0:
+                    branch = (br.stdout or '').strip()
+                dirty = self._git_cmd(root, 'diff', '--quiet', timeout=10).returncode != 0
         except Exception as e:
             _log(f"agent version git probe failed: {e}")
         return {
@@ -892,28 +898,24 @@ class MonitoringAgent:
                 'error': f'Установка не через git ({root})',
             }
         try:
-            fetch = subprocess.run(
-                ['git', '-C', str(root), 'fetch', 'origin', '--prune'],
-                capture_output=True, text=True, timeout=120,
-            )
+            fetch = self._git_cmd(root, 'fetch', 'origin', '--prune', timeout=120)
             if fetch.returncode != 0:
                 err = (fetch.stderr or fetch.stdout or 'git fetch failed').strip()
                 return {**info, 'ok': False, 'update_available': False, 'error': err[:500]}
             branch = info.get('agent_branch') or 'main'
+            if branch in ('HEAD', '', None):
+                branch = 'main'
             remote_ref = f'origin/{branch}'
-            try:
-                remote = subprocess.check_output(
-                    ['git', '-C', str(root), 'rev-parse', '--short', remote_ref],
-                    text=True, stderr=subprocess.DEVNULL, timeout=10,
-                ).strip()
-            except subprocess.CalledProcessError:
-                remote = subprocess.check_output(
-                    ['git', '-C', str(root), 'rev-parse', '--short', 'origin/main'],
-                    text=True, stderr=subprocess.DEVNULL, timeout=10,
-                ).strip()
+            remote_probe = self._git_cmd(root, 'rev-parse', '--short', remote_ref, timeout=10)
+            if remote_probe.returncode != 0:
+                remote_probe = self._git_cmd(root, 'rev-parse', '--short', 'origin/main', timeout=10)
                 remote_ref = 'origin/main'
+            if remote_probe.returncode != 0:
+                err = (remote_probe.stderr or 'origin/main not found').strip()
+                return {**info, 'ok': False, 'update_available': False, 'error': err[:500]}
+            remote = (remote_probe.stdout or '').strip()
             local = info.get('agent_commit') or ''
-            available = bool(remote and local and remote != local)
+            available = bool(remote and local and not self._commit_same(remote, local))
             return {
                 **info,
                 'ok': True,
@@ -926,41 +928,30 @@ class MonitoringAgent:
             return {**info, 'ok': False, 'update_available': False, 'error': str(e)[:500]}
 
     def update_agent(self) -> dict:
-        # Команда с панели: всегда fetch+pull (не полагаемся только на флаг update_available)
+        # Команда с панели: fetch + reset --hard к origin (node.conf в .gitignore).
+        # Не блокируем из‑за локальных правок tracked-файлов — иначе TrueNAS/ручные правки вечно «ошибка».
         checked = self.check_agent_update()
         if not checked.get('ok'):
             return checked
-        if checked.get('agent_dirty'):
-            return {
-                **checked,
-                'ok': False,
-                'updated': False,
-                'error': 'Локальные изменения в репозитории агента — обновите вручную',
-            }
         root = self.install_root()
         remote_ref = checked.get('remote_ref') or 'origin/main'
         before = checked.get('agent_commit') or ''
         if not checked.get('update_available'):
-            # Локально уже = origin после fetch — для панели это «актуален относительно remote»
             return {
                 **checked,
                 'ok': True,
                 'updated': False,
-                'message': f'Уже на remote ({before or "unknown"})',
+                'message': f'Уже на {remote_ref} ({before or "unknown"})',
             }
         try:
-            pull = subprocess.run(
-                ['git', '-C', str(root), 'pull', '--ff-only', 'origin', remote_ref.split('/', 1)[-1]],
-                capture_output=True, text=True, timeout=180,
-            )
-            if pull.returncode != 0:
-                # fallback: reset --hard to remote (install tree should be clean)
-                reset = subprocess.run(
-                    ['git', '-C', str(root), 'reset', '--hard', remote_ref],
-                    capture_output=True, text=True, timeout=120,
-                )
-                if reset.returncode != 0:
-                    err = (pull.stderr or reset.stderr or 'git pull failed').strip()
+            was_dirty = bool(checked.get('agent_dirty'))
+            reset = self._git_cmd(root, 'reset', '--hard', remote_ref, timeout=180)
+            if reset.returncode != 0:
+                # fallback: pull --ff-only
+                branch = remote_ref.split('/', 1)[-1]
+                pull = self._git_cmd(root, 'pull', '--ff-only', 'origin', branch, timeout=180)
+                if pull.returncode != 0:
+                    err = (reset.stderr or pull.stderr or 'git reset/pull failed').strip()
                     return {**checked, 'ok': False, 'updated': False, 'error': err[:500]}
             req = root / 'agent' / 'requirements.txt'
             pip = root / '.venv' / 'bin' / 'pip'
@@ -973,13 +964,16 @@ class MonitoringAgent:
                 )
             after = self.agent_version_info()
             self._exit_after_command = True
+            msg = f"Обновлено {before} → {after.get('agent_commit')}"
+            if was_dirty:
+                msg += ' (локальные правки tracked сброшены)'
             return {
                 **after,
                 'ok': True,
                 'updated': True,
                 'update_available': False,
                 'agent_remote_commit': after.get('agent_commit'),
-                'message': f"Обновлено {before} → {after.get('agent_commit')}",
+                'message': msg,
                 'error': None,
             }
         except Exception as e:
@@ -1013,11 +1007,6 @@ class MonitoringAgent:
             if command in ('update-agent', 'upgrade-agent'):
                 result = self.update_agent()
                 self.report_agent_update(result)
-                # Сначала снимаем pending, потом exit (иначе команда висит в БД)
-                try:
-                    self.report_command_status(command, 'completed' if result.get('ok') else 'failed')
-                except Exception as e:
-                    _log(f'command-status after update failed: {e}')
                 _log(f"update-agent: {result}")
                 if result.get('updated'):
                     self._exit_after_command = True
