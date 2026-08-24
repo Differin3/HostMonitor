@@ -24,10 +24,12 @@ const els = {
     links: document.getElementById('netmap-links'),
     nodes: document.getElementById('netmap-nodes'),
     empty: document.getElementById('netmap-empty'),
+    loading: document.getElementById('netmap-loading'),
     selected: document.getElementById('netmap-selected'),
     neighbors: document.getElementById('netmap-neighbors'),
     alerts: document.getElementById('netmap-alerts'),
     stats: document.getElementById('netmap-stats'),
+    refresh: document.getElementById('netmap-refresh'),
 };
 
 if (!els.stage) {
@@ -638,8 +640,25 @@ const relayout = () => {
     render();
 };
 
+const setLoading = (on, message = 'Загрузка карты узлов…') => {
+    if (els.loading) {
+        const label = els.loading.querySelector('p');
+        if (label && message) label.textContent = message;
+        els.loading.classList.toggle('hidden', !on);
+        els.loading.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+    if (els.refresh) {
+        els.refresh.classList.toggle('is-loading', on);
+        els.refresh.disabled = !!on;
+    }
+    if (els.stats && on && !state.nodes.length) {
+        els.stats.innerHTML = '<span class="muted">Загрузка…</span>';
+    }
+};
+
 const load = async (silent = false) => {
     if (!els.stage) return;
+    if (!silent) setLoading(true);
     try {
         const payload = await fetchTopology();
         const prev = new Map(state.nodes.map((n) => [String(n.id), n]));
@@ -658,7 +677,19 @@ const load = async (silent = false) => {
         render();
     } catch (error) {
         console.error('Карта сети:', error);
+        if (els.stats && !state.nodes.length) {
+            els.stats.innerHTML = '<span class="muted">Ошибка загрузки</span>';
+        }
         if (window.showToast) window.showToast('Не удалось загрузить топологию', 'error');
+        if (!silent && !state.nodes.length) {
+            els.empty?.classList.remove('hidden');
+            const title = els.empty?.querySelector('h3');
+            const text = els.empty?.querySelector('p');
+            if (title) title.textContent = 'Не удалось загрузить';
+            if (text) text.textContent = 'Проверьте API topology.php и обновите карту';
+        }
+    } finally {
+        if (!silent) setLoading(false);
     }
 };
 
