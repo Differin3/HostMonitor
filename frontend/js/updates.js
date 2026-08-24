@@ -1144,14 +1144,17 @@ function renderAgentNodes(nodes, desired, outdatedCount) {
         const action = canUpdate
             ? `<button type="button" class="btn-outline" onclick="applyAgentUpdateOne(${Number(n.id)})" title="Обновить агент на этой ноде"><i data-lucide="download"></i></button>`
             : '';
+        const errLine = (job === 'failed' && errMsg)
+            ? `<small class="agent-err-text" title="${escHtml(errMsg)}">${escHtml(errMsg.length > 90 ? `${errMsg.slice(0, 90)}…` : errMsg)}</small>`
+            : '';
         const remoteShown = n.agent_remote_commit || desired.desired_commit || '—';
         return `<tr class="${rowClass}" data-node-id="${escHtml(String(n.id))}">
             <td>${escHtml(n.name || '-')}</td>
-            <td><span class="status pill ${online ? 'online' : 'offline'}">${escHtml(n.status || '-')}</span></td>
+            <td><span class="status pill ${online ? 'online' : 'offline'}">${escHtml(n.status === 'online' ? 'онлайн' : 'офлайн')}</span></td>
             <td>${escHtml(n.agent_version || '—')}</td>
             <td><code>${escHtml(n.agent_commit || '—')}</code></td>
             <td><code title="Remote агента или целевой commit панели">${escHtml(remoteShown)}</code></td>
-            <td><div class="agent-node-actions">${badge}${action}</div></td>
+            <td><div class="agent-node-actions">${badge}${action}${errLine}</div></td>
         </tr>`;
     }).join('');
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -1275,8 +1278,19 @@ async function applyAgentUpdates() {
         setAgentHeaderBusy(true, 'update');
 
         const status = await fetchJson('/agent_update.php?action=status');
+        const desiredCommit = String(status.desired?.desired_commit || '');
         const ids = (status.nodes || [])
-            .filter((n) => (n.outdated || Number(n.agent_update_available) === 1) && n.status === 'online')
+            .filter((n) => {
+                if (n.status !== 'online') return false;
+                if (!(n.outdated || Number(n.agent_update_available) === 1)) return false;
+                const local = String(n.agent_commit || '');
+                const remote = String(n.agent_remote_commit || '');
+                const onOrigin = !!(local && remote && (local === remote || remote.startsWith(local) || local.startsWith(remote)));
+                const panelAhead = !!(onOrigin && desiredCommit && !(
+                    desiredCommit === local || local.startsWith(desiredCommit) || desiredCommit.startsWith(local)
+                ));
+                return !panelAhead;
+            })
             .map((n) => Number(n.id))
             .filter((id) => id > 0);
         if (!ids.length) {

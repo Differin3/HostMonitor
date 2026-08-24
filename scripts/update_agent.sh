@@ -16,15 +16,33 @@ if [[ -z "${GIT}" || ! -x "$GIT" ]]; then
 fi
 
 run_git() {
-  "$GIT" -c "safe.directory=${ROOT}" -C "${ROOT}" "$@"
+  "$GIT" -c "safe.directory=*" -c "safe.directory=${ROOT}" -C "${ROOT}" "$@"
 }
 
 echo "[update_agent] root=${ROOT}"
 
-# Навсегда: dubious ownership (root/monitoring/TrueNAS)
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0=*
+export GIT_TERMINAL_PROMPT=0
+
+run_git config --local --add safe.directory "*" 2>/dev/null || true
 run_git config --local --add safe.directory "${ROOT}" 2>/dev/null || true
-git config --global --add safe.directory "${ROOT}" 2>/dev/null || true
-git config --system --add safe.directory "${ROOT}" 2>/dev/null || true
+
+# systemd drop-in (если есть права)
+if command -v systemctl >/dev/null 2>&1 && [[ -w /etc/systemd/system || -w /etc/systemd/system/monitoring-agent.service.d ]]; then
+  mkdir -p /etc/systemd/system/monitoring-agent.service.d 2>/dev/null || true
+  if [[ -d /etc/systemd/system/monitoring-agent.service.d ]]; then
+    cat >/etc/systemd/system/monitoring-agent.service.d/git-safe.conf 2>/dev/null <<'EOF' || true
+[Service]
+Environment=GIT_CONFIG_COUNT=1
+Environment=GIT_CONFIG_KEY_0=safe.directory
+Environment=GIT_CONFIG_VALUE_0=*
+Environment=GIT_TERMINAL_PROMPT=0
+EOF
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+fi
 
 run_git fetch origin --prune
 # Сброс любых локальных правок tracked-файлов

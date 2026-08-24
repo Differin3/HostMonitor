@@ -2332,13 +2332,24 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 .agent-node-actions {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
+    max-width: 320px;
 }
 
 .agent-node-actions .btn-outline {
     padding: 4px 8px;
     font-size: 12px;
     line-height: 1.2;
+}
+
+.agent-err-text {
+    display: block;
+    width: 100%;
+    color: #f87171;
+    font-size: 11px;
+    line-height: 1.35;
+    opacity: 0.95;
 }
 
 @keyframes agent-progress-pulse {

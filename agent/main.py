@@ -852,8 +852,15 @@ class MonitoringAgent:
             return False
         return a.startswith(b) or b.startswith(a)
 
+    def _ensure_git_runtime_env(self) -> None:
+        """Чтобы любой git (даже без -c) видел safe.directory=*."""
+        os.environ.setdefault('GIT_CONFIG_COUNT', '1')
+        os.environ.setdefault('GIT_CONFIG_KEY_0', 'safe.directory')
+        os.environ.setdefault('GIT_CONFIG_VALUE_0', '*')
+        os.environ.setdefault('GIT_TERMINAL_PROMPT', '0')
+
     def _git_cmd(self, root: pathlib.Path, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
-        # safe.directory=* — обход «dubious ownership» (root vs monitoring, TrueNAS dataset)
+        self._ensure_git_runtime_env()
         cmd = [
             'git',
             '-c', 'safe.directory=*',
@@ -864,25 +871,57 @@ class MonitoringAgent:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
     def _ensure_git_safe_directory(self, root: pathlib.Path) -> None:
-        """Пишем safe.directory в local/global — помогает даже старым обёрткам без -c."""
+        """Пишем safe.directory в .git/config (без --system — часто Permission denied)."""
+        self._ensure_git_runtime_env()
         root_s = str(root)
-        for scope in ('--local', '--global'):
-            try:
-                subprocess.run(
-                    ['git', 'config', scope, '--add', 'safe.directory', root_s],
-                    cwd=root_s if scope == '--local' else None,
-                    capture_output=True, text=True, timeout=10,
-                )
-            except Exception:
-                pass
+        git_dir = root / '.git'
+        if not git_dir.exists():
+            return
         try:
-            # system — если агент под root
-            subprocess.run(
-                ['git', 'config', '--system', '--add', 'safe.directory', root_s],
-                capture_output=True, text=True, timeout=10,
-            )
+            self._git_cmd(root, 'config', '--local', '--unset-all', 'safe.directory', timeout=10)
         except Exception:
             pass
+        try:
+            self._git_cmd(root, 'config', '--local', '--add', 'safe.directory', '*', timeout=10)
+            self._git_cmd(root, 'config', '--local', '--add', 'safe.directory', root_s, timeout=10)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _git_error_human(raw: str, root: str) -> str:
+        t = (raw or '').lower()
+        if 'dubious ownership' in t or 'safe.directory' in t:
+            return (
+                f'Git блокирует каталог (safe.directory). На ноде один раз: '
+                f"sudo git -c 'safe.directory=*' -C {root} fetch origin && "
+                f"sudo git -c 'safe.directory=*' -C {root} reset --hard origin/main && "
+                f'sudo systemctl restart monitoring-agent'
+            )
+        if 'permission denied' in t or 'cannot open' in t or 'index.lock' in t or 'unable to create' in t:
+            return (
+                f'Нет прав на запись в {root}/.git. Обновите от root: '
+                f"sudo git -c 'safe.directory=*' -C {root} fetch origin && "
+                f"sudo git -c 'safe.directory=*' -C {root} reset --hard origin/main && "
+                f'sudo systemctl restart monitoring-agent'
+            )
+        if 'could not resolve' in t or 'unable to access' in t or 'failed to connect' in t or 'timed out' in t:
+            return 'Нет доступа к origin (сеть/DNS/GitHub). Проверьте исходящий HTTPS с ноды.'
+        if 'not a git' in t:
+            return f'Установка не git-репозиторий: {root}'
+        text = (raw or 'git error').strip()
+        return text[:700]
+
+    def _git_fetch_origin(self, root: pathlib.Path) -> subprocess.CompletedProcess:
+        last = None
+        for attempt in range(3):
+            last = self._git_cmd(root, 'fetch', 'origin', '--prune', timeout=120)
+            if last.returncode == 0:
+                return last
+            err = (last.stderr or last.stdout or '').lower()
+            if 'permission' in err or 'dubious' in err:
+                break
+            time.sleep(1.5 * (attempt + 1))
+        return last
 
     def agent_version_info(self) -> dict:
         root = self.install_root()
@@ -927,10 +966,15 @@ class MonitoringAgent:
                 'error': f'Установка не через git ({root})',
             }
         try:
-            fetch = self._git_cmd(root, 'fetch', 'origin', '--prune', timeout=120)
+            fetch = self._git_fetch_origin(root)
             if fetch.returncode != 0:
                 err = (fetch.stderr or fetch.stdout or 'git fetch failed').strip()
-                return {**info, 'ok': False, 'update_available': False, 'error': err[:500]}
+                return {
+                    **info,
+                    'ok': False,
+                    'update_available': False,
+                    'error': self._git_error_human(err, str(root)),
+                }
             branch = info.get('agent_branch') or 'main'
             if branch in ('HEAD', '', None):
                 branch = 'main'
@@ -941,7 +985,12 @@ class MonitoringAgent:
                 remote_ref = 'origin/main'
             if remote_probe.returncode != 0:
                 err = (remote_probe.stderr or 'origin/main not found').strip()
-                return {**info, 'ok': False, 'update_available': False, 'error': err[:500]}
+                return {
+                    **info,
+                    'ok': False,
+                    'update_available': False,
+                    'error': self._git_error_human(err, str(root)),
+                }
             remote = (remote_probe.stdout or '').strip()
             local = info.get('agent_commit') or ''
             available = bool(remote and local and not self._commit_same(remote, local))
@@ -954,7 +1003,7 @@ class MonitoringAgent:
                 'error': None,
             }
         except Exception as e:
-            return {**info, 'ok': False, 'update_available': False, 'error': str(e)[:500]}
+            return {**info, 'ok': False, 'update_available': False, 'error': self._git_error_human(str(e), str(root))}
 
     def update_agent(self) -> dict:
         # Команда с панели: fetch + reset --hard к origin (node.conf в .gitignore).
@@ -981,7 +1030,12 @@ class MonitoringAgent:
                 pull = self._git_cmd(root, 'pull', '--ff-only', 'origin', branch, timeout=180)
                 if pull.returncode != 0:
                     err = (reset.stderr or pull.stderr or 'git reset/pull failed').strip()
-                    return {**checked, 'ok': False, 'updated': False, 'error': err[:500]}
+                    return {
+                        **checked,
+                        'ok': False,
+                        'updated': False,
+                        'error': self._git_error_human(err, str(root)),
+                    }
             req = root / 'agent' / 'requirements.txt'
             pip = root / '.venv' / 'bin' / 'pip'
             if not pip.is_file():
@@ -1006,7 +1060,12 @@ class MonitoringAgent:
                 'error': None,
             }
         except Exception as e:
-            return {**checked, 'ok': False, 'updated': False, 'error': str(e)[:500]}
+            return {
+                **checked,
+                'ok': False,
+                'updated': False,
+                'error': self._git_error_human(str(e), str(root)),
+            }
 
     def report_agent_update(self, payload: dict) -> None:
         try:
@@ -3014,6 +3073,11 @@ class MonitoringAgent:
         collect_interval = int(os.getenv("COLLECT_INTERVAL", "60"))
         heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "15"))  # Heartbeat каждые 15 секунд по умолчанию
         _log(f"Agent started, collection interval: {collect_interval}s, heartbeat interval: {heartbeat_interval}s")
+        try:
+            self._ensure_git_runtime_env()
+            self._ensure_git_safe_directory(self.install_root())
+        except Exception as e:
+            _log(f"git safe.directory bootstrap failed: {e}")
         if os.getenv("UPNP_ENABLED", "true").lower() == "true":
             try:
                 upnp_mod.start_background(self._on_upnp_event)
@@ -3140,6 +3204,10 @@ if __name__ == "__main__":
     print(f"[agent] Python version: {sys.version}", flush=True)
     print(f"[agent] Current working directory: {os.getcwd()}", flush=True)
     print(f"[agent] Script location: {pathlib.Path(__file__).absolute()}", flush=True)
+    os.environ.setdefault('GIT_CONFIG_COUNT', '1')
+    os.environ.setdefault('GIT_CONFIG_KEY_0', 'safe.directory')
+    os.environ.setdefault('GIT_CONFIG_VALUE_0', '*')
+    os.environ.setdefault('GIT_TERMINAL_PROMPT', '0')
     
     try:
         load_node_conf()  # сначала поднимаем node.conf в окружение

@@ -138,6 +138,19 @@ if ! grep -q "^NoNewPrivileges=" "${UNIT_DST}"; then
 fi
 sudo systemctl daemon-reload
 
+# Git: dubious ownership (root vs monitoring / TrueNAS dataset)
+GIT_DROPIN_DIR="/etc/systemd/system/monitoring-agent.service.d"
+sudo mkdir -p "${GIT_DROPIN_DIR}"
+sudo tee "${GIT_DROPIN_DIR}/git-safe.conf" >/dev/null <<'EOF'
+[Service]
+Environment=GIT_CONFIG_COUNT=1
+Environment=GIT_CONFIG_KEY_0=safe.directory
+Environment=GIT_CONFIG_VALUE_0=*
+Environment=GIT_TERMINAL_PROMPT=0
+EOF
+sudo systemctl daemon-reload
+
+
 NODE_CONF="${INSTALL_DIR}/agent/node.conf"
 
 # Если конфиг передан через переменную окружения – копируем

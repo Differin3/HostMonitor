@@ -1,6 +1,7 @@
 #!/bin/bash
-# Разовая починка: git «dubious ownership» для HostMonitor на ноде.
-# Запускать от root на каждой ноде, где update-agent падает с safe.directory.
+# Разовая починка git + обновление агента до origin/main.
+# Работает на Debian (/opt/monitoring) и TrueNAS (/mnt/NAS/HostMonitor).
+# zsh: кавычки обязательны вокруг safe.directory=*
 set -euo pipefail
 
 ROOT="${1:-}"
@@ -15,29 +16,40 @@ if [[ -z "$ROOT" ]]; then
   fi
 fi
 
+SUDO=""
+if [[ "$(id -u)" -ne 0 ]]; then
+  SUDO="sudo"
+fi
+
 echo "[fix_git_safe] root=${ROOT}"
-git -c "safe.directory=${ROOT}" -c safe.directory=\* -C "${ROOT}" config --local --add safe.directory "${ROOT}" || true
-git config --global --add safe.directory "${ROOT}" || true
-git config --system --add safe.directory "${ROOT}" || true
 
-# Обновить код и перезапустить агент
-git -c "safe.directory=${ROOT}" -c safe.directory=\* -C "${ROOT}" fetch origin --prune
-git -c "safe.directory=${ROOT}" -c safe.directory=\* -C "${ROOT}" reset --hard origin/main
-echo "[fix_git_safe] HEAD=$(git -c safe.directory=\* -C "${ROOT}" rev-parse --short HEAD)"
+run_git() {
+  $SUDO git -c 'safe.directory=*' -c "safe.directory=${ROOT}" -C "${ROOT}" "$@"
+}
 
-if systemctl cat monitoring-agent.service >/dev/null 2>&1; then
-  # Подтянуть Environment safe.directory=* из unit, если файл в репо уже новый
-  if [[ -f "${ROOT}/systemd/monitoring-agent.service" ]]; then
-    # Не копируем весь unit (пути могут отличаться) — только GIT_* env через drop-in
-    mkdir -p /etc/systemd/system/monitoring-agent.service.d
-    cat >/etc/systemd/system/monitoring-agent.service.d/git-safe.conf <<'EOF'
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0=*
+export GIT_TERMINAL_PROMPT=0
+
+run_git config --local --add safe.directory '*' || true
+run_git config --local --add safe.directory "${ROOT}" || true
+
+run_git fetch origin --prune
+run_git reset --hard origin/main
+echo "[fix_git_safe] HEAD=$(run_git rev-parse --short HEAD) $(run_git log -1 --pretty=%s)"
+
+# systemd GIT env
+if command -v systemctl >/dev/null 2>&1; then
+  $SUDO mkdir -p /etc/systemd/system/monitoring-agent.service.d
+  $SUDO tee /etc/systemd/system/monitoring-agent.service.d/git-safe.conf >/dev/null <<'EOF'
 [Service]
 Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=*
+Environment=GIT_TERMINAL_PROMPT=0
 EOF
-    systemctl daemon-reload
-  fi
-  systemctl restart monitoring-agent
-  systemctl --no-pager --full status monitoring-agent || true
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl restart monitoring-agent
+  $SUDO systemctl --no-pager --full status monitoring-agent || true
 fi
