@@ -32,22 +32,20 @@ if ($method === 'GET' && isset($_GET['logs']) && $_GET['logs'] == '1' && isset($
         exit;
     }
     
-    // Формируем команду для агента
+    // Формируем команду для агента (from/to — unix timestamp, без shell-кавычек)
     $command = "get-process-logs {$pid}";
-    if ($fromTime) {
-        $command .= " --from " . escapeshellarg($fromTime);
+    if ($fromTime !== null && $fromTime !== '' && ctype_digit((string)$fromTime)) {
+        $command .= ' --from ' . (int)$fromTime;
     }
-    if ($toTime) {
-        $command .= " --to " . escapeshellarg($toTime);
+    if ($toTime !== null && $toTime !== '' && ctype_digit((string)$toTime)) {
+        $command .= ' --to ' . (int)$toTime;
     }
     $command .= " --limit {$limit}";
-    
-    // Очищаем предыдущий результат команды
-    $clearStmt = $pdo->prepare("UPDATE nodes SET command_result = NULL WHERE id = ?");
-    $clearStmt->execute([$nodeId]);
-    
-    // Сохраняем команду в БД - ВАЖНО: команда должна быть доступна по node_name для агента
-    $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
+
+    // Очищаем предыдущий результат и ставим pending (force — логи не ждут чужой команды)
+    $stmt = $pdo->prepare(
+        "UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW(), command_result = NULL WHERE id = ?"
+    );
     $stmt->execute([$command, $nodeId]);
     
     // Логируем для отладки
@@ -86,13 +84,16 @@ if ($method === 'GET' && isset($_GET['get-result']) && $_GET['get-result'] == '1
         exit;
     }
     
-    if ($status['command_status'] === 'completed' && $status['command_result']) {
-        // Команда выполнена, возвращаем результат
+    if ($status['command_status'] === 'completed' && $status['command_result'] !== null && $status['command_result'] !== '') {
+        // Команда выполнена (в т.ч. пустой массив логов "[]")
         $logs = json_decode($status['command_result'], true);
+        if (!is_array($logs)) {
+            $logs = [];
+        }
         echo json_encode([
             'status' => 'completed',
-            'logs' => $logs ?: [],
-            'count' => count($logs ?: []),
+            'logs' => $logs,
+            'count' => count($logs),
             'source' => 'node'
         ]);
     } elseif ($status['command_status'] === 'failed') {

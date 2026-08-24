@@ -72,6 +72,78 @@ render_layout_start(
         </div>
     </div>
 
+    <section class="card dbmon-ha-card" id="dbmon-ha-card" aria-label="Резерв и синхронизация панели">
+        <div class="dbmon-ha-head">
+            <div class="dbmon-ha-title">
+                <i data-lucide="database-backup"></i>
+                <div>
+                    <h3>Резерв панели</h3>
+                    <p>Статус основной/резервной MySQL и полное копирование таблиц. Это не live-репликация.</p>
+                </div>
+            </div>
+            <div class="dbmon-ha-head-actions">
+                <button type="button" class="btn-outline" id="dbmon-ha-ping" title="Проверить связь">
+                    <i data-lucide="activity"></i> Проверить
+                </button>
+                <a class="btn-outline" href="settings.php#database" title="Настройки подключений">
+                    <i data-lucide="settings"></i> Настройки
+                </a>
+            </div>
+        </div>
+
+        <div class="dbmon-ha-pills" id="dbmon-ha-pills">
+            <span class="ha-pill" id="dbmon-pill-active">Активная: …</span>
+            <span class="ha-pill" id="dbmon-pill-primary">Основная: …</span>
+            <span class="ha-pill" id="dbmon-pill-replica">Резерв: …</span>
+        </div>
+
+        <div class="dbmon-ha-info" id="dbmon-ha-info">
+            <div class="dbmon-ha-endpoint">
+                <small>Основная</small>
+                <strong id="dbmon-ha-primary-label">—</strong>
+            </div>
+            <div class="dbmon-ha-arrow" aria-hidden="true"><i data-lucide="arrow-left-right"></i></div>
+            <div class="dbmon-ha-endpoint">
+                <small>Резерв</small>
+                <strong id="dbmon-ha-replica-label">—</strong>
+            </div>
+            <p class="dbmon-ha-note" id="dbmon-ha-note">Загрузка статуса…</p>
+        </div>
+
+        <div class="dbmon-sync-row" id="dbmon-sync-actions">
+            <button type="button" class="dbmon-sync-card" id="dbmon-sync-to-replica" data-direction="to_replica" disabled>
+                <i data-lucide="upload-cloud"></i>
+                <span>
+                    <strong>Основная → резерв</strong>
+                    <small>снимок на standby</small>
+                </span>
+            </button>
+            <button type="button" class="dbmon-sync-card" id="dbmon-sync-to-primary" data-direction="to_primary" disabled>
+                <i data-lucide="download-cloud"></i>
+                <span>
+                    <strong>Резерв → основная</strong>
+                    <small>восстановить из снимка</small>
+                </span>
+            </button>
+            <button type="button" class="btn-outline" id="dbmon-ha-failback" title="Переключить панель на основную" disabled>
+                <i data-lucide="rotate-ccw"></i> На основную
+            </button>
+        </div>
+
+        <div class="db-sync-progress hidden" id="dbmon-sync-progress" aria-live="polite">
+            <div class="db-sync-progress-head">
+                <span id="dbmon-sync-progress-label">Подготовка…</span>
+                <span id="dbmon-sync-progress-pct">0%</span>
+            </div>
+            <div class="hm-meter db-sync-meter" data-tone="ok"><span id="dbmon-sync-progress-bar" style="width:0%"></span></div>
+            <p class="db-sync-progress-detail" id="dbmon-sync-progress-detail"></p>
+            <div class="ha-actions">
+                <button type="button" class="btn-outline" id="dbmon-sync-cancel"><i data-lucide="x"></i> Отменить</button>
+            </div>
+        </div>
+        <div class="db-sync-result hidden" id="dbmon-sync-result"></div>
+    </section>
+
     <div id="dbmon-grid" class="dbmon-grid"></div>
 
     <article class="card dbmon-chart-card">

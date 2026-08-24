@@ -448,9 +448,15 @@ function openContainerLogsModal(containerId, nodeId, containerName) {
         modal.classList.remove('hidden');
         setTimeout(() => modal.classList.add('active'), 10);
         const logsContent = document.getElementById('container-logs-content');
-        if (logsContent) logsContent.innerHTML = '<div class="text-center" style="color:var(--text-muted);padding:16px">Запрос логов у агента…</div>';
+        if (logsContent) {
+            logsContent.innerHTML = '<div class="text-center" style="color:var(--text-muted);padding:16px">Запрос логов у агента…</div>';
+        }
         containerLogsPaused = false;
-        requestContainerLogs(containerId, nodeId).then(() => loadContainerLogs(containerId, nodeId));
+        const openedFor = containerId;
+        requestContainerLogs(containerId, nodeId)
+            .then(() => waitForContainerLogs(openedFor, nodeId))
+            .catch((err) => console.error('Error requesting container logs:', err));
+
         if (containerLogsInterval) clearInterval(containerLogsInterval);
         containerLogsInterval = setInterval(() => {
             if (!containerLogsPaused && currentContainerId === containerId) {
@@ -469,19 +475,28 @@ function openContainerLogsModal(containerId, nodeId, containerName) {
 }
 
 async function requestContainerLogs(containerId, nodeId) {
-    try {
-        await fetch(
-            `${API_BASE}/containers.php?node_id=${encodeURIComponent(nodeId)}&container_id=${encodeURIComponent(containerId)}&action=logs`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ action: 'logs' }),
-            }
-        );
-    } catch (error) {
-        console.error('Error requesting container logs:', error);
+    const response = await fetch(
+        `${API_BASE}/containers.php?node_id=${encodeURIComponent(nodeId)}&container_id=${encodeURIComponent(containerId)}&action=logs`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ action: 'logs' }),
+        }
+    );
+    if (!response.ok) {
+        const text = await response.text();
+        let err = `HTTP ${response.status}`;
+        try {
+            err = (JSON.parse(text).error) || err;
+        } catch (_) { /* ignore */ }
+        const logsContent = document.getElementById('container-logs-content');
+        if (logsContent && currentContainerId === containerId) {
+            logsContent.innerHTML = `<div class="text-center" style="color:var(--danger);padding:16px">${escapeHtml(String(err))}</div>`;
+        }
+        throw new Error(err);
     }
+    return response.json().catch(() => ({}));
 }
 
 function closeContainerLogsModal() {
@@ -498,9 +513,28 @@ function closeContainerLogsModal() {
     currentContainerNodeId = null;
 }
 
-async function loadContainerLogs(containerId, nodeId) {
-    if (!containerId || !nodeId) return;
-    if (containerLogsPaused) return;
+async function waitForContainerLogs(containerId, nodeId, maxAttempts = 45) {
+    for (let i = 0; i < maxAttempts; i++) {
+        if (currentContainerId !== containerId) return;
+        const logs = await loadContainerLogs(containerId, nodeId, true);
+        if (logs && logs.length) return;
+        const logsContent = document.getElementById('container-logs-content');
+        if (logsContent && i > 0 && i % 4 === 0) {
+            logsContent.innerHTML = `<div class="text-center" style="color:var(--text-muted);padding:16px">Ждём агент… (${i + 1}с)</div>`;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (currentContainerId === containerId) {
+        const logsContent = document.getElementById('container-logs-content');
+        if (logsContent && !logsContent.querySelector('.log-entry')) {
+            logsContent.innerHTML = '<div class="text-center" style="color:var(--text-muted);padding:16px">Логи не пришли. Проверьте, что агент online и docker доступен.</div>';
+        }
+    }
+}
+
+async function loadContainerLogs(containerId, nodeId, returnLogs = false) {
+    if (!containerId || !nodeId) return returnLogs ? [] : undefined;
+    if (containerLogsPaused && !returnLogs) return;
 
     try {
         const response = await fetch(
@@ -510,9 +544,14 @@ async function loadContainerLogs(containerId, nodeId) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const text = await response.text();
         const data = text ? JSON.parse(text) : { logs: [] };
-        appendContainerLogs(data.logs || [], true);
+        const logs = data.logs || [];
+        if (currentContainerId === containerId) {
+            appendContainerLogs(logs, true);
+        }
+        return returnLogs ? logs : undefined;
     } catch (error) {
         console.error('Error loading container logs:', error);
+        return returnLogs ? [] : undefined;
     }
 }
 

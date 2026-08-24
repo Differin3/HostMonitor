@@ -432,11 +432,12 @@ class MonitoringAgent:
         _log(f"Processes sent successfully: status={proc_resp.status_code}")
         return True
     
-    def check_commands(self):
+    def check_commands(self, quiet=False):
         # Проверка команд от мастера (GET /api/nodes.php?action=get-command)
         url = f"{self.master_url}/api/nodes.php"
         params = {"id": self.node_name, "action": "get-command"}
-        _log(f"Checking for commands: GET {url}?id={self.node_name}&action=get-command")
+        if not quiet:
+            _log(f"Checking for commands: GET {url}?id={self.node_name}&action=get-command")
         
         resp = _request_with_retry(
             "GET",
@@ -447,15 +448,18 @@ class MonitoringAgent:
         )
         
         if not resp:
-            _log("No response from server when checking commands")
+            if not quiet:
+                _log("No response from server when checking commands")
             return None
             
-        _log(f"Command check response: status={resp.status_code}")
+        if not quiet:
+            _log(f"Command check response: status={resp.status_code}")
         
         if resp.status_code == 200:
             try:
                 data = resp.json()
-                _log(f"Command check response data: {data}")
+                if not quiet:
+                    _log(f"Command check response data: {data}")
             except Exception as e:
                 _log(f"bad JSON in get-command: {e}, response text: {resp.text[:200]}")
                 return None
@@ -463,7 +467,8 @@ class MonitoringAgent:
             command = data.get('command')
             command_status = data.get('command_status')
             
-            _log(f"Command check parsed: status={status}, command={command}, command_status={command_status}")
+            if not quiet:
+                _log(f"Command check parsed: status={status}, command={command}, command_status={command_status}")
             
             if status not in (None, 'ok', 'no-command'):
                 _log(f"Unexpected status in command check: {status}")
@@ -471,11 +476,35 @@ class MonitoringAgent:
             if command and command_status == 'pending':
                 _log(f"Found pending command: {command}")
                 return command
-            else:
+            elif not quiet:
                 _log(f"No pending command found (command={command}, command_status={command_status})")
         else:
             _log(f"Command check failed: HTTP {resp.status_code}, response: {resp.text[:200]}")
         return None
+
+    def run_pending_command(self, quiet=False):
+        """Забрать и выполнить одну pending-команду (если есть). True = была команда."""
+        command = self.check_commands(quiet=quiet)
+        if not command:
+            return False
+        _log(f"=== EXECUTING COMMAND ===")
+        _log(f"Command received: {command}")
+        _log(f"Node: {self.node_name}")
+        try:
+            success = self.execute_command(command)
+            _log(f"Command execution result: success={success}")
+            self.report_command_status(command, 'completed' if success else 'failed')
+            _log(f"=== COMMAND EXECUTION COMPLETE ===")
+            if getattr(self, '_exit_after_command', False):
+                _log('Exiting after agent update so systemd Restart=always picks up new code')
+                time.sleep(1)
+                os._exit(0)
+        except Exception as e:
+            _log(f"ERROR executing command: {e}")
+            import traceback
+            _log(f"Traceback: {traceback.format_exc()}")
+            self.report_command_status(command, 'failed')
+        return True
     
     def get_os_info(self):
         # Получение информации об ОС из /etc/os-release
@@ -2234,160 +2263,210 @@ class MonitoringAgent:
         return bool(resp and resp.status_code in (200, 201))
     
     def collect_process_logs(self, pid=None, limit=100):
-        # Сбор логов процессов из journalctl или /var/log
+        # Сбор логов процесса: journalctl по PID/COMM/unit, fallback syslog
         logs = []
+        limit = max(1, min(int(limit or 100), 5000))
         try:
-            if pid:
-                # Логи конкретного процесса через journalctl
+            if not pid:
+                return self._collect_syslog_tail(limit)
+
+            pid = int(pid)
+            comm = None
+            exe = None
+            try:
+                proc = psutil.Process(pid)
+                comm = (proc.name() or '').strip() or None
                 try:
-                    result = subprocess.run(
-                        ['journalctl', '-p', 'info', '--no-pager', '-n', str(limit), f'_PID={pid}', '--output=short'], 
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.returncode == 0:
-                        for line in result.stdout.strip().split('\n'):
-                            if not line.strip():
-                                continue
-                            
-                            # Парсим формат journalctl short: MMM DD HH:MM:SS hostname process[pid]: message
-                            timestamp_str = None
-                            process_info = None
-                            message = line.strip()
-                            
-                            # Извлекаем timestamp из начала строки
-                            timestamp_match = re.search(r'^(\w+\s+\d+\s+\d+:\d+:\d+)', line)
-                            if timestamp_match:
-                                try:
-                                    time_str = timestamp_match.group(1)
-                                    current_year = datetime.now().year
-                                    parsed_time = datetime.strptime(f"{current_year} {time_str}", "%Y %b %d %H:%M:%S")
-                                    timestamp_str = parsed_time.strftime("%Y-%m-%d %H:%M:%S")
-                                except:
-                                    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            else:
-                                timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            # Извлекаем процесс и PID
-                            process_match = re.search(r'\w+\s+\d+\s+\d+:\d+:\d+\s+\S+\s+(\S+?)(?:\[(\d+)\])?:', line)
-                            if process_match:
-                                process_info = process_match.group(1)
-                                # PID уже известен из параметра
-                            else:
-                                parts = line.split(':', 2)
-                                if len(parts) >= 3:
-                                    process_info = parts[1].strip() if len(parts) > 1 else 'system'
-                            
-                            # Извлекаем сообщение
-                            msg_parts = line.split(':', 2)
-                            if len(msg_parts) >= 3:
-                                message = msg_parts[2].strip()
-                            
-                            if not message:
-                                continue
-                            
-                            # Определяем уровень логирования
-                            level = 'info'
-                            if 'error' in message.lower() or 'failed' in message.lower():
-                                level = 'error'
-                            elif 'warning' in message.lower() or 'warn' in message.lower():
-                                level = 'warning'
-                            
-                            logs.append({
-                                'type': 'process',
-                                'pid': pid,
-                                'level': level,
-                                'message': message,
-                                'process': process_info or 'system',
-                                'timestamp': timestamp_str
-                            })
-                except (FileNotFoundError, subprocess.TimeoutExpired):
-                    pass
-            else:
-                # Общие системные логи из /var/log
-                log_files = ['/var/log/syslog', '/var/log/messages']
-                for log_file in log_files:
-                    try:
-                        if os.path.exists(log_file):
-                            # Читаем последние строки
-                            result = subprocess.run(
-                                ['tail', '-n', str(limit), log_file],
-                                capture_output=True, text=True, timeout=5
-                            )
-                            if result.returncode == 0:
-                                for line in result.stdout.strip().split('\n'):
-                                    if not line.strip():
-                                        continue
-                                    
-                                    # Парсим формат syslog: Dec  3 22:34:27 hostname process[pid]: message
-                                    # Или: Dec  3 22:34:27 hostname process: message
-                                    timestamp_str = None
-                                    process_info = None
-                                    pid = None
-                                    message = line.strip()
-                                    
-                                    # Пытаемся извлечь timestamp и процесс из начала строки
-                                    # Формат: MMM DD HH:MM:SS hostname process[pid]: message
-                                    timestamp_match = re.search(r'^(\w+\s+\d+\s+\d+:\d+:\d+)', line)
-                                    if timestamp_match:
-                                        # Парсим дату и время
-                                        try:
-                                            time_str = timestamp_match.group(1)
-                                            # Получаем текущий год для парсинга
-                                            current_year = datetime.now().year
-                                            # Парсим формат "Dec  3 22:34:27"
-                                            parsed_time = datetime.strptime(f"{current_year} {time_str}", "%Y %b %d %H:%M:%S")
-                                            timestamp_str = parsed_time.strftime("%Y-%m-%d %H:%M:%S")
-                                        except:
-                                            timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    else:
-                                        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    
-                                    # Извлекаем процесс и PID: process[pid] или process:
-                                    process_match = re.search(r'\w+\s+\d+\s+\d+:\d+:\d+\s+\S+\s+(\S+?)(?:\[(\d+)\])?:', line)
-                                    if process_match:
-                                        process_info = process_match.group(1)
-                                        if process_match.group(2):
-                                            pid = int(process_match.group(2))
-                                    else:
-                                        # Fallback: берем часть после timestamp и хоста
-                                        parts = line.split(':', 2)
-                                        if len(parts) >= 3:
-                                            process_info = parts[1].strip() if len(parts) > 1 else 'system'
-                                            # Пытаемся извлечь PID из process_info
-                                            pid_match = re.search(r'\[(\d+)\]', process_info)
-                                            if pid_match:
-                                                pid = int(pid_match.group(1))
-                                                process_info = re.sub(r'\[\d+\]', '', process_info).strip()
-                                    
-                                    # Извлекаем сообщение (после последнего двоеточия)
-                                    msg_parts = line.split(':', 2)
-                                    if len(msg_parts) >= 3:
-                                        message = msg_parts[2].strip()
-                                    else:
-                                        message = line.strip()
-                                    
-                                    if not message:
-                                        continue
-                                    
-                                    level = 'info'
-                                    if 'error' in message.lower() or 'failed' in message.lower():
-                                        level = 'error'
-                                    elif 'warning' in message.lower() or 'warn' in message.lower():
-                                        level = 'warning'
-                                    
-                                    logs.append({
-                                        'type': 'process',
-                                        'pid': pid,
-                                        'level': level,
-                                        'message': message,
-                                        'process': process_info or 'system',
-                                        'timestamp': timestamp_str
-                                    })
-                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                    exe = proc.exe()
+                except (psutil.Error, OSError):
+                    exe = None
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.Error):
+                pass
+
+            unit = self._systemd_unit_for_pid(pid)
+            seen = set()
+
+            queries = [[f'_PID={pid}']]
+            if comm:
+                safe_comm = re.sub(r'[^a-zA-Z0-9_.+-]', '', comm)[:64]
+                if safe_comm:
+                    queries.append([f'_COMM={safe_comm}'])
+                    queries.append([f'SYSLOG_IDENTIFIER={safe_comm}'])
+            if unit:
+                queries.append(['-u', unit])
+            if exe and os.path.isfile(exe):
+                queries.append([exe])
+
+            for q in queries:
+                if len(logs) >= limit:
+                    break
+                batch = self._journalctl_lines(q, limit=limit, timeout=12)
+                for row in batch:
+                    key = (row.get('timestamp'), row.get('message'))
+                    if key in seen:
                         continue
+                    seen.add(key)
+                    row['type'] = 'process'
+                    row['pid'] = pid
+                    if not row.get('process'):
+                        row['process'] = comm or unit or 'process'
+                    logs.append(row)
+
+            if not logs and comm:
+                for path in ('/var/log/syslog', '/var/log/messages'):
+                    if not os.path.exists(path):
+                        continue
+                    try:
+                        result = subprocess.run(
+                            ['tail', '-n', str(min(limit * 5, 2000)), path],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        if result.returncode != 0:
+                            continue
+                        for line in result.stdout.splitlines():
+                            if comm not in line and f'[{pid}]' not in line:
+                                continue
+                            parsed = self._parse_syslog_line(line, default_pid=pid, default_process=comm)
+                            if not parsed:
+                                continue
+                            key = (parsed['timestamp'], parsed['message'])
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            logs.append(parsed)
+                            if len(logs) >= limit:
+                                break
+                    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                        continue
+
+            if not logs:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                hint = comm or f'pid={pid}'
+                logs.append({
+                    'type': 'process',
+                    'pid': pid,
+                    'level': 'info',
+                    'process': comm or 'process',
+                    'message': f'Нет записей journalctl/syslog для {hint}. Процесс может не писать в journal.',
+                    'timestamp': now,
+                })
         except Exception as e:
             _log(f"Error collecting process logs: {e}")
-        return logs
+        return logs[:limit]
+
+    def _systemd_unit_for_pid(self, pid):
+        try:
+            path = f'/proc/{pid}/cgroup'
+            if not os.path.exists(path):
+                return None
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read()
+            m = re.search(r'/([^/]+\.service)(?:$|[\s/])', text)
+            if m:
+                return m.group(1)
+        except OSError:
+            pass
+        return None
+
+    def _journalctl_lines(self, query_args, limit=100, timeout=12):
+        rows = []
+        cmd = ['journalctl', '--no-pager', '-n', str(limit), '-o', 'short-iso'] + list(query_args)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if result.returncode != 0:
+                return rows
+            for line in (result.stdout or '').splitlines():
+                parsed = self._parse_journal_short_iso(line)
+                if parsed:
+                    rows.append(parsed)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            _log(f"journalctl failed ({query_args}): {e}")
+        return rows
+
+    def _parse_journal_short_iso(self, line):
+        line = (line or '').rstrip()
+        if not line.strip():
+            return None
+        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        process_info = 'system'
+        message = line
+        m = re.match(
+            r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2}|Z)?)\s+\S+\s+(\S+?)(?:\[\d+\])?:\s*(.*)$',
+            line,
+        )
+        if m:
+            try:
+                ts = m.group(1).replace('Z', '+00:00')
+                if re.search(r'[+-]\d{4}$', ts):
+                    ts = ts[:-2] + ':' + ts[-2:]
+                parsed_time = datetime.fromisoformat(ts)
+                timestamp_str = parsed_time.strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                pass
+            process_info = m.group(2)
+            message = m.group(3).strip() or line
+        else:
+            m2 = re.match(
+                r'^(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+(\S+?)(?:\[\d+\])?:\s*(.*)$',
+                line,
+            )
+            if m2:
+                try:
+                    current_year = datetime.now().year
+                    parsed_time = datetime.strptime(
+                        f"{current_year} {m2.group(1)}", "%Y %b %d %H:%M:%S"
+                    )
+                    timestamp_str = parsed_time.strftime("%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
+                process_info = m2.group(2)
+                message = m2.group(3).strip() or line
+
+        if not message:
+            return None
+        level = 'info'
+        low = message.lower()
+        if 'error' in low or 'failed' in low or 'fatal' in low:
+            level = 'error'
+        elif 'warning' in low or 'warn' in low:
+            level = 'warning'
+        return {
+            'level': level,
+            'message': message,
+            'process': process_info,
+            'timestamp': timestamp_str,
+        }
+
+    def _parse_syslog_line(self, line, default_pid=None, default_process=None):
+        parsed = self._parse_journal_short_iso(line)
+        if not parsed:
+            return None
+        parsed['type'] = 'process'
+        parsed['pid'] = default_pid
+        if default_process and parsed.get('process') in (None, 'system'):
+            parsed['process'] = default_process
+        return parsed
+
+    def _collect_syslog_tail(self, limit=100):
+        logs = []
+        for log_file in ('/var/log/syslog', '/var/log/messages'):
+            try:
+                if not os.path.exists(log_file):
+                    continue
+                result = subprocess.run(
+                    ['tail', '-n', str(limit), log_file],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode != 0:
+                    continue
+                for line in result.stdout.strip().split('\n'):
+                    parsed = self._parse_syslog_line(line)
+                    if parsed:
+                        logs.append(parsed)
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
+        return logs[-limit:]
+
 
     def _log_cursor_path(self):
         candidates = [
@@ -2893,28 +2972,8 @@ class MonitoringAgent:
             
             _log(f"Cycle {cycle}: collecting metrics...")
             
-            # Проверяем команды от мастера
-            command = self.check_commands()
-            if command:
-                _log(f"=== EXECUTING COMMAND ===")
-                _log(f"Command received: {command}")
-                _log(f"Node: {self.node_name}")
-                try:
-                    success = self.execute_command(command)
-                    _log(f"Command execution result: success={success}")
-                    self.report_command_status(command, 'completed' if success else 'failed')
-                    _log(f"=== COMMAND EXECUTION COMPLETE ===")
-                    if getattr(self, '_exit_after_command', False):
-                        _log('Exiting after agent update so systemd Restart=always picks up new code')
-                        time.sleep(1)
-                        os._exit(0)
-                except Exception as e:
-                    _log(f"ERROR executing command: {e}")
-                    import traceback
-                    _log(f"Traceback: {traceback.format_exc()}")
-                    self.report_command_status(command, 'failed')
-            else:
-                # Логируем только раз в 10 циклов, чтобы не засорять логи
+            # Проверяем команды от мастера (логи / docker / updates и т.д.)
+            if not self.run_pending_command(quiet=False):
                 if cycle % 10 == 0:
                     _log(f"No pending commands found (cycle {cycle})")
             
@@ -2987,7 +3046,8 @@ class MonitoringAgent:
             
             _log(f"Cycle {cycle} completed, sleeping {collect_interval}s (heartbeat every {heartbeat_interval}s)...")
             # Не sleep(60) целиком: иначе last_seen устаревает и панель мигает offline.
-            # Будим каждые heartbeat_interval секунд и шлём heartbeat независимо от сбора метрик.
+            # Будим каждые heartbeat_interval: heartbeat + проверка pending-команд
+            # (иначе docker-logs / get-process-logs ждут до конца COLLECT_INTERVAL).
             deadline = time.time() + collect_interval
             while True:
                 now = time.time()
@@ -2996,6 +3056,8 @@ class MonitoringAgent:
                         last_heartbeat = now
                     else:
                         _log("Warning: heartbeat failed during wait, will retry")
+                    # Быстрый отклик на логи контейнеров/процессов и прочие команды
+                    self.run_pending_command(quiet=True)
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     break

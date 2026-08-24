@@ -454,6 +454,351 @@ els.form?.addEventListener('submit', async (e) => {
     }
 });
 
+// --- Резерв панели / синхронизация (компактный блок) ---
+const DB_HA_API = `${API_BASE}/db_ha.php`;
+const haEls = {
+    card: document.getElementById('dbmon-ha-card'),
+    primaryLabel: document.getElementById('dbmon-ha-primary-label'),
+    replicaLabel: document.getElementById('dbmon-ha-replica-label'),
+    note: document.getElementById('dbmon-ha-note'),
+    actions: document.getElementById('dbmon-sync-actions'),
+    progress: document.getElementById('dbmon-sync-progress'),
+    result: document.getElementById('dbmon-sync-result'),
+    cancel: document.getElementById('dbmon-sync-cancel'),
+    ping: document.getElementById('dbmon-ha-ping'),
+    failback: document.getElementById('dbmon-ha-failback'),
+    toReplica: document.getElementById('dbmon-sync-to-replica'),
+    toPrimary: document.getElementById('dbmon-sync-to-primary'),
+};
+
+let dbHaEditable = true;
+let dbSyncRunning = false;
+let dbSyncAbort = false;
+
+function endpointLabel(ep) {
+    if (!ep || !ep.host) return 'не задан';
+    const port = ep.port ? `:${ep.port}` : '';
+    const name = ep.name ? ` / ${ep.name}` : '';
+    return `${ep.host}${port}${name}`;
+}
+
+function setHaPill(id, label, ok, extra) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = extra ? `${label}: ${extra}` : label;
+    el.classList.remove('ok', 'fail', 'warn');
+    if (ok === true) el.classList.add('ok');
+    if (ok === false) el.classList.add('fail');
+    if (ok === 'warn') el.classList.add('warn');
+}
+
+function setDbmonSyncUi(running) {
+    dbSyncRunning = !!running;
+    if (haEls.actions) haEls.actions.classList.toggle('is-busy', dbSyncRunning);
+    if (haEls.progress) haEls.progress.classList.toggle('hidden', !dbSyncRunning);
+    [haEls.toReplica, haEls.toPrimary, haEls.failback].forEach((btn) => {
+        if (!btn) return;
+        if (btn === haEls.failback) {
+            btn.disabled = !dbHaEditable || dbSyncRunning;
+            return;
+        }
+        btn.disabled = !dbHaEditable || dbSyncRunning || !btn.dataset.canSync;
+    });
+    if (haEls.cancel) haEls.cancel.disabled = !dbSyncRunning;
+    if (!dbSyncRunning && window.lucide) lucide.createIcons();
+}
+
+function updateDbmonSyncProgress(label, pct, detail) {
+    const labelEl = document.getElementById('dbmon-sync-progress-label');
+    const pctEl = document.getElementById('dbmon-sync-progress-pct');
+    const bar = document.getElementById('dbmon-sync-progress-bar');
+    const detailEl = document.getElementById('dbmon-sync-progress-detail');
+    if (labelEl && label != null) labelEl.textContent = label;
+    if (pct != null && !Number.isNaN(Number(pct))) {
+        if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+        if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    }
+    if (detailEl && detail != null) detailEl.textContent = detail;
+}
+
+function showDbmonSyncResult(message, isError) {
+    if (!haEls.result) return;
+    haEls.result.classList.remove('hidden', 'is-ok', 'is-error');
+    haEls.result.classList.add(isError ? 'is-error' : 'is-ok');
+    haEls.result.textContent = message;
+}
+
+function hideDbmonSyncResult() {
+    haEls.result?.classList.add('hidden');
+}
+
+function paintDbmonHa(data) {
+    const ping = data.ping || {};
+    const primary = data.primary || {};
+    const replica = data.replica || {};
+    dbHaEditable = data.editable !== false;
+
+    setHaPill(
+        'dbmon-pill-active',
+        'Активная',
+        data.active_role === 'replica' ? 'warn' : true,
+        data.active_role === 'replica' ? 'резерв' : 'основная'
+    );
+    const pOk = ping.primary ? ping.primary.ok : null;
+    const rOk = ping.replica ? ping.replica.ok : null;
+    setHaPill(
+        'dbmon-pill-primary',
+        'Основная',
+        pOk,
+        pOk ? `${ping.primary.ms} мс` : (ping.primary?.error || 'нет ответа')
+    );
+    if (!data.replica_enabled) {
+        setHaPill('dbmon-pill-replica', 'Резерв', false, 'выключен');
+    } else {
+        setHaPill(
+            'dbmon-pill-replica',
+            'Резерв',
+            rOk,
+            rOk ? `${ping.replica.ms} мс` : (ping.replica?.error || 'нет ответа')
+        );
+    }
+
+    if (haEls.primaryLabel) haEls.primaryLabel.textContent = endpointLabel(primary);
+    if (haEls.replicaLabel) {
+        haEls.replicaLabel.textContent = data.replica_enabled ? endpointLabel(replica) : 'выключен';
+    }
+
+    const notes = [];
+    if (!data.replica_enabled) {
+        notes.push('Резерв выключен — включите и укажите хост в Настройках.');
+    } else if (!dbHaEditable) {
+        notes.push('Синхронизация недоступна: нет связи ни с основной, ни с резервной базой.');
+    } else if (data.active_role === 'replica') {
+        notes.push('Панель сейчас на резерве. После восстановления основной можно переключить кнопкой «На основную».');
+    } else {
+        notes.push('Снимок копирует все таблицы целиком (не binlog-репликация). На приёмнике таблицы пересоздаются.');
+    }
+    if (haEls.note) haEls.note.textContent = notes.join(' ');
+
+    const canSync = !!data.replica_enabled && dbHaEditable;
+    if (haEls.toReplica) haEls.toReplica.dataset.canSync = canSync ? '1' : '';
+    if (haEls.toPrimary) haEls.toPrimary.dataset.canSync = canSync ? '1' : '';
+    setDbmonSyncUi(dbSyncRunning);
+    if (window.lucide) lucide.createIcons();
+}
+
+async function dbHaRequest(payload, { retries = 0 } = {}) {
+    const isSyncChunk = payload && ['sync_table', 'sync_table_schema', 'sync_prepare'].includes(payload.action);
+    const maxAttempts = retries > 0 ? retries + 1 : (isSyncChunk ? 4 : 1);
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const opts = payload
+                ? {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(payload),
+                }
+                : { credentials: 'include' };
+            const response = await fetch(DB_HA_API, opts);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const status = response.status;
+                const msg = data.error || `HTTP ${status}`;
+                if ((status === 502 || status === 504 || status === 408) && attempt < maxAttempts) {
+                    lastError = new Error(msg);
+                    updateDbmonSyncProgress(
+                        'Повтор…',
+                        undefined,
+                        `Таймаут прокси (${status}), попытка ${attempt + 1}/${maxAttempts}`
+                    );
+                    await new Promise((r) => setTimeout(r, 800 * attempt));
+                    continue;
+                }
+                throw new Error(msg);
+            }
+            return data;
+        } catch (e) {
+            lastError = e;
+            const transient = /HTTP 502|HTTP 504|HTTP 408|Failed to fetch|NetworkError|network/i.test(String(e.message || e));
+            if (transient && attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, 800 * attempt));
+                continue;
+            }
+            throw e;
+        }
+    }
+    throw lastError || new Error('Запрос не выполнен');
+}
+
+async function loadDbmonHa() {
+    if (!haEls.card) return;
+    try {
+        const data = await dbHaRequest(null);
+        paintDbmonHa(data);
+    } catch (e) {
+        if (haEls.note) haEls.note.textContent = e.message;
+        window.showToast?.(e.message, 'error');
+    }
+}
+
+async function runDbmonSync(direction) {
+    if (!dbHaEditable || dbSyncRunning) return;
+
+    const titles = {
+        to_replica: 'Скопировать основную базу на резерв',
+        to_primary: 'Скопировать резервную базу на основную',
+    };
+    const confirmed = await window.showConfirm?.(
+        `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Копирование идёт короткими порциями.\n\nПродолжить?`,
+        'Копирование базы',
+        'warning'
+    );
+    if (!confirmed) return;
+
+    dbSyncAbort = false;
+    hideDbmonSyncResult();
+    setDbmonSyncUi(true);
+    updateDbmonSyncProgress('Подготовка…', 0, 'Проверка соединений и списка таблиц');
+
+    let directionUsed = direction;
+    let totalRows = 0;
+
+    try {
+        const prep = await dbHaRequest({ action: 'sync_prepare', direction });
+        directionUsed = prep.direction || direction;
+        const tables = prep.tables || [];
+        const total = tables.length;
+        const chunkLimit = Number(prep.chunk_limit) || 200;
+        if (!total) throw new Error('В источнике нет таблиц для копирования');
+
+        const srcLabel = prep.source_label || 'источник';
+        const dstLabel = prep.target_label || 'приёмник';
+        const srcName = prep.source_name ? ` (${prep.source_name})` : '';
+        const dstName = prep.target_name ? ` (${prep.target_name})` : '';
+        updateDbmonSyncProgress(
+            'Копирование…',
+            0,
+            `${srcLabel}${srcName} → ${dstLabel}${dstName} · таблиц: ${total}`
+        );
+
+        for (let i = 0; i < total; i++) {
+            if (dbSyncAbort) throw new Error('Отменено пользователем');
+
+            const table = tables[i];
+            let offset = 0;
+            let cursor = null;
+            let tableRows = 0;
+            let guard = 0;
+
+            updateDbmonSyncProgress(
+                `Таблица ${i + 1} из ${total}`,
+                (i / total) * 100,
+                `Создание схемы «${table}»…`
+            );
+            await dbHaRequest({
+                action: 'sync_table_schema',
+                direction: directionUsed,
+                table,
+            });
+
+            while (true) {
+                if (dbSyncAbort) throw new Error('Отменено пользователем');
+                if (++guard > 50000) {
+                    throw new Error(`Слишком много порций для таблицы «${table}» — прервано`);
+                }
+
+                const basePct = (i / total) * 100;
+                const within = Math.min(99, (tableRows / Math.max(tableRows + chunkLimit, 1)) * (100 / total));
+                updateDbmonSyncProgress(
+                    `Таблица ${i + 1} из ${total}`,
+                    basePct + within,
+                    `«${table}» · уже ${tableRows.toLocaleString('ru-RU')} строк…`
+                );
+
+                const res = await dbHaRequest({
+                    action: 'sync_table',
+                    direction: directionUsed,
+                    table,
+                    index: i,
+                    total,
+                    offset,
+                    cursor,
+                    limit: Math.min(chunkLimit, 200),
+                });
+
+                const rows = Number(res.rows) || 0;
+                tableRows += rows;
+                totalRows += rows;
+                offset = Number(res.next_offset) || (offset + rows);
+                cursor = res.next_cursor ?? null;
+
+                updateDbmonSyncProgress(
+                    `Таблица ${i + 1} из ${total}`,
+                    ((i + (res.table_done ? 1 : 0.55)) / total) * 100,
+                    `«${table}» — ${tableRows.toLocaleString('ru-RU')} строк`
+                );
+
+                if (res.status) paintDbmonHa(res.status);
+                if (res.table_done || rows === 0) break;
+            }
+        }
+
+        updateDbmonSyncProgress('Готово', 100, `Скопировано таблиц: ${total}, строк: ${totalRows.toLocaleString('ru-RU')}`);
+        showDbmonSyncResult(
+            `Готово: ${total} таблиц, ${totalRows.toLocaleString('ru-RU')} строк (${srcLabel} → ${dstLabel}).`,
+            false
+        );
+        window.showToast?.('Копирование завершено', 'success');
+        await loadDbmonHa();
+    } catch (e) {
+        if (dbSyncAbort || e.message === 'Отменено пользователем') {
+            try {
+                await dbHaRequest({ action: 'sync_abort', direction: directionUsed });
+            } catch (_) { /* ignore */ }
+            updateDbmonSyncProgress('Отменено', 0, '');
+            showDbmonSyncResult('Копирование прервано.', true);
+            window.showToast?.('Копирование отменено', 'info');
+        } else {
+            updateDbmonSyncProgress('Ошибка', 0, e.message);
+            showDbmonSyncResult(e.message, true);
+            window.showToast?.(e.message, 'error');
+        }
+    } finally {
+        setDbmonSyncUi(false);
+        dbSyncAbort = false;
+    }
+}
+
+if (haEls.card) {
+    haEls.ping?.addEventListener('click', async () => {
+        await loadDbmonHa();
+        window.showToast?.('Проверка завершена', 'info');
+    });
+    haEls.failback?.addEventListener('click', async () => {
+        if (!dbHaEditable || dbSyncRunning) return;
+        try {
+            const data = await dbHaRequest({ action: 'prefer_primary' });
+            paintDbmonHa(data);
+            window.showToast?.('Основная база активна', 'success');
+        } catch (e) {
+            window.showToast?.(e.message, 'error');
+        }
+    });
+    haEls.toReplica?.addEventListener('click', () => runDbmonSync('to_replica'));
+    haEls.toPrimary?.addEventListener('click', () => runDbmonSync('to_primary'));
+    haEls.cancel?.addEventListener('click', () => {
+        if (!dbSyncRunning) return;
+        dbSyncAbort = true;
+        const pct = parseFloat(String(document.getElementById('dbmon-sync-progress-pct')?.textContent || '0').replace('%', '')) || 0;
+        updateDbmonSyncProgress('Отмена…', pct, 'Дождитесь завершения текущей порции');
+    });
+    setDbmonSyncUi(false);
+    loadDbmonHa().catch(() => {});
+}
+
 // Без probe на открытии — иначе N×12с к недоступным БД → Gateway Timeout
 load(false).catch((e) => {
     els.grid.innerHTML = `<div class="card"><p class="list-empty">${esc(e.message)}</p></div>`;

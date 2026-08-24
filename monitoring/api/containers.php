@@ -458,14 +458,19 @@ function handleContainerAction($pdo) {
         return;
     }
 
-    $stmt = $pdo->prepare("SELECT * FROM containers WHERE node_id = ? AND container_id = ?");
-    $stmt->execute([$nodeId, $containerId]);
+    $stmt = $pdo->prepare(
+        "SELECT * FROM containers WHERE node_id = ? AND (container_id = ? OR container_id LIKE ? OR ? LIKE CONCAT(LEFT(container_id, 12), '%')) LIMIT 1"
+    );
+    $like = substr((string)$containerId, 0, 12) . '%';
+    $stmt->execute([$nodeId, $containerId, $like, $containerId]);
     $container = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$container) {
         http_response_code(404);
         echo json_encode(['error' => 'Container not found']);
         return;
     }
+    // Используем полный id из БД для docker-logs
+    $containerId = $container['container_id'];
 
     $nodeStmt = $pdo->prepare("SELECT id FROM nodes WHERE id = ?");
     $nodeStmt->execute([$nodeId]);
@@ -476,8 +481,17 @@ function handleContainerAction($pdo) {
     }
 
     if ($action === 'logs') {
+        // Сбрасываем старые логи контейнера, чтобы UI не показывал устаревшие строки
+        try {
+            $del = $pdo->prepare("DELETE FROM container_logs WHERE node_id = ? AND (container_id = ? OR container_id LIKE ?)");
+            $del->execute([$nodeId, $containerId, substr((string)$containerId, 0, 12) . '%']);
+        } catch (Exception $e) {
+            // ignore
+        }
         $command = "docker-logs {$containerId} 200";
-        $stmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
+        $stmt = $pdo->prepare(
+            "UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW(), command_result = NULL WHERE id = ?"
+        );
         $stmt->execute([$command, $nodeId]);
         echo json_encode([
             'success' => true,

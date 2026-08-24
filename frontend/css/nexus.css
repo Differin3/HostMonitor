@@ -2080,3 +2080,208 @@ select optgroup {
     align-items: center;
 }
 .dbmon-chart-card { margin-top: 8px; }
+
+.dbmon-ha-card {
+    margin: 16px 0 20px;
+    padding: 16px 18px 14px;
+}
+
+.dbmon-ha-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.dbmon-ha-title {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.dbmon-ha-title > i,
+.dbmon-ha-title > svg {
+    width: 22px;
+    height: 22px;
+    color: var(--accent, #60a5fa);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.dbmon-ha-title h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 650;
+    color: var(--text-primary);
+}
+
+.dbmon-ha-title p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    max-width: 52ch;
+}
+
+.dbmon-ha-head-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dbmon-ha-head-actions .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.dbmon-ha-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.dbmon-ha-info {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 10px 14px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.02);
+    margin-bottom: 12px;
+}
+
+.dbmon-ha-endpoint small {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.dbmon-ha-endpoint strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+.dbmon-ha-arrow {
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.dbmon-ha-arrow i,
+.dbmon-ha-arrow svg {
+    width: 18px;
+    height: 18px;
+}
+
+.dbmon-ha-note {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.dbmon-sync-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.dbmon-sync-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    padding: 10px 12px;
+    min-height: 56px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.dbmon-sync-card:hover:not(:disabled) {
+    border-color: rgba(96, 165, 250, 0.45);
+    background: rgba(96, 165, 250, 0.08);
+}
+
+.dbmon-sync-card:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.dbmon-sync-card > i,
+.dbmon-sync-card > svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--accent, #60a5fa);
+}
+
+.dbmon-sync-card strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.25;
+}
+
+.dbmon-sync-card small {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+#dbmon-ha-failback {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 56px;
+    padding: 0 14px;
+    white-space: nowrap;
+}
+
+.dbmon-sync-row.is-busy {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+#dbmon-sync-progress {
+    margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+    .dbmon-ha-info {
+        grid-template-columns: 1fr;
+    }
+    .dbmon-ha-arrow {
+        display: none;
+    }
+    .dbmon-sync-row {
+        grid-template-columns: 1fr;
+    }
+    #dbmon-ha-failback {
+        min-height: 40px;
+        justify-content: center;
+    }
+}
+

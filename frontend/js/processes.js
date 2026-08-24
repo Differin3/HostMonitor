@@ -228,140 +228,104 @@ async function loadProcessLogs(nodeId, page = 1, fromTime = null, toTime = null,
         
         // Если запрашиваем логи напрямую с ноды (при загрузке по кнопке)
         if (fromNode && currentPid) {
-            // Показываем индикатор загрузки
             const loadingIndicator = document.getElementById('processes-logs-loading');
             const logsContainer = document.getElementById('processes-logs-container');
             const logsContent = document.getElementById('processes-logs-content');
-            if (loadingIndicator) {
-                loadingIndicator.style.display = 'flex';
-            }
-            if (logsContainer) {
-                logsContainer.style.display = 'none';
-            }
-            if (logsContent) {
-                logsContent.style.display = 'none';
-            }
-            
+            if (loadingIndicator) loadingIndicator.style.display = 'flex';
+            if (logsContainer) logsContainer.style.display = 'none';
+            // Не трогаем display у logsContent — иначе после загрузки логи остаются скрытыми
+
+            const showProcessLogsUi = () => {
+                const li = document.getElementById('processes-logs-loading');
+                const lc = document.getElementById('processes-logs-container');
+                const content = document.getElementById('processes-logs-content');
+                if (li) li.style.display = 'none';
+                if (lc) lc.style.display = 'block';
+                if (content) content.style.display = '';
+            };
+
             const params = new URLSearchParams();
             params.set('node_id', nodeId);
             params.set('pid', currentPid);
             params.set('logs', '1');
-            params.set('limit', processLogsPerPage * 10); // Загружаем больше для пагинации
-            
-            if (fromTime !== null) {
-                params.set('from', fromTime);
-            }
-            if (toTime !== null) {
-                params.set('to', toTime);
-            }
-            
-            // Ставим команду агенту
+            params.set('limit', Math.max(processLogsPerPage * 10, 500));
+
+            if (fromTime !== null) params.set('from', fromTime);
+            if (toTime !== null) params.set('to', toTime);
+
             const response = await fetch(`${API_BASE}/processes.php?${params.toString()}`, { credentials: 'include' });
             if (!response.ok) {
-                // Скрываем индикатор загрузки при ошибке
-                if (loadingIndicator) loadingIndicator.style.display = 'none';
-                const logsContainer = document.getElementById('processes-logs-container');
-                if (logsContainer) logsContainer.style.display = 'block';
+                showProcessLogsUi();
                 throw new Error(`HTTP ${response.status}`);
             }
             const text = await response.text();
             const commandData = text ? JSON.parse(text) : {};
-            
+
             if (commandData.status === 'pending') {
-                // Команда поставлена, делаем polling для получения результата
                 let attempts = 0;
-                const maxAttempts = 30; // максимум 30 попыток (30 секунд)
-                
+                const maxAttempts = 90; // агент будит команды ~каждые 15с
+
                 const pollResult = async () => {
                     const resultParams = new URLSearchParams();
                     resultParams.set('node_id', nodeId);
                     resultParams.set('pid', currentPid);
                     resultParams.set('get-result', '1');
-                    
+
                     const resultResponse = await fetch(`${API_BASE}/processes.php?${resultParams.toString()}`, { credentials: 'include' });
                     if (!resultResponse.ok) {
-                        // Скрываем индикатор загрузки при ошибке
-                        const loadingIndicator = document.getElementById('processes-logs-loading');
-                        const logsContainer = document.getElementById('processes-logs-container');
-                        if (loadingIndicator) loadingIndicator.style.display = 'none';
-                        if (logsContainer) logsContainer.style.display = 'block';
+                        showProcessLogsUi();
                         throw new Error(`HTTP ${resultResponse.status}`);
                     }
                     const resultText = await resultResponse.text();
                     const resultData = resultText ? JSON.parse(resultText) : {};
-                    
-                    // Получаем элементы заново на случай если они изменились
-                    const loadingIndicator = document.getElementById('processes-logs-loading');
-                    const logsContainer = document.getElementById('processes-logs-container');
-                    const logsContent = document.getElementById('processes-logs-content');
-                    
-                    if (resultData.status === 'completed' && resultData.logs) {
-                        // Логи получены - скрываем индикатор загрузки
-                        if (loadingIndicator) loadingIndicator.style.display = 'none';
-                        if (logsContainer) logsContainer.style.display = 'block';
-                        
-                        const logs = resultData.logs || [];
+                    const content = document.getElementById('processes-logs-content');
+
+                    if (resultData.status === 'completed') {
+                        showProcessLogsUi();
+                        const logs = Array.isArray(resultData.logs) ? resultData.logs : [];
                         processLogsTotal = logs.length;
                         processLogsPage = 1;
-                        
-                        // Очищаем контейнер и показываем логи
-                        if (logsContent) {
-                            logsContent.innerHTML = '';
-                            appendProcessLogs(logs.slice(0, processLogsPerPage), true);
+                        window.allProcessLogs = logs;
+                        if (content) {
+                            content.innerHTML = '';
+                            if (logs.length) {
+                                appendProcessLogs(logs.slice(0, processLogsPerPage), true);
+                            } else {
+                                content.innerHTML = '<div class="text-center" style="color:var(--text-muted);padding:16px">Логов не найдено</div>';
+                            }
                         }
                         updateProcessPagination();
-                        
-                        // Сохраняем все логи для пагинации
-                        window.allProcessLogs = logs;
-                        
                         if (window.showToast) {
-                            window.showToast(`Загружено ${logs.length} логов с ноды`, 'success');
+                            window.showToast(`Загружено ${logs.length} логов с ноды`, logs.length ? 'success' : 'info');
                         }
                         return true;
-                    } else if (resultData.status === 'failed') {
-                        // Скрываем индикатор загрузки при ошибке
-                        if (loadingIndicator) loadingIndicator.style.display = 'none';
-                        if (logsContainer) logsContainer.style.display = 'block';
-                        
-                        if (window.showToast) {
-                            window.showToast('Ошибка загрузки логов с ноды', 'error');
-                        }
-                        return false;
-                    } else {
-                        // Еще выполняется, продолжаем polling
-                        attempts++;
-                        if (attempts < maxAttempts) {
-                            setTimeout(pollResult, 1000);
-                        } else {
-                            // Таймаут - скрываем индикатор загрузки
-                            if (loadingIndicator) loadingIndicator.style.display = 'none';
-                            if (logsContainer) logsContainer.style.display = 'block';
-                            
-                            if (window.showToast) {
-                                window.showToast('Таймаут загрузки логов с ноды, загружаю из БД', 'warning');
-                            }
-                            // Загружаем из БД
-                            loadProcessLogs(nodeId, 1, fromTime, toTime, false);
-                        }
+                    }
+                    if (resultData.status === 'failed') {
+                        showProcessLogsUi();
+                        if (window.showToast) window.showToast('Ошибка загрузки логов с ноды', 'error');
                         return false;
                     }
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(pollResult, 1000);
+                    } else {
+                        showProcessLogsUi();
+                        if (window.showToast) {
+                            window.showToast('Таймаут загрузки логов с ноды, загружаю из БД', 'warning');
+                        }
+                        loadProcessLogs(nodeId, 1, fromTime, toTime, false);
+                    }
+                    return false;
                 };
-                
-                // Начинаем polling через 2 секунды (даем агенту время выполнить команду)
-                setTimeout(pollResult, 2000);
-                return;
-            } else {
-                // Ошибка постановки команды - скрываем индикатор загрузки
-                if (loadingIndicator) loadingIndicator.style.display = 'none';
-                if (logsContainer) logsContainer.style.display = 'block';
-                
-                if (window.showToast) {
-                    window.showToast('Ошибка запроса логов с ноды', 'error');
-                }
-                // Fallback: загружаем из БД
-                loadProcessLogs(nodeId, 1, fromTime, toTime, false);
+
+                setTimeout(pollResult, 1500);
                 return;
             }
+
+            showProcessLogsUi();
+            if (window.showToast) window.showToast('Ошибка запроса логов с ноды', 'error');
+            loadProcessLogs(nodeId, 1, fromTime, toTime, false);
+            return;
         }
         
         // Обычная загрузка из БД
@@ -446,16 +410,16 @@ function appendProcessLogs(logs, replace = false) {
         container.innerHTML = '';
     }
     
-    // Фильтруем логи по PID если указан (но это уже делается на сервере)
+    // Сервер/агент уже отфильтровали по PID; клиентский фильтр только отсекает чужие pid
     const currentPid = window.currentProcessPid;
-    let filteredLogs = logs;
-    if (currentPid) {
-        filteredLogs = logs.filter(log => {
-            const logPid = log.pid || log.process_id;
-            return logPid == currentPid || (log.message && log.message.includes(`pid=${currentPid}`));
-        });
-    }
-    
+    const filteredLogs = currentPid
+        ? logs.filter((log) => {
+            const logPid = log.pid ?? log.process_id;
+            if (logPid == null || logPid === '') return true;
+            return Number(logPid) === Number(currentPid);
+        })
+        : logs;
+
     filteredLogs.forEach(log => {
         const entry = document.createElement('div');
         entry.className = 'log-entry';
