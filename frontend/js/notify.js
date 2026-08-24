@@ -135,14 +135,33 @@
                 document.body.appendChild(modal);
             }
 
-            const iconName = type === 'success' || type === 'info' ? 'info' : 'alert-triangle';
+            const kind = ['danger', 'warning', 'info', 'success'].includes(type) ? type : 'danger';
+            const icons = {
+                danger: 'alert-triangle',
+                warning: 'alert-triangle',
+                info: 'info',
+                success: 'check-circle',
+            };
+            const labels = {
+                danger: 'Подтвердить',
+                warning: 'Продолжить',
+                info: 'Подтвердить',
+                success: 'OK',
+            };
+            modal.dataset.confirmType = kind;
             const iconSlot = modal.querySelector('.confirm-icon');
-            if (iconSlot) iconSlot.innerHTML = `<i data-lucide="${iconName}"></i>`;
+            if (iconSlot) iconSlot.innerHTML = `<i data-lucide="${icons[kind]}"></i>`;
             document.getElementById('confirm-title').textContent = title;
-            document.getElementById('confirm-message').textContent = message;
+            const msgEl = document.getElementById('confirm-message');
+            msgEl.textContent = '';
+            String(message ?? '').split(/\n/).forEach((line, i, arr) => {
+                msgEl.appendChild(document.createTextNode(line));
+                if (i < arr.length - 1) msgEl.appendChild(document.createElement('br'));
+            });
             const cancelBtn = document.getElementById('confirm-cancel');
             const confirmBtn = document.getElementById('confirm-ok');
-            confirmBtn.className = `btn-confirm ${type === 'success' || type === 'info' ? 'success' : ''}`;
+            confirmBtn.className = `btn-confirm ${kind}`;
+            confirmBtn.textContent = labels[kind] || 'Подтвердить';
             paintIcons(modal);
 
             const finish = (result) => {
@@ -151,6 +170,7 @@
                 cancelBtn.removeEventListener('click', onCancel);
                 confirmBtn.removeEventListener('click', onConfirm);
                 modal.removeEventListener('click', onBackdrop);
+                document.removeEventListener('keydown', onKey);
                 modal.classList.remove('active');
                 setTimeout(() => modal.classList.add('hidden'), 200);
                 resolve(result);
@@ -160,13 +180,26 @@
             const onBackdrop = (e) => {
                 if (e.target === modal) finish(false);
             };
+            const onKey = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    finish(false);
+                } else if (e.key === 'Enter' && !e.target.closest('textarea, [contenteditable]')) {
+                    e.preventDefault();
+                    finish(true);
+                }
+            };
 
             modal._hmConfirmFinish = finish;
             cancelBtn.addEventListener('click', onCancel);
             confirmBtn.addEventListener('click', onConfirm);
             modal.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
             modal.classList.remove('hidden');
-            setTimeout(() => modal.classList.add('active'), 10);
+            setTimeout(() => {
+                modal.classList.add('active');
+                confirmBtn.focus();
+            }, 10);
         });
     };
 

@@ -1039,6 +1039,93 @@ class MonitoringAgent:
                 # Отправляем обновления на сервер
                 self.send_updates(updates, os_info)
                 return True
+            elif command.startswith('install-updates') or command.startswith('install-update-batch'):
+                # Пакетная установка: список пакетов с панели (pending-install)
+                _log('=== INSTALL-UPDATES (batch) START ===')
+                packages = []
+                try:
+                    resp = _request_with_retry(
+                        'GET',
+                        f"{self.master_url}/api/updates.php?action=pending-install",
+                        headers=self.headers,
+                        verify=_get_verify(),
+                        timeout=20,
+                    )
+                    if resp and resp.status_code in (200, 201):
+                        data = resp.json() if resp.text else {}
+                        packages = list(data.get('packages') or [])
+                except Exception as e:
+                    _log(f'pending-install fetch failed: {e}')
+                if not packages:
+                    _log('No queued packages for install-updates')
+                    return True
+
+                # Безопасные имена пакетов
+                safe = []
+                for pkg in packages:
+                    name = str(pkg or '').strip()
+                    if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9+._:-]*$', name):
+                        safe.append(name)
+                    else:
+                        _log(f'Skip unsafe package name: {pkg}')
+                        self.report_update_result(str(pkg), False, '', 'Unsafe package name')
+
+                if not safe:
+                    return False
+
+                _log(f'Batch install {len(safe)} packages via apt-get')
+                ok_all = True
+                try:
+                    # Один apt-get на всю пачку (быстрее, чем по одному)
+                    timeout = min(3600, max(300, 60 * len(safe)))
+                    result = subprocess.run(
+                        ['apt-get', 'install', '-y', *safe],
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        check=False,
+                    )
+                    batch_ok = result.returncode == 0
+                    err_tail = (result.stderr or result.stdout or '')[-800:]
+                    if not batch_ok:
+                        _log(f'Batch apt-get failed: {err_tail}')
+                        # Fallback: по одному, чтобы частично успешные попали в историю
+                        for package in safe:
+                            success, installed_version, error_message = self.install_update(package)
+                            ok_all = success and ok_all
+                            msg = (
+                                f'Package {package} updated successfully'
+                                if success else
+                                f'Failed to install {package}' + (f': {error_message}' if error_message else '')
+                            )
+                            self.report_update_result(package, success, installed_version or '', msg)
+                    else:
+                        for package in safe:
+                            installed_version = ''
+                            try:
+                                version_result = subprocess.run(
+                                    ['dpkg-query', '-W', '-f=${Version}', package],
+                                    capture_output=True, text=True, timeout=5, check=False,
+                                )
+                                if version_result.returncode == 0:
+                                    installed_version = (version_result.stdout or '').strip()
+                            except Exception:
+                                pass
+                            self.report_update_result(
+                                package, True, installed_version,
+                                f'Package {package} updated successfully' + (f' to {installed_version}' if installed_version else ''),
+                            )
+                except subprocess.TimeoutExpired:
+                    ok_all = False
+                    for package in safe:
+                        self.report_update_result(package, False, '', f'Timeout installing batch including {package}')
+                except Exception as e:
+                    ok_all = False
+                    _log(f'Batch install exception: {e}')
+                    for package in safe:
+                        self.report_update_result(package, False, '', str(e)[:400])
+                _log('=== INSTALL-UPDATES (batch) END ===')
+                return ok_all
             elif command.startswith('install-update'):
                 # Установка обновления
                 _log(f"=== INSTALL-UPDATE COMMAND START ===")

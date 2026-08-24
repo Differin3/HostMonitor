@@ -9,10 +9,66 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = $_GET['action'] ?? null;
 $pdo = getDbConnection();
 
+/** Колонка очереди пакетной установки (один pending на ноду). */
+function updates_ensure_queued_column(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    try {
+        $pdo->exec("ALTER TABLE node_updates ADD COLUMN install_queued TINYINT(1) NOT NULL DEFAULT 0");
+    } catch (Throwable $e) {
+        // уже есть
+    }
+    $done = true;
+}
+
+updates_ensure_queued_column($pdo);
+
+/** SQL-фрагмент статуса установки пакета */
+function updates_install_status_sql(): string
+{
+    return "CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM update_history uh 
+            WHERE uh.node_id = nu.node_id 
+            AND uh.package = nu.package 
+            AND uh.success = 1 
+            AND uh.timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+        ) THEN 'completed'
+        WHEN COALESCE(nu.install_queued, 0) = 1
+            AND n.last_command IN ('install-updates', 'install-update-batch')
+            AND n.command_status = 'pending'
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'pending'
+        WHEN COALESCE(nu.install_queued, 0) = 1
+            AND n.last_command IN ('install-updates', 'install-update-batch')
+            AND n.command_status IN ('completed', 'running', 'installing')
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'installing'
+        WHEN n.last_command IS NOT NULL 
+            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
+            AND n.command_status = 'pending' 
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'pending'
+        WHEN n.last_command IS NOT NULL 
+            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
+            AND n.command_status IN ('completed', 'running', 'installing')
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'installing'
+        ELSE 'available'
+    END as install_status";
+}
+
 // Для GET запросов (история, проверка) проверяем сессию пользователя
-// Для POST запросов от агента (report, result) проверяем токен
+// Для POST запросов от агента (report, result, pending-install) проверяем токен
 $nodeInfo = null;
-if ($method === 'GET') {
+if ($method === 'GET' && ($action === 'pending-install')) {
+    $auth = require_api_auth($pdo);
+    $nodeInfo = $auth['node'] ?? null;
+    if (!$nodeInfo) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Unauthorized']);
+        exit;
+    }
+} elseif ($method === 'GET') {
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
@@ -22,7 +78,7 @@ if ($method === 'GET') {
         exit;
     }
     session_write_close();
-} elseif ($method === 'POST' && ($action === 'report' || $action === 'result')) {
+} elseif ($method === 'POST' && ($action === 'report' || $action === 'result' || $action === 'pending-install')) {
     // Для action=report и action=result проверяем токен агента
     $auth = require_api_auth($pdo);
     $nodeInfo = $auth['node'];
@@ -275,6 +331,14 @@ try {
                 } catch (Exception $e) {
                     error_log("Error deleting update entry: " . $e->getMessage());
                 }
+            } else {
+                // Снимаем флаг очереди, чтобы пакет снова был «доступен»
+                try {
+                    $pdo->prepare("UPDATE node_updates SET install_queued = 0 WHERE node_id = ? AND package = ?")
+                        ->execute([$nodeId, $package]);
+                } catch (Throwable $e) {
+                    // ignore
+                }
             }
             
             echo json_encode(['success' => true]);
@@ -338,24 +402,7 @@ try {
             if ($nodeId) {
                 $updatesStmt = $pdo->prepare("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
                     n.command_status, n.last_command, n.command_timestamp,
-                    CASE 
-                        WHEN EXISTS (
-                            SELECT 1 FROM update_history uh 
-                            WHERE uh.node_id = nu.node_id 
-                            AND uh.package = nu.package 
-                            AND uh.success = 1 
-                            AND uh.timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-                        ) THEN 'completed'
-                        WHEN n.last_command IS NOT NULL 
-                            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
-                            AND n.command_status = 'pending' 
-                            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'pending'
-                        WHEN n.last_command IS NOT NULL 
-                            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
-                            AND n.command_status = 'completed' 
-                            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'installing'
-                        ELSE 'available'
-                    END as install_status
+                    " . updates_install_status_sql() . "
                     FROM node_updates nu 
                     JOIN nodes n ON nu.node_id = n.id 
                     WHERE nu.node_id = ?
@@ -364,24 +411,7 @@ try {
             } else {
                 $updatesStmt = $pdo->query("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
                     n.command_status, n.last_command, n.command_timestamp,
-                    CASE 
-                        WHEN EXISTS (
-                            SELECT 1 FROM update_history uh 
-                            WHERE uh.node_id = nu.node_id 
-                            AND uh.package = nu.package 
-                            AND uh.success = 1 
-                            AND uh.timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-                        ) THEN 'completed'
-                        WHEN n.last_command IS NOT NULL 
-                            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
-                            AND n.command_status = 'pending' 
-                            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'pending'
-                        WHEN n.last_command IS NOT NULL 
-                            AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
-                            AND n.command_status = 'completed' 
-                            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'installing'
-                        ELSE 'available'
-                    END as install_status
+                    " . updates_install_status_sql() . "
                     FROM node_updates nu 
                     JOIN nodes n ON nu.node_id = n.id 
                     ORDER BY nu.priority DESC, nu.package ASC");
@@ -397,7 +427,8 @@ try {
                     'new_version' => $update['new_version'] ?? '-',
                     'priority' => $update['priority'] ?? 'normal',
                     'node_id' => $update['node_id'],
-                    'node_name' => $update['node_name']
+                    'node_name' => $update['node_name'],
+                    'install_status' => $update['install_status'] ?? 'available',
                 ];
             }
             
@@ -431,80 +462,134 @@ try {
                 echo json_encode(['error' => 'No updates specified']);
                 exit;
             }
-            
-            $queued = 0;
+
+            // Группируем по ноде: одна pending-команда на ноду, список пакетов в БД
+            $byNode = [];
             $errors = [];
-            
             foreach ($updates as $update) {
-                $nodeId = $update['node_id'] ?? null;
-                $package = $update['package'] ?? '';
-                $version = $update['new_version'] ?? '';
-                $nodeName = $update['node_name'] ?? '';
-                
-                if (!$nodeId) {
-                    $errors[] = "Node ID not specified for package {$package}";
+                if (!is_array($update)) {
                     continue;
                 }
-                
-                // Проверяем что нода онлайн
-                $nodeStmt = $pdo->prepare("SELECT name, status FROM nodes WHERE id = ?");
+                $nodeId = (int)($update['node_id'] ?? 0);
+                $package = trim((string)($update['package'] ?? ''));
+                if ($nodeId <= 0 || $package === '') {
+                    $errors[] = 'Не указаны node_id/package';
+                    continue;
+                }
+                if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9+._:-]*$/', $package)) {
+                    $errors[] = "Некорректное имя пакета: {$package}";
+                    continue;
+                }
+                $byNode[$nodeId][] = [
+                    'package' => $package,
+                    'new_version' => (string)($update['new_version'] ?? ''),
+                ];
+            }
+
+            $queued = 0;
+            $nodesQueued = 0;
+            $nodeNames = [];
+
+            foreach ($byNode as $nodeId => $pkgs) {
+                $nodeStmt = $pdo->prepare("SELECT id, name, status, last_command, command_status FROM nodes WHERE id = ?");
                 $nodeStmt->execute([$nodeId]);
                 $node = $nodeStmt->fetch(PDO::FETCH_ASSOC);
-                
                 if (!$node) {
-                    $errors[] = "Node ID {$nodeId} not found";
+                    $errors[] = "Нода #{$nodeId} не найдена";
                     continue;
                 }
-                
-                if ($node['status'] !== 'online') {
-                    $errors[] = "Node {$node['name']} is offline, cannot install updates";
+                if (($node['status'] ?? '') !== 'online') {
+                    $errors[] = "Нода {$node['name']} офлайн";
                     continue;
                 }
-                
-                // Отправляем команду установки обновления на ноду
-                // Включаем версию в команду для отчёта
-                $command = "install-update {$package}";
-                if ($version) {
-                    $command .= " {$version}";
-                }
-                
-                // Проверяем, нет ли уже активной команды для этой ноды
-                $checkStmt = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?");
-                $checkStmt->execute([$nodeId]);
-                $currentNode = $checkStmt->fetch(PDO::FETCH_ASSOC);
-                
-                if ($currentNode && $currentNode['command_status'] === 'pending' && $currentNode['last_command']) {
-                    // Если команда - это check-updates, очищаем её и разрешаем установку
-                    if ($currentNode['last_command'] === 'check-updates') {
-                        error_log("Clearing check-updates command for node {$node['name']} (ID: {$nodeId}) to allow update installation");
-                        $clearStmt = $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?");
-                        $clearStmt->execute([$nodeId]);
+
+                $pendingCmd = trim((string)($node['last_command'] ?? ''));
+                $pendingStatus = (string)($node['command_status'] ?? '');
+                if ($pendingStatus === 'pending' && $pendingCmd !== '') {
+                    $allowReplace = in_array($pendingCmd, ['check-updates', 'install-updates', 'install-update-batch'], true)
+                        || str_starts_with($pendingCmd, 'install-update ');
+                    if ($allowReplace) {
+                        $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?")
+                            ->execute([$nodeId]);
+                        $pdo->prepare("UPDATE node_updates SET install_queued = 0 WHERE node_id = ?")->execute([$nodeId]);
                     } else {
-                        // Если это другая команда (например, install-update), не разрешаем новую установку
-                        error_log("WARNING: Node {$node['name']} (ID: {$nodeId}) already has pending command: {$currentNode['last_command']}. Skipping new command.");
-                        $errors[] = "Node {$node['name']} already has a pending command: {$currentNode['last_command']}";
+                        $errors[] = "Нода {$node['name']} занята командой: {$pendingCmd}";
                         continue;
                     }
                 }
-                
-                $updateStmt = $pdo->prepare("UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
-                $updateStmt->execute([$command, $nodeId]);
-                
-                error_log("=== QUEUED UPDATE INSTALLATION ===");
-                error_log("Node: {$node['name']} (ID: {$nodeId})");
-                error_log("Package: {$package}");
-                error_log("Version: {$version}");
-                error_log("Command: {$command}");
-                error_log("Command saved to database");
-                $queued++;
+
+                $mark = $pdo->prepare("UPDATE node_updates SET install_queued = 1 WHERE node_id = ? AND package = ?");
+                $marked = 0;
+                foreach ($pkgs as $p) {
+                    $mark->execute([$nodeId, $p['package']]);
+                    if ($mark->rowCount() > 0) {
+                        $marked++;
+                    } else {
+                        // пакета нет в node_updates — всё равно ставим флаг если вставим? нет, только известные
+                        $errors[] = "Пакет {$p['package']} не найден в списке обновлений ноды {$node['name']}";
+                    }
+                }
+                if ($marked === 0) {
+                    continue;
+                }
+
+                $payload = json_encode([
+                    'packages' => array_values(array_unique(array_map(static fn($p) => $p['package'], $pkgs))),
+                    'count' => $marked,
+                ], JSON_UNESCAPED_UNICODE);
+
+                $pdo->prepare(
+                    "UPDATE nodes SET last_command = 'install-updates', command_status = 'pending',
+                     command_timestamp = NOW(), command_result = ? WHERE id = ?"
+                )->execute([$payload, $nodeId]);
+
+                $queued += $marked;
+                $nodesQueued++;
+                $nodeNames[] = (string)$node['name'];
             }
-            
+
+            $msg = $nodesQueued > 0
+                ? "В очередь: {$queued} пакет(ов) на {$nodesQueued} нод(ах): " . implode(', ', $nodeNames)
+                : 'Не удалось поставить обновления в очередь';
+            if ($errors) {
+                $msg .= '. Ошибок: ' . count($errors);
+            }
+
+            echo json_encode([
+                'success' => $queued > 0,
+                'queued' => $queued,
+                'nodes' => $nodesQueued,
+                'errors' => $errors,
+                'message' => $msg,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        } elseif ($action === 'pending-install') {
+            // Агент забирает список пакетов для batch-установки
+            if (!$nodeInfo) {
+                http_response_code(401);
+                echo json_encode(['error' => 'Unauthorized']);
+                exit;
+            }
+            $nodeId = (int)$nodeInfo['id'];
+            $stmt = $pdo->prepare(
+                "SELECT package, current_version, new_version, priority
+                 FROM node_updates
+                 WHERE node_id = ? AND COALESCE(install_queued, 0) = 1
+                 ORDER BY FIELD(priority, 'security', 'important', 'normal'), package ASC"
+            );
+            try {
+                $stmt->execute([$nodeId]);
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e) {
+                $rows = [];
+            }
             echo json_encode([
                 'success' => true,
-                'queued' => $queued,
-                'errors' => $errors,
-                'message' => "Queued {$queued} update(s) for installation. Results will appear in history when agent completes."
-            ]);
+                'node_id' => $nodeId,
+                'packages' => array_column($rows, 'package'),
+                'updates' => $rows,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
         } else {
             http_response_code(400);
             echo json_encode(['error' => 'Invalid action']);

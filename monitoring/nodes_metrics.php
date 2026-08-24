@@ -7,6 +7,13 @@ render_layout_start('Метрики нод', 'nodes-metrics');
         <select id="nodeFilter" class="compact-select">
             <option value="">Выберите ноду</option>
         </select>
+        <div class="dash-ranges" id="metrics-ranges" role="tablist" aria-label="Диапазон графиков">
+            <button type="button" data-range="15m">15 мин</button>
+            <button type="button" data-range="1h" class="active">1 час</button>
+            <button type="button" data-range="6h">6 часов</button>
+            <button type="button" data-range="24h">сутки</button>
+            <button type="button" data-range="7d">7 дней</button>
+        </div>
         <button class="icon-btn" id="refresh-metrics" type="button" title="Обновить">
             <i data-lucide="refresh-cw"></i>
         </button>
@@ -16,7 +23,7 @@ render_layout_start('Метрики нод', 'nodes-metrics');
         <div id="metrics-empty" class="empty-state">
             <i data-lucide="search"></i>
             <h3>Выберите ноду</h3>
-            <p>CPU, RAM и диск появятся после выбора сервера</p>
+            <p>Снимок и графики CPU, RAM, диска и сети появятся после выбора сервера</p>
         </div>
         <div id="metrics-data" style="display: none;">
             <div class="stats-grid stats-grid-dash">
@@ -74,6 +81,39 @@ render_layout_start('Метрики нод', 'nodes-metrics');
                         <p class="stat-subtitle" id="gpu-sub">—</p>
                     </div>
                 </div>
+            </div>
+
+            <div class="metrics-charts">
+                <article class="chart-card">
+                    <div class="chart-header">
+                        <h3>Ресурсы</h3>
+                        <span class="chart-range" id="range-res">CPU · RAM · диск</span>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="metrics-res-chart"></canvas>
+                        <p class="metrics-chart-empty hidden" id="empty-res">Нет истории за выбранный период</p>
+                    </div>
+                </article>
+                <article class="chart-card">
+                    <div class="chart-header">
+                        <h3>Сеть</h3>
+                        <span class="chart-range" id="range-net">вход · выход</span>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="metrics-net-chart"></canvas>
+                        <p class="metrics-chart-empty hidden" id="empty-net">Нет истории за выбранный период</p>
+                    </div>
+                </article>
+                <article class="chart-card metrics-chart-wide">
+                    <div class="chart-header">
+                        <h3>Нагрузка</h3>
+                        <span class="chart-range" id="range-load">load · swap</span>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="metrics-load-chart"></canvas>
+                        <p class="metrics-chart-empty hidden" id="empty-load">Нет истории за выбранный период</p>
+                    </div>
+                </article>
             </div>
         </div>
     </div>

@@ -151,15 +151,6 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                     </div>
                 </div>
                 <div class="topbar-right">
-                    <label class="search-chip">
-                        <i data-lucide="search"></i>
-                        <input type="search" placeholder="Поиск узлов..." aria-label="Поиск">
-                    </label>
-                    <div class="avatar-stack" title="Онлайн">
-                        <span class="mini-avatar"><img src="https://api.dicebear.com/9.x/notionists/svg?seed=Alex&backgroundColor=1e293b" alt=""></span>
-                        <span class="mini-avatar"><img src="https://api.dicebear.com/9.x/notionists/svg?seed=Mia&backgroundColor=1e293b" alt=""></span>
-                        <span class="mini-avatar"><img src="https://api.dicebear.com/9.x/notionists/svg?seed=Ken&backgroundColor=1e293b" alt=""></span>
-                    </div>
                     <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
                     <div class="panel-update-actions" id="panelUpdateActions">
                         <button type="button" class="icon-btn panel-update-check" id="panelUpdateCheckBtn" title="Проверить обновление панели" aria-label="Проверить обновление панели">
@@ -269,7 +260,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                                 'upnp' => 'Сетевое оборудование UPnP / IGD',
                                 'databases' => 'MySQL, MariaDB и PostgreSQL · опрос с панели',
                                 'nodes-stats' => 'Нагрузка серверов без лишних графиков',
-                                'nodes-metrics' => 'CPU, RAM и диск выбранной ноды',
+                                'nodes-metrics' => 'Снимок и графики CPU, RAM, диска и сети выбранной ноды',
                                 'nodes-traffic' => 'Вход и выход по нодам',
                                 'nodes-billing' => 'Сроки и платежи',
                                 'updates' => 'Пакеты и безопасность',

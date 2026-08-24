@@ -217,7 +217,7 @@ els.grid?.addEventListener('click', async (event) => {
     }
     const delBtn = event.target.closest('[data-del-map]');
     if (!delBtn) return;
-    const ok = await (window.showConfirm ? window.showConfirm('Удалить port mapping?', 'UPnP', 'danger') : Promise.resolve(confirm('Удалить mapping?')));
+    const ok = await window.showConfirm('Удалить port mapping?', 'UPnP', 'danger');
     if (!ok) return;
     try {
         await fetchJson(`${API_BASE}/upnp.php?action=delete-mapping`, {

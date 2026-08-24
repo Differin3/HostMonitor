@@ -1913,6 +1913,52 @@ select optgroup {
     height: 100% !important;
 }
 
+.metrics-charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.metrics-charts .chart-card {
+    margin: 0;
+}
+
+.metrics-charts .metrics-chart-wide {
+    grid-column: 1 / -1;
+}
+
+.metrics-chart-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.metrics-chart-empty.hidden {
+    display: none;
+}
+
+.compact-filters .dash-ranges {
+    margin: 0;
+}
+
+@media (max-width: 900px) {
+    .metrics-charts {
+        grid-template-columns: 1fr;
+    }
+    .metrics-charts .metrics-chart-wide {
+        grid-column: auto;
+    }
+}
+
+
 .dashboard .card-header,
 .dashboard .chart-header {
     margin-bottom: 12px;

@@ -501,7 +501,9 @@ async function installUpdates() {
         if (result.success) {
             const queued = result.queued || result.installed || 0;
             selected.forEach((u) => selectedUpdateKeys.delete(updateSelectionKey(u)));
-            if (result.errors && result.errors.length > 0) {
+            if (result.message) {
+                showToast(result.message, queued > 0 ? (result.errors?.length ? 'warning' : 'success') : 'error');
+            } else if (result.errors && result.errors.length > 0) {
                 showToast(`Поставлено в очередь: ${queued}, ошибок: ${result.errors.length}`, 'warning');
             } else {
                 showToast(`Команда отправлена: ${queued} обновлений поставлено в очередь`, 'success');
@@ -1106,9 +1108,11 @@ async function checkAgentUpdates() {
 async function applyAgentUpdates() {
     if (agentBusy) return;
     try {
-        const confirmed = window.confirm
-            ? window.confirm('Обновить агенты на всех онлайн-нодах с доступным обновлением?')
-            : true;
+        const confirmed = await window.showConfirm(
+            'Обновить агенты на всех онлайн-нодах с доступным обновлением?',
+            'Обновление агентов',
+            'warning'
+        );
         if (!confirmed) return;
 
         agentBusy = true;
@@ -1150,9 +1154,11 @@ async function applyAgentUpdateOne(nodeId) {
     if (!id) return;
     const node = agentNodesCache.find((n) => Number(n.id) === id);
     const name = node?.name || `#${id}`;
-    const confirmed = window.confirm
-        ? window.confirm(`Обновить агент на «${name}»?`)
-        : true;
+    const confirmed = await window.showConfirm(
+        `Обновить агент на «${name}»?`,
+        'Обновление агента',
+        'warning'
+    );
     if (!confirmed) return;
     try {
         agentBusy = true;

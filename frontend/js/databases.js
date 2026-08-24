@@ -344,7 +344,8 @@ async function uploadDbmonSslCa() {
 async function removeDbmonSslCa() {
     const id = Number(document.getElementById('dbmon-id').value);
     if (!id) return;
-    if (!confirm('Удалить CA-сертификат для этой базы?')) return;
+    const confirmed = await window.showConfirm('Удалить CA-сертификат для этой базы?', 'CA-сертификат', 'warning');
+    if (!confirmed) return;
     try {
         const data = await fetchJson(`${API_BASE}/databases.php`, {
             method: 'POST',
@@ -392,7 +393,8 @@ els.grid?.addEventListener('click', async (e) => {
             if (row) openModal(row);
         }
         if (del) {
-            if (!confirm('Убрать эту базу из мониторинга?')) return;
+            const confirmed = await window.showConfirm('Убрать эту базу из мониторинга?', 'Удаление базы', 'danger');
+            if (!confirmed) return;
             await fetchJson(`${API_BASE}/databases.php?id=${del.dataset.del}`, { method: 'DELETE' });
             await load(false);
             window.showToast?.('Удалено', 'success');

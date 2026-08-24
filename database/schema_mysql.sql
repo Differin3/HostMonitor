@@ -516,10 +516,12 @@ CREATE TABLE IF NOT EXISTS node_updates (
     os_version VARCHAR(100),
     kernel_version VARCHAR(100),
     last_check TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    install_queued TINYINT(1) NOT NULL DEFAULT 0,
     UNIQUE KEY unique_node_package (node_id, package),
     INDEX idx_node_id (node_id),
     INDEX idx_priority (priority),
-    INDEX idx_last_check (last_check)
+    INDEX idx_last_check (last_check),
+    INDEX idx_install_queued (install_queued)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- UPnP: сетевое оборудование
 CREATE TABLE IF NOT EXISTS upnp_devices (

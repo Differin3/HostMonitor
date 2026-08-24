@@ -3660,6 +3660,15 @@ body:not(.light) .db-sync-result.is-error {
     color: var(--warning);
 }
 
+.confirm-modal[data-confirm-type="danger"] .confirm-header i {
+    color: var(--danger, #ef4444);
+}
+
+.confirm-modal[data-confirm-type="info"] .confirm-header i,
+.confirm-modal[data-confirm-type="success"] .confirm-header i {
+    color: var(--info, #38bdf8);
+}
+
 .confirm-header h3 {
     font-size: 18px;
     font-weight: 600;
@@ -3701,7 +3710,7 @@ body:not(.light) .db-sync-result.is-error {
 }
 
 .confirm-actions .btn-confirm {
-    background: var(--danger);
+    background: var(--danger, #ef4444);
     color: white;
 }
 
@@ -3709,8 +3718,29 @@ body:not(.light) .db-sync-result.is-error {
     background: #dc2626;
 }
 
+.confirm-actions .btn-confirm.warning {
+    background: var(--warning, #f59e0b);
+    color: #111;
+}
+
+.confirm-actions .btn-confirm.warning:hover {
+    background: #d97706;
+    color: #111;
+}
+
+.confirm-actions .btn-confirm.info,
 .confirm-actions .btn-confirm.success {
-    background: var(--success);
+    background: var(--info, #2563eb);
+    color: white;
+}
+
+.confirm-actions .btn-confirm.info:hover,
+.confirm-actions .btn-confirm.success:hover {
+    background: #1d4ed8;
+}
+
+.confirm-actions .btn-confirm.success {
+    background: var(--success, #16a34a);
 }
 
 .confirm-actions .btn-confirm.success:hover {

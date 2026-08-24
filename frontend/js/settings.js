@@ -375,13 +375,11 @@ async function runDbSync(direction) {
         to_replica: 'Скопировать основную базу на резерв',
         to_primary: 'Скопировать резервную базу на основную',
     };
-    const confirmed = window.showConfirm
-        ? await window.showConfirm(
+    const confirmed = await window.showConfirm(
             `${titles[direction] || 'Копирование'}.\n\nВсе таблицы на приёмнике будут удалены и созданы заново из источника. Копирование идёт короткими порциями (без таймаута 504).\n\nПродолжить?`,
             'Копирование базы',
             'warning'
-        )
-        : confirm('Таблицы на приёмнике будут перезаписаны. Продолжить?');
+        );
     if (!confirmed) return;
 
     dbSyncAbort = false;
@@ -765,9 +763,7 @@ async function uploadSslCa() {
 
 async function removeSslCa() {
     if (!dbHaEditable) return;
-    const confirmed = window.showConfirm
-        ? await window.showConfirm('Удалить загруженный CA-сертификат?', 'CA-сертификат', 'warning')
-        : confirm('Удалить CA-сертификат?');
+    const confirmed = await window.showConfirm('Удалить загруженный CA-сертификат?', 'CA-сертификат', 'warning');
     if (!confirmed) return;
     try {
         const data = await dbHaRequest({ action: 'remove_ssl_ca' });

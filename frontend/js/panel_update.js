@@ -102,15 +102,13 @@
 
     async function applyPanelUpdate(force = false) {
         if (isApplying || (!updateAvailable && !force)) return;
-        const confirmed = window.showConfirm
-            ? await window.showConfirm(
-                force
-                    ? 'Сбросить локальные изменения на сервере и обновить панель?\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.'
-                    : 'Обновить панель из репозитория?\n\nБудет выполнен git pull. Страница перезагрузится после успешного обновления.',
-                force ? 'Сброс и обновление' : 'Обновление панели',
-                force ? 'warning' : 'info'
-            )
-            : confirm(force ? 'Сбросить локальные изменения и обновить?' : 'Обновить панель из репозитория?');
+        const confirmed = await window.showConfirm(
+            force
+                ? 'Сбросить локальные изменения на сервере и обновить панель?\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.'
+                : 'Обновить панель из репозитория?\n\nБудет выполнен git pull. Страница перезагрузится после успешного обновления.',
+            force ? 'Сброс и обновление' : 'Обновление панели',
+            force ? 'warning' : 'info'
+        );
         if (!confirmed) return;
 
         const btn = applyBtn();
@@ -130,15 +128,13 @@
                 setTimeout(() => location.reload(), 1500);
             } else if (data.dirty && !force) {
                 const files = (data.dirty_files || []).slice(0, 6).join('\n');
-                const again = window.showConfirm
-                    ? await window.showConfirm(
-                        (data.error || 'Локальные изменения') +
-                            (files ? '\n\n' + files : '') +
-                            '\n\nСбросить их и обновить панель?',
-                        'Локальные изменения',
-                        'warning'
-                    )
-                    : confirm('Сбросить локальные изменения и обновить?');
+                const again = await window.showConfirm(
+                    (data.error || 'Локальные изменения') +
+                        (files ? '\n\n' + files : '') +
+                        '\n\nСбросить их и обновить панель?',
+                    'Локальные изменения',
+                    'warning'
+                );
                 if (again) {
                     isApplying = false;
                     setBtnLoading(btn, false, 'download');

@@ -222,9 +222,7 @@
 
     async function removeSslCa() {
         if (!dbHaEditable) return;
-        const confirmed = window.showConfirm
-            ? await window.showConfirm('Удалить загруженный CA-сертификат?', 'CA-сертификат', 'warning')
-            : confirm('Удалить CA-сертификат?');
+        const confirmed = await window.showConfirm('Удалить загруженный CA-сертификат?', 'CA-сертификат', 'warning');
         if (!confirmed) return;
         try {
             const data = await dbHaRequest({ action: 'remove_ssl_ca' });
@@ -284,7 +282,12 @@
 
         const sync = async (direction, label) => {
             if (!dbHaEditable) return;
-            if (!confirm(`${label}. Таблицы на приёмнике будут перезаписаны. Продолжить?`)) return;
+            const confirmed = await window.showConfirm(
+                `${label}. Таблицы на приёмнике будут перезаписаны. Продолжить?`,
+                'Копирование базы',
+                'warning'
+            );
+            if (!confirmed) return;
             dbHaLog('Копирование… это может занять несколько минут.', false);
             try {
                 const data = await dbHaRequest({ action: 'sync', direction });
