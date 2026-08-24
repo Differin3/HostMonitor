@@ -482,6 +482,12 @@ function endpointLabel(ep) {
     return `${ep.host}${port}${name}`;
 }
 
+function setHostLabel(el, text) {
+    if (!el) return;
+    el.textContent = text;
+    el.title = text && text !== '—' && text !== 'выключен' && text !== 'не задан' ? text : '';
+}
+
 function setHaPill(id, label, ok, extra) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -563,20 +569,20 @@ function paintDbmonHa(data) {
         );
     }
 
-    if (haEls.primaryLabel) haEls.primaryLabel.textContent = endpointLabel(primary);
+    if (haEls.primaryLabel) setHostLabel(haEls.primaryLabel, endpointLabel(primary));
     if (haEls.replicaLabel) {
-        haEls.replicaLabel.textContent = data.replica_enabled ? endpointLabel(replica) : 'выключен';
+        setHostLabel(haEls.replicaLabel, data.replica_enabled ? endpointLabel(replica) : 'выключен');
     }
 
     const notes = [];
     if (!data.replica_enabled) {
-        notes.push('Резерв выключен — включите и укажите хост в Настройках.');
+        notes.push('Резерв выключен — включите в Настройках.');
     } else if (!dbHaEditable) {
-        notes.push('Синхронизация недоступна: нет связи ни с основной, ни с резервной базой.');
+        notes.push('Нет связи с основной и резервом — синхронизация недоступна.');
     } else if (data.active_role === 'replica') {
-        notes.push('Панель сейчас на резерве. После восстановления основной можно переключить кнопкой «На основную».');
+        notes.push('Панель на резерве. После восстановления основной нажмите «На основную».');
     } else {
-        notes.push('Снимок копирует все таблицы целиком (не binlog-репликация). На приёмнике таблицы пересоздаются.');
+        notes.push('Полный снимок таблиц (не live-репликация). На приёмнике таблицы пересоздаются.');
     }
     if (haEls.note) haEls.note.textContent = notes.join(' ');
 

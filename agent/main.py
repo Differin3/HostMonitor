@@ -2877,7 +2877,7 @@ class MonitoringAgent:
             name = c.get("name") or cid[:12]
             try:
                 result = subprocess.run(
-                    ["docker", "logs", "--tail", str(tail), cid],
+                    ["docker", "logs", "--tail", str(tail), "--timestamps", cid],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -2898,14 +2898,27 @@ class MonitoringAgent:
                     line = line.strip()
                     if not line:
                         continue
-                    level = 'error' if re.search(r'\b(error|fatal|panic)\b', line, re.I) else 'info'
+                    ts = now
+                    msg = line
+                    # docker --timestamps: 2024-01-15T12:34:56.123456789Z message
+                    m = re.match(
+                        r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s+(.*)$',
+                        line,
+                    )
+                    if m:
+                        try:
+                            ts = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            pass
+                        msg = m.group(2).strip() or line
+                    level = 'error' if re.search(r'\b(error|fatal|panic)\b', msg, re.I) else 'info'
                     logs.append(
                         {
                             "type": "container",
                             "container_id": cid,
                             "level": level,
-                            "message": line,
-                            "timestamp": now,
+                            "message": msg,
+                            "timestamp": ts,
                         }
                     )
             except Exception as e:

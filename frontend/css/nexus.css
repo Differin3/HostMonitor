@@ -2082,206 +2082,249 @@ select optgroup {
 .dbmon-chart-card { margin-top: 8px; }
 
 .dbmon-ha-card {
-    margin: 16px 0 20px;
-    padding: 16px 18px 14px;
+    margin: 14px 0 18px;
+    padding: 14px 16px;
+    overflow: hidden;
 }
 
-.dbmon-ha-head {
+.dbmon-ha-top {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: 12px 16px;
     flex-wrap: wrap;
     margin-bottom: 12px;
 }
 
-.dbmon-ha-title {
+.dbmon-ha-brand {
     display: flex;
-    gap: 12px;
     align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 220px;
+}
+
+.dbmon-ha-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    flex-shrink: 0;
+}
+
+.dbmon-ha-icon i,
+.dbmon-ha-icon svg {
+    width: 16px;
+    height: 16px;
+    color: #60a5fa;
+}
+
+.dbmon-ha-brand-text {
     min-width: 0;
 }
 
-.dbmon-ha-title > i,
-.dbmon-ha-title > svg {
-    width: 22px;
-    height: 22px;
-    color: var(--accent, #60a5fa);
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-
-.dbmon-ha-title h3 {
-    margin: 0 0 4px;
-    font-size: 15px;
+.dbmon-ha-brand-text h3 {
+    margin: 0 0 2px;
+    font-size: 14px;
     font-weight: 650;
     color: var(--text-primary);
+    line-height: 1.25;
 }
 
-.dbmon-ha-title p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--text-muted);
-    max-width: 52ch;
-}
-
-.dbmon-ha-head-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.dbmon-ha-head-actions .btn-outline {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 34px;
-    padding: 0 12px;
-    font-size: 12px;
-    text-decoration: none;
-}
-
-.dbmon-ha-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
-}
-
-.dbmon-ha-info {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    gap: 10px 14px;
-    align-items: center;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 1px solid var(--border-color);
-    background: rgba(255, 255, 255, 0.02);
-    margin-bottom: 12px;
-}
-
-.dbmon-ha-endpoint small {
-    display: block;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-    margin-bottom: 2px;
-}
-
-.dbmon-ha-endpoint strong {
-    display: block;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    word-break: break-all;
-}
-
-.dbmon-ha-arrow {
-    color: var(--text-muted);
-    opacity: 0.7;
-}
-
-.dbmon-ha-arrow i,
-.dbmon-ha-arrow svg {
-    width: 18px;
-    height: 18px;
-}
-
-.dbmon-ha-note {
-    grid-column: 1 / -1;
+.dbmon-ha-brand-text p {
     margin: 0;
     font-size: 12px;
     line-height: 1.4;
     color: var(--text-muted);
 }
 
-.dbmon-sync-row {
+.dbmon-ha-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex: 1 1 280px;
+}
+
+.dbmon-ha-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.dbmon-ha-pills .ha-pill {
+    font-size: 11px;
+    padding: 4px 9px;
+    max-width: 220px;
+}
+
+.dbmon-ha-toolbtns {
+    display: inline-flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.dbmon-ha-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.dbmon-ha-tool i,
+.dbmon-ha-tool svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dbmon-ha-body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
     gap: 10px;
     align-items: stretch;
 }
 
-.dbmon-sync-card {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    text-align: left;
-    padding: 10px 12px;
-    min-height: 56px;
-    border-radius: 12px;
+.dbmon-ha-hosts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dbmon-ha-host {
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 10px;
     border: 1px solid var(--border-color);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.dbmon-ha-host-role {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+
+.dbmon-ha-host code {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.35;
     color: var(--text-primary);
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.dbmon-sync-card:hover:not(:disabled) {
-    border-color: rgba(96, 165, 250, 0.45);
+.dbmon-ha-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dbmon-ha-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(96, 165, 250, 0.35);
     background: rgba(96, 165, 250, 0.08);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 
-.dbmon-sync-card:disabled {
-    opacity: 0.45;
+.dbmon-ha-act:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.16);
+    border-color: rgba(96, 165, 250, 0.55);
+}
+
+.dbmon-ha-act:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
-.dbmon-sync-card > i,
-.dbmon-sync-card > svg {
-    width: 20px;
-    height: 20px;
+.dbmon-ha-act i,
+.dbmon-ha-act svg {
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
-    color: var(--accent, #60a5fa);
+    color: #60a5fa;
 }
 
-.dbmon-sync-card strong {
-    display: block;
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 1.25;
+.dbmon-ha-act span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.dbmon-sync-card small {
-    display: block;
-    margin-top: 2px;
-    font-size: 11px;
+.dbmon-ha-act-muted {
+    grid-column: 1 / -1;
+    border-color: var(--border-color);
+    background: rgba(255, 255, 255, 0.03);
+    font-weight: 500;
+}
+
+.dbmon-ha-act-muted i,
+.dbmon-ha-act-muted svg {
     color: var(--text-muted);
 }
 
-#dbmon-ha-failback {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 56px;
-    padding: 0 14px;
-    white-space: nowrap;
-}
-
-.dbmon-sync-row.is-busy {
+.dbmon-ha-actions.is-busy {
     opacity: 0.55;
     pointer-events: none;
 }
 
-#dbmon-sync-progress {
-    margin-top: 12px;
+#dbmon-sync-progress,
+#dbmon-sync-result {
+    margin-top: 10px;
 }
 
-@media (max-width: 900px) {
-    .dbmon-ha-info {
+@media (max-width: 980px) {
+    .dbmon-ha-body {
         grid-template-columns: 1fr;
     }
-    .dbmon-ha-arrow {
+    .dbmon-ha-tools {
+        justify-content: flex-start;
+        flex: 1 1 100%;
+    }
+    .dbmon-ha-pills {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .dbmon-ha-hosts {
+        grid-template-columns: 1fr;
+    }
+    .dbmon-ha-actions {
+        grid-template-columns: 1fr;
+    }
+    .dbmon-ha-act-muted {
+        grid-column: auto;
+    }
+    .dbmon-ha-tool span {
         display: none;
-    }
-    .dbmon-sync-row {
-        grid-template-columns: 1fr;
-    }
-    #dbmon-ha-failback {
-        min-height: 40px;
-        justify-content: center;
     }
 }
 
