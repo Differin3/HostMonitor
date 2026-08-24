@@ -8,6 +8,24 @@ if (!function_exists('str_contains')) {
     }
 }
 
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(string $haystack, string $needle): bool
+    {
+        return $needle === '' || strncmp($haystack, $needle, strlen($needle)) === 0;
+    }
+}
+
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(string $haystack, string $needle): bool
+    {
+        if ($needle === '') {
+            return true;
+        }
+        $len = strlen($needle);
+        return $len <= strlen($haystack) && substr($haystack, -$len) === $needle;
+    }
+}
+
 if (!function_exists('json_error')) {
     function json_error(string $message, int $status = 400): void
     {
