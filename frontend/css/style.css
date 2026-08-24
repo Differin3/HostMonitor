@@ -2275,6 +2275,77 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     animation: spin 1s linear infinite;
 }
 
+.agent-job-updating {
+    background: rgba(56, 189, 248, 0.12) !important;
+}
+
+.agent-job-checking {
+    background: rgba(245, 158, 11, 0.1) !important;
+}
+
+.agent-job-failed {
+    background: rgba(248, 113, 113, 0.12) !important;
+}
+
+.agent-progress {
+    width: 160px;
+    height: 24px;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.22);
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.agent-progress-fill {
+    height: 100%;
+    border-radius: 4px;
+}
+
+.agent-progress-fill.checking {
+    width: 40%;
+    background: var(--warning, #f59e0b);
+    animation: agent-progress-pulse 1.4s ease-in-out infinite;
+}
+
+.agent-progress-fill.updating {
+    width: 70%;
+    background: var(--info, #38bdf8);
+    animation: agent-progress-pulse 1.4s ease-in-out infinite;
+}
+
+.agent-progress span {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+    z-index: 1;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.agent-node-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.agent-node-actions .btn-outline {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+@keyframes agent-progress-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
 .provider-servers {
     display: flex;
     flex-wrap: wrap;

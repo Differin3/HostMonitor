@@ -7,6 +7,37 @@ let allNodes = [];
 let toast = null;
 let isInstalling = false; // Флаг для блокировки повторных нажатий
 let isChecking = false; // Флаг для блокировки проверки обновлений
+/** Выбранные пакеты: ключ `${node_id}::${package}` — не сбрасывается при перерисовке */
+let selectedUpdateKeys = new Set();
+
+function updateSelectionKey(update) {
+    if (!update) return '';
+    return `${update.node_id}::${update.package}`;
+}
+
+function syncSelectedKeysFromDom() {
+    document.querySelectorAll('#updates-tbody .update-checkbox').forEach((cb) => {
+        const row = cb.closest('tr');
+        if (!row?.dataset?.nodeId || !row?.dataset?.package) return;
+        // Disabled (офлайн / installing) не трогаем сохранённый выбор
+        if (cb.disabled) return;
+        const key = `${row.dataset.nodeId}::${row.dataset.package}`;
+        if (cb.checked) selectedUpdateKeys.add(key);
+        else selectedUpdateKeys.delete(key);
+    });
+}
+
+function pruneSelectedKeys() {
+    const valid = new Set(
+        (updatesData || [])
+            .filter((u) => u && u.install_status !== 'completed' && u.install_status !== 'pending' && u.install_status !== 'installing')
+            .map(updateSelectionKey)
+            .filter(Boolean)
+    );
+    for (const key of [...selectedUpdateKeys]) {
+        if (!valid.has(key)) selectedUpdateKeys.delete(key);
+    }
+}
 
 // Функция показа уведомлений в стиле nodes.js
 const showToast = (message, type = 'info') => {
@@ -85,7 +116,9 @@ async function checkUpdates(silent = false) {
         const result = await fetchJson(url, { method: 'POST' });
         
         if (result.success) {
+            syncSelectedKeysFromDom();
             updatesData = result.updates || [];
+            pruneSelectedKeys();
             
             // Проверяем статус нод и предупреждаем об офлайн нодах
             const offlineNodesInUpdates = [];
@@ -141,6 +174,8 @@ async function checkUpdates(silent = false) {
 }
 
 function applyFilters() {
+    syncSelectedKeysFromDom();
+
     const nodeFilter = document.getElementById('nodeFilter')?.value || '';
     const priorityFilter = document.getElementById('priorityFilter')?.value || '';
     const searchText = document.getElementById('updates-search')?.value.toLowerCase() || '';
@@ -181,10 +216,13 @@ function renderUpdates(updates) {
     
     if (updates.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center">Обновления не найдены</td></tr>';
+        const selectAll = document.getElementById('select-all-updates');
+        if (selectAll) selectAll.checked = false;
+        updateSelection();
         return;
     }
     
-    tbody.innerHTML = updates.map((update, index) => {
+    tbody.innerHTML = updates.map((update) => {
         const priority = update.priority || 'normal';
         const priorityClass = priority === 'security' ? 'status-warning' : 'status-online';
         const priorityText = {
@@ -204,6 +242,7 @@ function renderUpdates(updates) {
         
         const isUpdating = installStatus === 'pending' || installStatus === 'installing';
         const rowClass = isUpdating ? 'update-in-progress' : '';
+        const key = updateSelectionKey(update);
         
         if (isNodeOffline && installStatus === 'available') {
             statusHtml = '<span class="status status-offline" title="Нода офлайн">Нода офлайн</span>';
@@ -220,31 +259,60 @@ function renderUpdates(updates) {
         } else {
             statusHtml = '<span class="status status-online">Доступно</span>';
         }
+
+        const checkedAttr = (!checkboxDisabled && selectedUpdateKeys.has(key)) ? 'checked' : '';
         
         return `
-            <tr data-package="${update.package}" data-node-id="${update.node_id}" class="${rowClass}">
-                <td><input type="checkbox" class="update-checkbox" value="${index}" onchange="updateSelection()" ${checkboxDisabled ? 'disabled' : ''}></td>
-                <td><strong>${update.package || '-'}</strong></td>
-                <td>${update.current_version || '-'}</td>
-                <td>${update.new_version || '-'}</td>
+            <tr data-package="${escHtml(update.package || '')}" data-node-id="${escHtml(String(update.node_id ?? ''))}" class="${rowClass}">
+                <td><input type="checkbox" class="update-checkbox" data-key="${escHtml(key)}" onchange="updateSelection()" ${checkboxDisabled ? 'disabled' : ''} ${checkedAttr}></td>
+                <td><strong>${escHtml(update.package || '-')}</strong></td>
+                <td>${escHtml(update.current_version || '-')}</td>
+                <td>${escHtml(update.new_version || '-')}</td>
                 <td><span class="status pill ${priorityClass}">${priorityText}</span></td>
-                <td>${update.node_name || '-'}</td>
+                <td>${escHtml(update.node_name || '-')}</td>
                 <td>${statusHtml}</td>
             </tr>
         `;
     }).join('');
+
+    const enabled = document.querySelectorAll('#updates-tbody .update-checkbox:not(:disabled)');
+    const checkedEnabled = document.querySelectorAll('#updates-tbody .update-checkbox:not(:disabled):checked');
+    const selectAll = document.getElementById('select-all-updates');
+    if (selectAll) {
+        selectAll.checked = enabled.length > 0 && checkedEnabled.length === enabled.length;
+        selectAll.indeterminate = checkedEnabled.length > 0 && checkedEnabled.length < enabled.length;
+    }
     
     if (typeof lucide !== 'undefined') {
         lucide.createIcons();
     }
+    updateSelection();
 }
 
 function updateSelection() {
-    const checkboxes = document.querySelectorAll('.update-checkbox:checked');
+    syncSelectedKeysFromDom();
     const installBtn = document.getElementById('install-btn');
     if (installBtn) {
-        installBtn.disabled = checkboxes.length === 0;
+        // Кнопка активна, если есть выбор (в т.ч. скрытый фильтром)
+        installBtn.disabled = selectedUpdateKeys.size === 0 || isInstalling;
     }
+    const enabled = document.querySelectorAll('#updates-tbody .update-checkbox:not(:disabled)');
+    const checkedEnabled = document.querySelectorAll('#updates-tbody .update-checkbox:not(:disabled):checked');
+    const selectAll = document.getElementById('select-all-updates');
+    if (selectAll && !isInstalling) {
+        selectAll.checked = enabled.length > 0 && checkedEnabled.length === enabled.length;
+        selectAll.indeterminate = checkedEnabled.length > 0 && checkedEnabled.length < enabled.length;
+    }
+}
+
+function getSelectedUpdates() {
+    syncSelectedKeysFromDom();
+    return (updatesData || []).filter((u) => {
+        const key = updateSelectionKey(u);
+        if (!selectedUpdateKeys.has(key)) return false;
+        const status = u.install_status || 'available';
+        return status === 'available' || !u.install_status;
+    });
 }
 
 async function installUpdates() {
@@ -254,13 +322,8 @@ async function installUpdates() {
         return;
     }
     
-    const checkboxes = document.querySelectorAll('.update-checkbox:checked');
-    if (checkboxes.length === 0) return;
-    
-    const selected = Array.from(checkboxes).map(cb => {
-        const index = parseInt(cb.value);
-        return updatesData[index];
-    });
+    const selected = getSelectedUpdates();
+    if (selected.length === 0) return;
     
     // Блокируем кнопки СРАЗУ при нажатии (до проверок и подтверждения)
     const installBtn = document.getElementById('install-btn');
@@ -287,7 +350,7 @@ async function installUpdates() {
         const match = onclick.match(/installSingleUpdate\((\d+)\)/);
         if (match) {
             const idx = parseInt(match[1]);
-            if (selected.find(u => updatesData[idx] && updatesData[idx].package === u.package)) {
+            if (selected.find(u => updatesData[idx] && updateSelectionKey(updatesData[idx]) === updateSelectionKey(u))) {
                 btn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i>';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
@@ -420,7 +483,7 @@ async function installUpdates() {
             const match = onclick.match(/installSingleUpdate\((\d+)\)/);
             if (match) {
                 const idx = parseInt(match[1]);
-                if (selected.find(u => updatesData[idx] && updatesData[idx].package === u.package)) {
+                if (selected.find(u => updatesData[idx] && updateSelectionKey(updatesData[idx]) === updateSelectionKey(u))) {
                     btn.disabled = true;
                     btn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i>';
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -437,6 +500,7 @@ async function installUpdates() {
         
         if (result.success) {
             const queued = result.queued || result.installed || 0;
+            selected.forEach((u) => selectedUpdateKeys.delete(updateSelectionKey(u)));
             if (result.errors && result.errors.length > 0) {
                 showToast(`Поставлено в очередь: ${queued}, ошибок: ${result.errors.length}`, 'warning');
             } else {
@@ -479,8 +543,9 @@ async function installUpdates() {
         
         // Разблокируем чекбоксы (кроме тех что в процессе обновления)
         document.querySelectorAll('.update-checkbox').forEach(cb => {
-            const index = parseInt(cb.value);
-            const update = updatesData[index];
+            const row = cb.closest('tr');
+            const key = row ? `${row.dataset.nodeId}::${row.dataset.package}` : '';
+            const update = (updatesData || []).find((u) => updateSelectionKey(u) === key);
             if (update && update.install_status !== 'pending' && update.install_status !== 'installing' && update.install_status !== 'completed') {
                 cb.disabled = false;
             }
@@ -503,6 +568,7 @@ async function installUpdates() {
                 }
             }
         });
+        updateSelection();
     }
 }
 
@@ -700,8 +766,9 @@ async function installSingleUpdate(index) {
         
         // Разблокируем чекбоксы (кроме тех что в процессе обновления)
         document.querySelectorAll('.update-checkbox').forEach(cb => {
-            const idx = parseInt(cb.value);
-            const upd = updatesData[idx];
+            const row = cb.closest('tr');
+            const key = row ? `${row.dataset.nodeId}::${row.dataset.package}` : '';
+            const upd = (updatesData || []).find((u) => updateSelectionKey(u) === key);
             if (upd && upd.install_status !== 'pending' && upd.install_status !== 'installing' && upd.install_status !== 'completed') {
                 cb.disabled = false;
             }
@@ -721,10 +788,7 @@ async function installSingleUpdate(index) {
         });
         
         // Обновляем состояние кнопки "Установить выбранные"
-        if (installBtn) {
-            const hasSelected = document.querySelectorAll('.update-checkbox:checked').length > 0;
-            installBtn.disabled = !hasSelected;
-        }
+        updateSelection();
     }
 }
 
@@ -798,15 +862,147 @@ function populateHistoryNodeFilter() {
 window.checkUpdates = checkUpdates;
 window.installUpdates = installUpdates;
 window.installSingleUpdate = installSingleUpdate;
+window.updateSelection = updateSelection;
 window.loadHistory = loadHistory;
 window.checkAgentUpdates = checkAgentUpdates;
 window.applyAgentUpdates = applyAgentUpdates;
+window.applyAgentUpdateOne = applyAgentUpdateOne;
 window.loadAgentUpdates = loadAgentUpdates;
 
-async function loadAgentUpdates() {
+let agentPollTimer = null;
+let agentPollTicks = 0;
+let agentBusy = false;
+let agentNodesCache = [];
+
+function agentJobOf(node) {
+    if (node?.agent_job) return node.agent_job;
+    const cmd = String(node?.last_command || '');
+    const status = String(node?.command_status || '').toLowerCase();
+    if (['update-agent', 'upgrade-agent'].includes(cmd) && ['pending', 'running', 'installing', 'in_progress', ''].includes(status)) {
+        return 'updating';
+    }
+    if (['check-agent-update', 'check-agent-updates'].includes(cmd) && ['pending', 'running', 'installing', 'in_progress', ''].includes(status)) {
+        return 'checking';
+    }
+    if (['failed', 'error'].includes(status) && ['update-agent', 'upgrade-agent', 'check-agent-update', 'check-agent-updates'].includes(cmd)) {
+        return 'failed';
+    }
+    return 'idle';
+}
+
+function formatAgentAge(sec) {
+    const n = Number(sec) || 0;
+    if (n < 5) return '';
+    if (n < 60) return ` ${n}с`;
+    return ` ${Math.floor(n / 60)}м`;
+}
+
+function agentProgressHtml(job, ageSec) {
+    if (job === 'updating') {
+        return `<div class="progress-bar agent-progress" title="Агент обновляется">
+            <div class="agent-progress-fill updating"></div>
+            <span><i data-lucide="loader-2" class="spinning"></i> Обновление${escHtml(formatAgentAge(ageSec))}</span>
+        </div>`;
+    }
+    if (job === 'checking') {
+        return `<div class="progress-bar agent-progress" title="Проверка версии агента">
+            <div class="agent-progress-fill checking"></div>
+            <span><i data-lucide="loader-2" class="spinning"></i> Проверка${escHtml(formatAgentAge(ageSec))}</span>
+        </div>`;
+    }
+    if (job === 'failed') {
+        return '<span class="status pill" style="background:#ef4444;color:#fff;">ошибка</span>';
+    }
+    return '';
+}
+
+function setAgentHeaderBusy(busy, mode = 'update') {
+    const checkBtn = document.getElementById('agent-check-btn');
+    const applyBtn = document.getElementById('agent-apply-btn');
+    if (checkBtn) {
+        checkBtn.disabled = busy;
+        if (busy && mode === 'check') {
+            checkBtn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i> Проверка...';
+        } else if (!busy) {
+            checkBtn.innerHTML = '<i data-lucide="search"></i> Проверить агенты';
+        }
+    }
+    if (applyBtn) {
+        applyBtn.disabled = busy;
+        if (busy && mode === 'update') {
+            applyBtn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i> Обновление...';
+        } else if (!busy) {
+            applyBtn.innerHTML = '<i data-lucide="download"></i> Обновить устаревшие';
+        }
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function stopAgentPoll() {
+    if (agentPollTimer) {
+        clearInterval(agentPollTimer);
+        agentPollTimer = null;
+    }
+    agentPollTicks = 0;
+}
+
+function startAgentPoll() {
+    if (agentPollTimer) return;
+    agentPollTicks = 0;
+    agentPollTimer = setInterval(async () => {
+        agentPollTicks += 1;
+        await loadAgentUpdates(true);
+        const stillBusy = agentNodesCache.some((n) => ['updating', 'checking'].includes(agentJobOf(n)));
+        if (!stillBusy || agentPollTicks >= 90) {
+            stopAgentPoll();
+            setAgentHeaderBusy(false);
+        }
+    }, 2000);
+}
+
+function renderAgentNodes(nodes, desired, outdatedCount) {
     const tbody = document.getElementById('agent-updates-tbody');
     const label = document.getElementById('agent-desired-label');
-    if (tbody) {
+    if (label) {
+        label.textContent = `Целевая версия: ${desired.desired_version || '—'} (${desired.desired_commit || '—'}), устаревших: ${outdatedCount ?? 0}`;
+    }
+    if (!tbody) return;
+    if (!nodes.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет нод</td></tr>';
+        return;
+    }
+    tbody.innerHTML = nodes.map((n) => {
+        const job = agentJobOf(n);
+        const outdated = n.outdated || Number(n.agent_update_available) === 1;
+        const online = n.status === 'online';
+        const age = n.command_age_sec;
+        let badge = agentProgressHtml(job, age);
+        if (!badge) {
+            badge = outdated
+                ? '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>'
+                : '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
+        }
+        const canUpdate = online && outdated && job === 'idle';
+        const rowClass = job === 'updating' ? 'agent-job-updating' : (job === 'checking' ? 'agent-job-checking' : (job === 'failed' ? 'agent-job-failed' : ''));
+        const action = canUpdate
+            ? `<button type="button" class="btn-outline" onclick="applyAgentUpdateOne(${Number(n.id)})" title="Обновить агент на этой ноде"><i data-lucide="download"></i></button>`
+            : '';
+        return `<tr class="${rowClass}" data-node-id="${escHtml(String(n.id))}">
+            <td>${escHtml(n.name || '-')}</td>
+            <td><span class="status pill ${online ? 'online' : 'offline'}">${escHtml(n.status || '-')}</span></td>
+            <td>${escHtml(n.agent_version || '—')}</td>
+            <td><code>${escHtml(n.agent_commit || '—')}</code></td>
+            <td><code>${escHtml(n.agent_remote_commit || '—')}</code></td>
+            <td><div class="agent-node-actions">${badge}${action}</div></td>
+        </tr>`;
+    }).join('');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+async function loadAgentUpdates(silent = false) {
+    const tbody = document.getElementById('agent-updates-tbody');
+    const label = document.getElementById('agent-desired-label');
+    if (!silent && tbody && !agentNodesCache.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center">Загрузка...</td></tr>';
     }
     try {
@@ -814,37 +1010,22 @@ async function loadAgentUpdates() {
         if (result.error) {
             throw new Error(result.error);
         }
-        const desired = result.desired || {};
-        if (label) {
-            label.textContent = `Целевая версия: ${desired.desired_version || '—'} (${desired.desired_commit || '—'}), устаревших: ${result.outdated_count ?? 0}`;
+        agentNodesCache = result.nodes || [];
+        renderAgentNodes(agentNodesCache, result.desired || {}, result.outdated_count ?? 0);
+        const busy = agentNodesCache.some((n) => ['updating', 'checking'].includes(agentJobOf(n)));
+        if (busy) {
+            const updating = agentNodesCache.some((n) => agentJobOf(n) === 'updating');
+            setAgentHeaderBusy(true, updating ? 'update' : 'check');
+            startAgentPoll();
+        } else if (!agentBusy) {
+            setAgentHeaderBusy(false);
         }
-        const nodes = result.nodes || [];
-        if (!tbody) return;
-        if (!nodes.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет нод</td></tr>';
-            return;
-        }
-        tbody.innerHTML = nodes.map((n) => {
-            const outdated = n.outdated || Number(n.agent_update_available) === 1;
-            const badge = outdated
-                ? '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>'
-                : '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
-            return `<tr>
-                <td>${n.name || '-'}</td>
-                <td><span class="status pill ${n.status === 'online' ? 'online' : 'offline'}">${n.status || '-'}</span></td>
-                <td>${n.agent_version || '—'}</td>
-                <td><code>${n.agent_commit || '—'}</code></td>
-                <td><code>${n.agent_remote_commit || '—'}</code></td>
-                <td>${badge}</td>
-            </tr>`;
-        }).join('');
-        if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
         console.error('loadAgentUpdates', e);
-        if (label) {
+        if (label && !silent) {
             label.textContent = `Целевая версия: — (ошибка: ${e.message || 'API'})`;
         }
-        if (tbody) {
+        if (tbody && !silent) {
             tbody.innerHTML = `<tr><td colspan="6" class="text-center">Ошибка загрузки статуса агентов: ${escHtml(e.message || 'API')}</td></tr>`;
         }
     }
@@ -858,29 +1039,73 @@ function escHtml(value) {
         .replace(/"/g, '&quot;');
 }
 
+async function queueAgentCommand(ids, action) {
+    if (!ids.length) return null;
+    return fetchJson(`/agent_update.php?action=${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_ids: ids, force: true }),
+    });
+}
+
+function markNodesJob(ids, job) {
+    const set = new Set(ids.map((id) => Number(id)));
+    agentNodesCache = agentNodesCache.map((n) => (
+        set.has(Number(n.id))
+            ? { ...n, agent_job: job, last_command: job === 'updating' ? 'update-agent' : 'check-agent-update', command_status: 'pending', command_age_sec: 0 }
+            : n
+    ));
+    const desiredLabel = document.getElementById('agent-desired-label');
+    const desired = { desired_version: '—', desired_commit: '—' };
+    const match = (desiredLabel?.textContent || '').match(/Целевая версия: (.+) \((.+)\), устаревших: (\d+)/);
+    if (match) {
+        desired.desired_version = match[1];
+        desired.desired_commit = match[2];
+    }
+    const outdatedCount = agentNodesCache.filter((n) => n.outdated || Number(n.agent_update_available) === 1).length;
+    renderAgentNodes(agentNodesCache, desired, outdatedCount);
+}
+
 async function checkAgentUpdates() {
+    if (agentBusy) return;
     try {
+        agentBusy = true;
+        setAgentHeaderBusy(true, 'check');
         showToast('Проверка обновлений агентов...', 'info');
-        const result = await fetchJson('/agent_update.php?action=check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-        });
-        showToast(result.message || `В очередь: ${result.queued || 0}`, 'success');
-        setTimeout(loadAgentUpdates, 3000);
+        const status = await fetchJson('/agent_update.php?action=status');
+        const ids = (status.nodes || [])
+            .filter((n) => n.status === 'online')
+            .map((n) => Number(n.id))
+            .filter((id) => id > 0);
+        if (!ids.length) {
+            showToast('Нет онлайн-нод для проверки', 'info');
+            await loadAgentUpdates(true);
+            return;
+        }
+        markNodesJob(ids, 'checking');
+        startAgentPoll();
+        const result = await queueAgentCommand(ids, 'check');
+        showToast(result?.message || `В очередь: ${result?.queued || 0}`, 'success');
+        await loadAgentUpdates(true);
     } catch (e) {
         showToast(e.message || 'Ошибка проверки агентов', 'error');
+        setAgentHeaderBusy(false);
+    } finally {
+        agentBusy = false;
     }
 }
 
 async function applyAgentUpdates() {
+    if (agentBusy) return;
     try {
         const confirmed = window.confirm
             ? window.confirm('Обновить агенты на всех онлайн-нодах с доступным обновлением?')
             : true;
         if (!confirmed) return;
 
-        // Сначала status: id берём из той же логики outdated, что в таблице
+        agentBusy = true;
+        setAgentHeaderBusy(true, 'update');
+
         const status = await fetchJson('/agent_update.php?action=status');
         const ids = (status.nodes || [])
             .filter((n) => (n.outdated || Number(n.agent_update_available) === 1) && n.status === 'online')
@@ -888,33 +1113,67 @@ async function applyAgentUpdates() {
             .filter((id) => id > 0);
         if (!ids.length) {
             showToast('Нет устаревших онлайн-нод для обновления', 'info');
-            await loadAgentUpdates();
+            await loadAgentUpdates(true);
             return;
         }
 
+        markNodesJob(ids, 'updating');
+        startAgentPoll();
         showToast(`Обновление агентов (${ids.length})...`, 'info');
-        // node_ids уже отфильтрованы по status; only_outdated не нужен (иначе старый бэкенд мог обнулить список)
-        const result = await fetchJson('/agent_update.php?action=apply', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_ids: ids, force: true }),
-        });
-        const queued = result.queued ?? 0;
-        const skipped = result.skipped ?? 0;
+        const result = await queueAgentCommand(ids, 'apply');
+        const queued = result?.queued ?? 0;
+        const skipped = result?.skipped ?? 0;
         showToast(
-            result.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
+            result?.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
             queued > 0 ? 'success' : 'warning'
         );
-        setTimeout(loadAgentUpdates, 5000);
+        await loadAgentUpdates(true);
     } catch (e) {
         showToast(e.message || 'Ошибка обновления агентов', 'error');
+        setAgentHeaderBusy(false);
+    } finally {
+        agentBusy = false;
+    }
+}
+
+async function applyAgentUpdateOne(nodeId) {
+    if (agentBusy) return;
+    const id = Number(nodeId);
+    if (!id) return;
+    const node = agentNodesCache.find((n) => Number(n.id) === id);
+    const name = node?.name || `#${id}`;
+    const confirmed = window.confirm
+        ? window.confirm(`Обновить агент на «${name}»?`)
+        : true;
+    if (!confirmed) return;
+    try {
+        agentBusy = true;
+        setAgentHeaderBusy(true, 'update');
+        markNodesJob([id], 'updating');
+        startAgentPoll();
+        const result = await queueAgentCommand([id], 'apply');
+        const queued = result?.queued ?? 0;
+        showToast(result?.message || (queued ? `Обновление «${name}» в очереди` : `Не удалось поставить обновление «${name}»`), queued > 0 ? 'success' : 'warning');
+        await loadAgentUpdates(true);
+    } catch (e) {
+        showToast(e.message || 'Ошибка обновления агента', 'error');
+        setAgentHeaderBusy(false);
+    } finally {
+        agentBusy = false;
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('select-all-updates')?.addEventListener('change', (e) => {
-        const checkboxes = document.querySelectorAll('.update-checkbox');
-        checkboxes.forEach(cb => cb.checked = e.target.checked);
+        const checked = !!e.target.checked;
+        document.querySelectorAll('#updates-tbody .update-checkbox:not(:disabled)').forEach((cb) => {
+            cb.checked = checked;
+            const row = cb.closest('tr');
+            if (!row?.dataset?.nodeId || !row?.dataset?.package) return;
+            const key = `${row.dataset.nodeId}::${row.dataset.package}`;
+            if (checked) selectedUpdateKeys.add(key);
+            else selectedUpdateKeys.delete(key);
+        });
         updateSelection();
     });
     

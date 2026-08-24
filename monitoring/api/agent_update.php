@@ -73,6 +73,38 @@ function agent_is_agent_cmd(string $command): bool
     ], true);
 }
 
+function agent_is_update_cmd(string $command): bool
+{
+    return in_array($command, ['update-agent', 'upgrade-agent'], true);
+}
+
+function agent_is_check_cmd(string $command): bool
+{
+    return in_array($command, ['check-agent-update', 'check-agent-updates'], true);
+}
+
+/** idle | checking | updating | failed */
+function agent_job_state(array $row): string
+{
+    $cmd = trim((string)($row['last_command'] ?? ''));
+    $status = strtolower(trim((string)($row['command_status'] ?? '')));
+    if (!agent_is_agent_cmd($cmd)) {
+        return 'idle';
+    }
+    if (in_array($status, ['failed', 'error'], true)) {
+        return 'failed';
+    }
+    if (in_array($status, ['pending', 'running', 'installing', 'in_progress'], true) || $status === '') {
+        if (agent_is_update_cmd($cmd)) {
+            return 'updating';
+        }
+        if (agent_is_check_cmd($cmd)) {
+            return 'checking';
+        }
+    }
+    return 'idle';
+}
+
 function agent_pending_age_sec(array $row): int
 {
     $raw = $row['command_timestamp'] ?? null;
@@ -212,7 +244,8 @@ try {
             $rows = $pdo->query(
                 "SELECT id, name, host, status, last_seen,
                         agent_version, agent_commit, agent_remote_commit, agent_branch,
-                        agent_update_available, agent_updated_at, command_result, last_command, command_status
+                        agent_update_available, agent_updated_at, command_result,
+                        last_command, command_status, command_timestamp
                  FROM nodes ORDER BY name"
             )->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
@@ -221,7 +254,8 @@ try {
             $rows = $pdo->query(
                 "SELECT id, name, host, status, last_seen,
                         agent_version, agent_commit, agent_remote_commit, agent_branch,
-                        agent_update_available, agent_updated_at, last_command, command_status
+                        agent_update_available, agent_updated_at,
+                        last_command, command_status, command_timestamp
                  FROM nodes ORDER BY name"
             )->fetchAll(PDO::FETCH_ASSOC);
         }
@@ -231,6 +265,10 @@ try {
         foreach ($rows as &$row) {
             $flag = agent_is_outdated($row, $desired);
             $row['outdated'] = $flag;
+            $row['agent_job'] = agent_job_state($row);
+            $row['command_age_sec'] = agent_is_agent_cmd(trim((string)($row['last_command'] ?? '')))
+                ? agent_pending_age_sec($row)
+                : 0;
             // Синхронизируем флаг в БД с тем, что видит UI (commit/version панели)
             $dbFlag = (int)($row['agent_update_available'] ?? 0);
             $want = $flag ? 1 : 0;

@@ -43,10 +43,10 @@ render_layout_start('Обновления системы', 'updates');
                 <span>Агенты HostMonitor</span>
             </div>
             <div class="card-actions">
-                <button class="btn-outline" type="button" onclick="checkAgentUpdates()">
+                <button class="btn-outline" type="button" id="agent-check-btn" onclick="checkAgentUpdates()">
                     <i data-lucide="search"></i> Проверить агенты
                 </button>
-                <button class="primary" type="button" onclick="applyAgentUpdates()">
+                <button class="primary" type="button" id="agent-apply-btn" onclick="applyAgentUpdates()">
                     <i data-lucide="download"></i> Обновить устаревшие
                 </button>
             </div>
