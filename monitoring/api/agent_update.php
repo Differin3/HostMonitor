@@ -21,16 +21,9 @@ $pdo = getDbConnection();
 // Только активная БД. _all (primary+replica) на каждый status вешает UI.
 nodes_ensure_agent_columns($pdo);
 
-function agent_desired_version(): array
+function agent_git_short_commit(string $root): string
 {
-    $version = '0.0.0';
-    $commit = '';
-    $root = dirname(__DIR__, 2);
-    $verFile = $root . '/agent/VERSION';
-    if (is_file($verFile)) {
-        $raw = trim((string)file_get_contents($verFile));
-        $version = trim(explode("\n", $raw)[0] ?? '') ?: '0.0.0';
-    }
+    // 1) git exec (может быть запрещён open_basedir / disable_functions)
     if (is_dir($root . '/.git')) {
         $out = [];
         $cmd = 'git -c safe.directory=' . escapeshellarg($root)
@@ -38,24 +31,145 @@ function agent_desired_version(): array
             . ' rev-parse --short HEAD 2>/dev/null';
         @exec($cmd, $out);
         $commit = trim((string)($out[0] ?? ''));
+        if ($commit !== '' && preg_match('/^[0-9a-f]{4,40}$/i', $commit)) {
+            return strtolower($commit);
+        }
     }
+
+    // 2) Чтение .git без exec
+    $headFile = $root . '/.git/HEAD';
+    if (is_file($headFile)) {
+        $head = trim((string)@file_get_contents($headFile));
+        if (str_starts_with($head, 'ref:')) {
+            $ref = trim(substr($head, 4));
+            $refFile = $root . '/.git/' . $ref;
+            if (is_file($refFile)) {
+                $hash = trim((string)@file_get_contents($refFile));
+                if (preg_match('/^[0-9a-f]{7,40}$/i', $hash)) {
+                    return strtolower(substr($hash, 0, 7));
+                }
+            }
+            // packed-refs
+            $packed = $root . '/.git/packed-refs';
+            if (is_file($packed)) {
+                $lines = @file($packed, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+                foreach ($lines as $line) {
+                    $line = trim((string)$line);
+                    if ($line === '' || $line[0] === '#' || $line[0] === '^') {
+                        continue;
+                    }
+                    if (!preg_match('/^([0-9a-f]{7,40})\s+(\S+)$/i', $line, $m)) {
+                        continue;
+                    }
+                    if ($m[2] === $ref) {
+                        return strtolower(substr($m[1], 0, 7));
+                    }
+                }
+            }
+        } elseif (preg_match('/^[0-9a-f]{7,40}$/i', $head)) {
+            return strtolower(substr($head, 0, 7));
+        }
+    }
+
+    // 3) Явный файл agent/COMMIT (если панель без .git)
+    foreach ([$root . '/agent/COMMIT', $root . '/COMMIT'] as $f) {
+        if (!is_file($f)) {
+            continue;
+        }
+        $raw = trim((string)@file_get_contents($f));
+        $line = trim(explode("\n", $raw)[0] ?? '');
+        if (preg_match('/^[0-9a-f]{4,40}$/i', $line)) {
+            return strtolower(substr($line, 0, 7));
+        }
+    }
+
+    return '';
+}
+
+function agent_desired_version(): array
+{
+    $version = '0.0.0';
+    $root = dirname(__DIR__, 2);
+    $verFile = $root . '/agent/VERSION';
+    if (is_file($verFile)) {
+        $raw = trim((string)file_get_contents($verFile));
+        $lines = preg_split("/\r\n|\n|\r/", $raw) ?: [];
+        $version = trim((string)($lines[0] ?? '')) ?: '0.0.0';
+        // вторая строка VERSION может быть short commit
+        if (!empty($lines[1]) && preg_match('/^[0-9a-f]{4,40}$/i', trim($lines[1]))) {
+            return [
+                'desired_version' => $version,
+                'desired_commit' => strtolower(substr(trim($lines[1]), 0, 7)),
+            ];
+        }
+    }
+    $commit = agent_git_short_commit($root);
     return ['desired_version' => $version, 'desired_commit' => $commit];
+}
+
+function agent_commit_same(string $a, string $b): bool
+{
+    $a = strtolower(trim($a));
+    $b = strtolower(trim($b));
+    if ($a === '' || $b === '') {
+        return false;
+    }
+    // short vs short/full
+    return str_starts_with($a, $b) || str_starts_with($b, $a);
+}
+
+/**
+ * outdated | current | unknown
+ * unknown = нет локального commit, нельзя считать «актуален».
+ */
+function agent_update_state(array $row, array $desired): string
+{
+    $local = trim((string)($row['agent_commit'] ?? ''));
+    $remote = trim((string)($row['agent_remote_commit'] ?? ''));
+    $ver = trim((string)($row['agent_version'] ?? ''));
+    $desiredCommit = trim((string)($desired['desired_commit'] ?? ''));
+    $desiredVer = trim((string)($desired['desired_version'] ?? ''));
+    $flag = (int)($row['agent_update_available'] ?? 0);
+
+    if ($flag === 1) {
+        return 'outdated';
+    }
+    if ($desiredVer !== '' && $ver !== '' && $ver !== $desiredVer) {
+        return 'outdated';
+    }
+    if ($desiredCommit !== '' && $local !== '' && !agent_commit_same($local, $desiredCommit)) {
+        return 'outdated';
+    }
+    if ($remote !== '' && $local !== '' && !agent_commit_same($local, $remote)) {
+        return 'outdated';
+    }
+    // Панель знает целевой commit, а агент его не сообщил — не «актуален»
+    if ($desiredCommit !== '' && $local === '') {
+        return 'outdated';
+    }
+    // Нет ни локального, ни remote commit — неизвестно (раньше ошибочно было «актуален»)
+    if ($local === '' && $remote === '') {
+        return 'unknown';
+    }
+    // Есть локальный commit и он совпадает с desired (или desired пуст, но remote совпал)
+    if ($desiredCommit !== '' && $local !== '' && agent_commit_same($local, $desiredCommit)) {
+        return 'current';
+    }
+    if ($desiredCommit === '' && $remote !== '' && $local !== '' && agent_commit_same($local, $remote)) {
+        return 'current';
+    }
+    if ($desiredCommit === '' && $local !== '' && $remote === '') {
+        // Только локальный commit без цели панели — не уверены
+        return 'unknown';
+    }
+    return 'current';
 }
 
 function agent_is_outdated(array $row, array $desired): bool
 {
-    if ((int)($row['agent_update_available'] ?? 0) === 1) {
-        return true;
-    }
-    $local = (string)($row['agent_commit'] ?? '');
-    $ver = (string)($row['agent_version'] ?? '');
-    if ($desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
-        return true;
-    }
-    if ($desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
-        return true;
-    }
-    return false;
+    $state = agent_update_state($row, $desired);
+    // unknown тоже предлагаем обновить: иначе ноды без commit вечно «актуальны»
+    return $state === 'outdated' || $state === 'unknown';
 }
 
 /**
@@ -263,12 +377,18 @@ try {
         $outdated = 0;
         $sync = $pdo->prepare('UPDATE nodes SET agent_update_available = ? WHERE id = ?');
         foreach ($rows as &$row) {
+            $state = agent_update_state($row, $desired);
             $flag = agent_is_outdated($row, $desired);
+            $row['update_state'] = $state;
             $row['outdated'] = $flag;
             $row['agent_job'] = agent_job_state($row);
             $row['command_age_sec'] = agent_is_agent_cmd(trim((string)($row['last_command'] ?? '')))
                 ? agent_pending_age_sec($row)
                 : 0;
+            // Для UI: если агент не прислал remote — показываем целевой commit панели
+            if (trim((string)($row['agent_remote_commit'] ?? '')) === '' && ($desired['desired_commit'] ?? '') !== '') {
+                $row['agent_remote_commit'] = $desired['desired_commit'];
+            }
             // Синхронизируем флаг в БД с тем, что видит UI (commit/version панели)
             $dbFlag = (int)($row['agent_update_available'] ?? 0);
             $want = $flag ? 1 : 0;

@@ -971,28 +971,36 @@ function renderAgentNodes(nodes, desired, outdatedCount) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет нод</td></tr>';
         return;
     }
-    tbody.innerHTML = nodes.map((n) => {
+        tbody.innerHTML = nodes.map((n) => {
         const job = agentJobOf(n);
-        const outdated = n.outdated || Number(n.agent_update_available) === 1;
+        const state = n.update_state
+            || ((n.outdated || Number(n.agent_update_available) === 1) ? 'outdated' : 'current');
+        const outdated = state === 'outdated' || state === 'unknown'
+            || n.outdated || Number(n.agent_update_available) === 1;
         const online = n.status === 'online';
         const age = n.command_age_sec;
         let badge = agentProgressHtml(job, age);
         if (!badge) {
-            badge = outdated
-                ? '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>'
-                : '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
+            if (state === 'unknown') {
+                badge = '<span class="status pill" style="background:#64748b;color:#fff;" title="Агент не сообщил commit — нужна проверка/обновление">нет данных</span>';
+            } else if (outdated) {
+                badge = '<span class="status pill" style="background:#f59e0b;color:#111;">доступно</span>';
+            } else {
+                badge = '<span class="status pill" style="background:#22c55e;color:#fff;">актуален</span>';
+            }
         }
         const canUpdate = online && outdated && job === 'idle';
         const rowClass = job === 'updating' ? 'agent-job-updating' : (job === 'checking' ? 'agent-job-checking' : (job === 'failed' ? 'agent-job-failed' : ''));
         const action = canUpdate
             ? `<button type="button" class="btn-outline" onclick="applyAgentUpdateOne(${Number(n.id)})" title="Обновить агент на этой ноде"><i data-lucide="download"></i></button>`
             : '';
+        const remoteShown = n.agent_remote_commit || desired.desired_commit || '—';
         return `<tr class="${rowClass}" data-node-id="${escHtml(String(n.id))}">
             <td>${escHtml(n.name || '-')}</td>
             <td><span class="status pill ${online ? 'online' : 'offline'}">${escHtml(n.status || '-')}</span></td>
             <td>${escHtml(n.agent_version || '—')}</td>
             <td><code>${escHtml(n.agent_commit || '—')}</code></td>
-            <td><code>${escHtml(n.agent_remote_commit || '—')}</code></td>
+            <td><code title="Remote агента или целевой commit панели">${escHtml(remoteShown)}</code></td>
             <td><div class="agent-node-actions">${badge}${action}</div></td>
         </tr>`;
     }).join('');
