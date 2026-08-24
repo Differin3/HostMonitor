@@ -2081,62 +2081,26 @@ select optgroup {
 }
 .dbmon-chart-card { margin-top: 8px; }
 
-/* --- Резерв панели: жёсткая сетка, без хаотичного wrap --- */
+/* --- Резерв панели: карточка в той же сетке, что и базы --- */
 .dbmon-ha-card {
-    margin: 12px 0 16px;
-    padding: 12px 14px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
-}
-
-.dbmon-ha-bar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px 12px;
     min-width: 0;
 }
 
-.dbmon-ha-brand {
-    display: inline-flex;
+.dbmon-ha-card .dbmon-top h3 {
+    display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 0;
-}
-
-.dbmon-ha-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: rgba(96, 165, 250, 0.12);
-    border: 1px solid rgba(96, 165, 250, 0.22);
-    flex-shrink: 0;
-}
-
-.dbmon-ha-icon i,
-.dbmon-ha-icon svg {
-    width: 14px;
-    height: 14px;
-    color: #60a5fa;
-}
-
-.dbmon-ha-brand strong {
-    font-size: 13px;
-    font-weight: 650;
-    color: var(--text-primary);
-    white-space: nowrap;
 }
 
 .dbmon-ha-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
+    gap: 6px;
     align-items: center;
-    min-width: 0;
 }
 
 .dbmon-ha-pills .ha-pill {
@@ -2146,42 +2110,18 @@ select optgroup {
     margin: 0;
 }
 
-.dbmon-ha-toolbtns {
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.dbmon-ha-card .dbmon-ha-tool,
 .dbmon-ha-card .dbmon-ha-act,
-.dbmon-ha-card #dbmon-sync-cancel {
+.dbmon-ha-card .dbmon-ha-footer .btn-outline,
+.dbmon-ha-card #dbmon-sync-cancel,
+.dbmon-ha-card .dbmon-ha-footer a {
     margin: 0 !important;
     box-sizing: border-box;
 }
 
-.dbmon-ha-tool {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 30px;
-    padding: 0 10px;
-    font-size: 12px;
-    text-decoration: none;
-    white-space: nowrap;
-    border-radius: 8px;
-}
-
-.dbmon-ha-tool i,
-.dbmon-ha-tool svg {
-    width: 13px;
-    height: 13px;
-}
-
 .dbmon-ha-hosts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 6px;
     min-width: 0;
 }
 
@@ -2214,17 +2154,11 @@ select optgroup {
     text-overflow: ellipsis;
 }
 
-.dbmon-ha-note {
-    margin: 0;
-    font-size: 11px;
-    line-height: 1.35;
-    color: var(--text-muted);
-}
-
 .dbmon-ha-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: auto;
     min-width: 0;
 }
 
@@ -2237,15 +2171,11 @@ select optgroup {
     height: 34px;
     padding: 0 10px;
     border-radius: 8px;
-    border: 1px solid rgba(96, 165, 250, 0.35);
-    background: rgba(96, 165, 250, 0.08);
-    color: var(--text-primary);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 
 .dbmon-ha-act > span {
@@ -2253,33 +2183,30 @@ select optgroup {
     text-overflow: ellipsis;
 }
 
-.dbmon-ha-act:hover:not(:disabled) {
-    background: rgba(96, 165, 250, 0.16);
-    border-color: rgba(96, 165, 250, 0.55);
-}
-
-.dbmon-ha-act:disabled {
-    opacity: 0.4;
+.dbmon-ha-act:disabled,
+.dbmon-ha-footer button:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
 }
 
 .dbmon-ha-act i,
 .dbmon-ha-act svg {
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
-    color: #60a5fa;
 }
 
-.dbmon-ha-act-muted {
-    border-color: var(--border-color);
-    background: rgba(255, 255, 255, 0.03);
-    font-weight: 500;
+.dbmon-ha-footer {
+    margin-top: 4px;
+    flex-wrap: wrap;
 }
 
-.dbmon-ha-act-muted i,
-.dbmon-ha-act-muted svg {
-    color: var(--text-muted);
+.dbmon-ha-footer a.btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    min-width: 36px;
 }
 
 .dbmon-ha-actions.is-busy {
@@ -2290,25 +2217,5 @@ select optgroup {
 #dbmon-sync-progress,
 #dbmon-sync-result {
     margin-top: 0;
-}
-
-@media (max-width: 900px) {
-    .dbmon-ha-bar {
-        grid-template-columns: auto 1fr;
-    }
-    .dbmon-ha-toolbtns {
-        grid-column: 1 / -1;
-        justify-content: flex-start;
-    }
-}
-
-@media (max-width: 640px) {
-    .dbmon-ha-hosts,
-    .dbmon-ha-actions {
-        grid-template-columns: 1fr;
-    }
-    .dbmon-ha-tool span {
-        display: none;
-    }
 }
 

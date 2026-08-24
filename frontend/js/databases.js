@@ -201,11 +201,18 @@ function render() {
     els.online.textContent = String(online.length);
     els.conn.textContent = String(allDatabases.reduce((s, d) => s + Number(d.metrics?.threads_connected || 0), 0));
     els.size.textContent = formatBytes(allDatabases.reduce((s, d) => s + Number(d.metrics?.data_bytes || 0), 0));
+
+    // Карточка HA живёт в той же сетке — не уничтожаем её при re-render
+    const haCard = document.getElementById('dbmon-ha-card');
+    if (haCard) haCard.remove();
+
     if (!list.length) {
         els.grid.innerHTML = '<div class="card"><p class="list-empty">Нет баз. Добавьте удалённую MySQL или дождитесь опроса базы панели.</p></div>';
     } else {
         els.grid.innerHTML = list.map(cardHtml).join('');
     }
+    if (haCard) els.grid.prepend(haCard);
+
     const prev = els.chartTarget.value;
     els.chartTarget.innerHTML = '<option value="">Выберите базу</option>' + allDatabases
         .filter((d) => d.status === 'online' || d.id === Number(prev))
@@ -491,11 +498,19 @@ function setHostLabel(el, text) {
 function setHaPill(id, label, ok, extra) {
     const el = document.getElementById(id);
     if (!el) return;
-    el.textContent = extra ? `${label}: ${extra}` : label;
-    el.classList.remove('ok', 'fail', 'warn');
-    if (ok === true) el.classList.add('ok');
-    if (ok === false) el.classList.add('fail');
-    if (ok === 'warn') el.classList.add('warn');
+    if (label) {
+        el.textContent = extra ? `${label}: ${extra}` : label;
+    } else {
+        el.textContent = extra || '—';
+    }
+    el.classList.remove('ok', 'fail', 'warn', 'online', 'offline');
+    if (ok === true) {
+        el.classList.add('ok', 'online');
+    } else if (ok === false) {
+        el.classList.add('fail', 'offline');
+    } else if (ok === 'warn') {
+        el.classList.add('warn');
+    }
 }
 
 function setDbmonSyncUi(running) {
@@ -546,7 +561,7 @@ function paintDbmonHa(data) {
 
     setHaPill(
         'dbmon-pill-active',
-        'Активная',
+        '',
         data.active_role === 'replica' ? 'warn' : true,
         data.active_role === 'replica' ? 'резерв' : 'основная'
     );
@@ -807,6 +822,9 @@ if (haEls.card) {
 
 // Без probe на открытии — иначе N×12с к недоступным БД → Gateway Timeout
 load(false).catch((e) => {
+    const haCard = document.getElementById('dbmon-ha-card');
+    if (haCard) haCard.remove();
     els.grid.innerHTML = `<div class="card"><p class="list-empty">${esc(e.message)}</p></div>`;
+    if (haCard) els.grid.prepend(haCard);
 });
 setInterval(() => load(false).catch(() => {}), 60000);
