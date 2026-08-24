@@ -451,6 +451,9 @@ try {
             // ignore
         }
         $desired = agent_desired_version();
+        if (function_exists('nodes_refresh_presence_status')) {
+            nodes_refresh_presence_status($pdo);
+        }
         try {
             $rows = $pdo->query(
                 "SELECT id, name, host, status, last_seen,
@@ -473,7 +476,15 @@ try {
 
         $outdated = 0;
         $sync = $pdo->prepare('UPDATE nodes SET agent_update_available = ? WHERE id = ?');
+        $hbTimeout = function_exists('node_heartbeat_timeout_sec') ? node_heartbeat_timeout_sec() : 180;
         foreach ($rows as &$row) {
+            // Не доверяем залипшему nodes.status — только last_seen агента
+            $row['status'] = function_exists('node_presence_from_last_seen')
+                ? node_presence_from_last_seen(
+                    isset($row['last_seen']) ? (string)$row['last_seen'] : null,
+                    $hbTimeout
+                )
+                : ((($row['status'] ?? '') === 'online') ? 'online' : 'offline');
             $state = agent_update_state($row, $desired);
             $flag = agent_is_outdated($row, $desired);
             $row['update_state'] = $state;

@@ -133,7 +133,7 @@ const renderNodes = (nodesToRender = null) => {
             <td>${node.host ?? '-'}</td>
             <td>${node.provider_name ? `<a href="${node.provider_url || '#'}" target="_blank">${node.provider_name}</a>` : '-'}</td>
             <td>
-                <span class="status pill ${statusClass}">${node.status ?? 'unknown'}</span>
+                <span class="status pill ${statusClass}">${formatNodeStatusLabel(node.status)}</span>
             </td>
             <td>${uptime}</td>
             <td><span class="ping-value ${getPingClass(node.ping)}">${ping}</span></td>
@@ -349,6 +349,13 @@ function getStatusClass(status) {
     if (status === 'online') return 'status-online';
     if (status === 'warning' || status === 'degraded') return 'status-warning';
     return 'status-offline';
+}
+
+function formatNodeStatusLabel(status) {
+    if (status === 'online') return 'онлайн';
+    if (status === 'warning' || status === 'degraded') return 'деградация';
+    if (status === 'offline') return 'офлайн';
+    return status || 'неизвестно';
 }
 
 function getPingClass(ping) {

@@ -301,12 +301,25 @@ function topo_unique_switch(array $graph, array $hostNode, string $parentId): ?s
 }
 
 try {
+    if (function_exists('nodes_refresh_presence_status')) {
+        nodes_refresh_presence_status($pdo);
+    }
     $nodes = [];
     try {
         $nodes = $pdo->query("SELECT id, name, host, status, last_seen FROM nodes ORDER BY name")->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (Exception $e) {
         $nodes = [];
     }
+    $hbTimeout = function_exists('node_heartbeat_timeout_sec') ? node_heartbeat_timeout_sec() : 180;
+    foreach ($nodes as &$nRow) {
+        $nRow['status'] = function_exists('node_presence_from_last_seen')
+            ? node_presence_from_last_seen(
+                isset($nRow['last_seen']) ? (string)$nRow['last_seen'] : null,
+                $hbTimeout
+            )
+            : ((($nRow['status'] ?? '') === 'online') ? 'online' : 'offline');
+    }
+    unset($nRow);
 
     $metrics = [];
     try {

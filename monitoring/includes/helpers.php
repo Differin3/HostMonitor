@@ -192,6 +192,74 @@ if (!function_exists('node_heartbeat_timeout_sec')) {
     }
 }
 
+if (!function_exists('node_presence_from_last_seen')) {
+    /**
+     * Реальный online/offline по last_seen агента (не по устаревшему nodes.status в БД).
+     * Пустой last_seen → offline.
+     */
+    function node_presence_from_last_seen(?string $lastSeen, ?int $timeoutSec = null): string
+    {
+        $timeout = $timeoutSec ?? node_heartbeat_timeout_sec();
+        $raw = trim((string)$lastSeen);
+        if ($raw === '') {
+            return 'offline';
+        }
+        $ts = strtotime($raw);
+        if ($ts === false || $ts <= 0) {
+            return 'offline';
+        }
+        // Часы MySQL впереди PHP → отрицательный age; всё равно online только если в разумных пределах
+        $age = time() - $ts;
+        if ($age < -120) {
+            // last_seen «из будущего» больше чем на 2м — недоверие, offline
+            return 'offline';
+        }
+        return ($age <= $timeout) ? 'online' : 'offline';
+    }
+}
+
+if (!function_exists('nodes_refresh_presence_status')) {
+    /**
+     * Синхронизирует nodes.status с last_seen.
+     * Иначе дашборд/топология/агенты читают «залипший» online из БД.
+     *
+     * @return int число обновлённых строк
+     */
+    function nodes_refresh_presence_status(PDO $pdo, ?int $timeoutSec = null): int
+    {
+        $timeout = max(30, $timeoutSec ?? node_heartbeat_timeout_sec());
+        $updated = 0;
+        try {
+            // Просроченный last_seen / NULL → offline
+            $stmtOff = $pdo->prepare(
+                "UPDATE nodes
+                 SET status = 'offline'
+                 WHERE status = 'online'
+                   AND (
+                       last_seen IS NULL
+                       OR last_seen < (NOW() - INTERVAL ? SECOND)
+                   )"
+            );
+            $stmtOff->execute([$timeout]);
+            $updated += (int)$stmtOff->rowCount();
+
+            // Свежий last_seen → online
+            $stmtOn = $pdo->prepare(
+                "UPDATE nodes
+                 SET status = 'online'
+                 WHERE status <> 'online'
+                   AND last_seen IS NOT NULL
+                   AND last_seen >= (NOW() - INTERVAL ? SECOND)"
+            );
+            $stmtOn->execute([$timeout]);
+            $updated += (int)$stmtOn->rowCount();
+        } catch (Throwable $e) {
+            return $updated;
+        }
+        return $updated;
+    }
+}
+
 if (!function_exists('nodes_ensure_agent_columns')) {
     /**
      * Добавляет agent_* колонки без долгих блокировок.

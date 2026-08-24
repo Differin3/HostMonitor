@@ -141,11 +141,11 @@ function handleGet($pdo) {
             // - offline (last_seen > 3м)
             // - check-agent-* / check-updates зависли > 90с
             // - update-agent > 10м
-            // command_timestamp: при первом claim не трогаем (возраст очереди для UI);
-            // при reclaim running — обновляем, чтобы не выдавать команду на каждом poll.
+            // Не трогаем last_seen/status здесь: presence только от heartbeat/metrics.
+            // Иначе get-command «оживляет» offline-ноду без реального heartbeat.
             $claim = $pdo->prepare(
                 "UPDATE nodes
-                 SET command_status = 'running', last_seen = NOW(), status = 'online',
+                 SET command_status = 'running',
                      command_timestamp = IF(command_status = 'running', NOW(), command_timestamp)
                  WHERE id = ?
                    AND last_command IS NOT NULL
@@ -234,6 +234,10 @@ function handleGet($pdo) {
             echo json_encode(['error' => 'Node not found']);
             return;
         }
+
+        $node['status'] = node_presence_from_last_seen(
+            isset($node['last_seen']) ? (string)$node['last_seen'] : null
+        );
         
         // Вычисляем uptime и ping динамически
         $node['uptime'] = calculateUptime($node);
@@ -397,24 +401,14 @@ function handleGet($pdo) {
             }
         }
         
-        // Вычисляем uptime и ping для всех нод, проверяем статус на основе last_seen
-        // (но НЕ обновляем статус в БД автоматически - это делается только через heartbeat или refresh)
-        // Offline только после ~3 циклов агента (COLLECT_INTERVAL≈60с), не из‑за ICMP ping
+        // Presence по last_seen агента; синхронизируем БД (иначе дашборд/топология видят залипший online)
         $heartbeat_timeout = node_heartbeat_timeout_sec();
+        nodes_refresh_presence_status($pdo, $heartbeat_timeout);
         foreach ($nodes as &$node) {
-            // Проверяем статус на основе last_seen (только для отображения, без обновления БД)
-            if ($node['last_seen']) {
-                $lastSeenTimestamp = strtotime($node['last_seen']);
-                $secondsSinceLastSeen = time() - $lastSeenTimestamp;
-                
-                // Если прошло больше timeout секунд - считаем ноду offline для отображения
-                if ($secondsSinceLastSeen > $heartbeat_timeout) {
-                    $node['status'] = 'offline';
-                } else {
-                    // Если last_seen свежий - нода online
-                    $node['status'] = 'online';
-                }
-            }
+            $node['status'] = node_presence_from_last_seen(
+                isset($node['last_seen']) ? (string)$node['last_seen'] : null,
+                $heartbeat_timeout
+            );
             
             $node['uptime'] = calculateUptime($node);
             // Пинг только если нода была online (last_seen не NULL) или если явно запрошен refresh
@@ -803,22 +797,20 @@ function handlePost($pdo) {
         
         if ($commandStatus === 'failed' && $sameCommand) {
             // Оставляем last_command — UI показывает «ошибка» + command_result
+            // Presence не трогаем: статус ноды только от heartbeat/metrics
             $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET command_status = 'failed', last_seen = NOW(), status = 'online' WHERE id = ?"
+                "UPDATE nodes SET command_status = 'failed' WHERE id = ?"
             );
             $updateStmt->execute([$targetNodeId]);
             error_log("Command marked failed (kept last_command={$currentCmd})");
         } elseif ($commandStatus === 'completed' && $sameCommand) {
             $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL,
-                 last_seen = NOW(), status = 'online' WHERE id = ?"
+                "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
             error_log("Command cleared: status={$commandStatus}, last_command=NULL");
         } elseif ($commandStatus === 'completed' || $commandStatus === 'failed') {
-            // Старый отчёт после постановки новой команды — только touch last_seen
-            $pdo->prepare("UPDATE nodes SET last_seen = NOW(), status = 'online' WHERE id = ?")
-                ->execute([$targetNodeId]);
+            // Старый отчёт после постановки новой команды — игнор (без touch last_seen)
             error_log("Ignored stale command-status for '{$command}' (current='{$currentCmd}')");
             echo json_encode([
                 'status' => 'ok',
@@ -830,7 +822,7 @@ function handlePost($pdo) {
             return;
         } else {
             $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET command_status = ?, last_seen = NOW(), status = 'online' WHERE id = ?"
+                "UPDATE nodes SET command_status = ? WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
             error_log("Command status updated: status={$commandStatus}");
@@ -1123,24 +1115,10 @@ function refreshNode($pdo, $id) {
     // Делаем ping для проверки доступности
     $ping = pingNode($node['host']);
     
-    // Обновляем только статус на основе ping, НЕ трогаем last_seen (его обновляет только агент через heartbeat)
-    // Если ping успешен, но статус был offline - обновляем статус
-    // Если ping неуспешен и last_seen старый - помечаем offline
-    $newStatus = $node['status'];
-    // Статус по last_seen агента; ICMP ping только как доп. сигнал (не сбрасывает online при свежем heartbeat)
-    $heartbeatTimeout = node_heartbeat_timeout_sec();
-    
-    if ($node['last_seen']) {
-        $secondsSinceLastSeen = time() - (int)strtotime($node['last_seen']);
-        if ($secondsSinceLastSeen <= $heartbeatTimeout) {
-            $newStatus = 'online';
-        } elseif ($ping === null) {
-            $newStatus = 'offline';
-        }
-        // ping OK при просроченном last_seen — не трогаем (агент мог просто задержаться)
-    } elseif ($ping === null) {
-        $newStatus = 'offline';
-    }
+    // Статус только по last_seen агента (ICMP ping — справочно, не «оживляет» ноду)
+    $newStatus = node_presence_from_last_seen(
+        isset($node['last_seen']) ? (string)$node['last_seen'] : null
+    );
     
     // Обновляем только статус, НЕ last_seen
     $updateStmt = $pdo->prepare("UPDATE nodes SET status = ? WHERE id = ?");
@@ -1154,38 +1132,7 @@ function refreshNode($pdo, $id) {
 }
 
 function refreshAllNodes($pdo) {
-    $stmt = $pdo->query("SELECT * FROM nodes");
-    $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    $updated = 0;
-    $heartbeatTimeout = node_heartbeat_timeout_sec();
-    
-    foreach ($nodes as $node) {
-        // Делаем ping для проверки доступности
-        $ping = pingNode($node['host']);
-        
-        // Статус в первую очередь по last_seen агента, не по ICMP
-        $newStatus = $node['status'];
-        
-        if ($node['last_seen']) {
-            $secondsSinceLastSeen = time() - (int)strtotime($node['last_seen']);
-            if ($secondsSinceLastSeen <= $heartbeatTimeout) {
-                $newStatus = 'online';
-            } elseif ($ping === null) {
-                $newStatus = 'offline';
-            }
-        } elseif ($ping === null) {
-            $newStatus = 'offline';
-        }
-        
-        // Обновляем только статус, НЕ last_seen (его обновляет только агент)
-        if ($newStatus !== $node['status']) {
-            $updateStmt = $pdo->prepare("UPDATE nodes SET status = ? WHERE id = ?");
-            $updateStmt->execute([$newStatus, $node['id']]);
-            $updated++;
-        }
-    }
-    
+    $updated = nodes_refresh_presence_status($pdo);
     echo json_encode(['success' => true, 'updated' => $updated]);
 }
 

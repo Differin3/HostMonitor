@@ -22,7 +22,20 @@ function dashboard_hot_entry(?array $row, string $valueKey): ?array
 
 function dashboard_summary(PDO $pdo): array
 {
-    $nodesStmt = $pdo->query("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) as online FROM nodes");
+    // Сначала синхронизируем status ↔ last_seen, иначе счётчик «онлайн» врёт
+    if (function_exists('nodes_refresh_presence_status')) {
+        nodes_refresh_presence_status($pdo);
+    }
+    $timeout = function_exists('node_heartbeat_timeout_sec') ? node_heartbeat_timeout_sec() : 180;
+    $nodesStmt = $pdo->prepare(
+        "SELECT COUNT(*) AS total,
+                SUM(CASE
+                    WHEN last_seen IS NOT NULL AND last_seen >= (NOW() - INTERVAL ? SECOND) THEN 1
+                    ELSE 0
+                END) AS online
+         FROM nodes"
+    );
+    $nodesStmt->execute([$timeout]);
     $nodesStats = $nodesStmt->fetch(PDO::FETCH_ASSOC);
 
     $processesActive = 0;
@@ -229,13 +242,18 @@ function dashboard_nodes_light(PDO $pdo, int $limit = 6): array
     $heartbeatTimeout = function_exists('node_heartbeat_timeout_sec')
         ? node_heartbeat_timeout_sec()
         : 180;
+    if (function_exists('nodes_refresh_presence_status')) {
+        nodes_refresh_presence_status($pdo, $heartbeatTimeout);
+    }
     $out = [];
     foreach ($nodes as $node) {
         $id = (int)$node['id'];
-        if ($node['last_seen']) {
-            $secondsSince = time() - (int)strtotime((string)$node['last_seen']);
-            $node['status'] = ($secondsSince > $heartbeatTimeout) ? 'offline' : 'online';
-        }
+        $node['status'] = function_exists('node_presence_from_last_seen')
+            ? node_presence_from_last_seen(
+                isset($node['last_seen']) ? (string)$node['last_seen'] : null,
+                $heartbeatTimeout
+            )
+            : ((($node['status'] ?? '') === 'online') ? 'online' : 'offline');
         if (empty($node['name'])) {
             $node['name'] = "Node {$id}";
         }
