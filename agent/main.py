@@ -473,7 +473,7 @@ class MonitoringAgent:
             if status not in (None, 'ok', 'no-command'):
                 _log(f"Unexpected status in command check: {status}")
                 return None
-            if command and command_status == 'pending':
+            if (command and command_status in ('pending', 'running')):
                 _log(f"Found pending command: {command}")
                 return command
             elif not quiet:
@@ -482,14 +482,38 @@ class MonitoringAgent:
             _log(f"Command check failed: HTTP {resp.status_code}, response: {resp.text[:200]}")
         return None
 
+    def _start_command_heartbeat(self):
+        """Пока идёт длинная команда (apt), шлём heartbeat чтобы нода не ушла offline."""
+        self._command_busy = True
+        interval = max(10, int(os.getenv("HEARTBEAT_INTERVAL", "15")))
+
+        def _loop():
+            while getattr(self, '_command_busy', False):
+                try:
+                    self.send_heartbeat()
+                except Exception as e:
+                    _log(f"command-heartbeat failed: {e}")
+                for _ in range(interval):
+                    if not getattr(self, '_command_busy', False):
+                        break
+                    time.sleep(1)
+
+        Thread(target=_loop, daemon=True, name='cmd-heartbeat').start()
+
+    def _stop_command_heartbeat(self):
+        self._command_busy = False
+
     def run_pending_command(self, quiet=False):
         """Забрать и выполнить одну pending-команду (если есть). True = была команда."""
+        if getattr(self, '_command_busy', False):
+            return False
         command = self.check_commands(quiet=quiet)
         if not command:
             return False
         _log(f"=== EXECUTING COMMAND ===")
         _log(f"Command received: {command}")
         _log(f"Node: {self.node_name}")
+        self._start_command_heartbeat()
         try:
             success = self.execute_command(command)
             _log(f"Command execution result: success={success}")
@@ -504,6 +528,8 @@ class MonitoringAgent:
             import traceback
             _log(f"Traceback: {traceback.format_exc()}")
             self.report_command_status(command, 'failed')
+        finally:
+            self._stop_command_heartbeat()
         return True
     
     def get_os_info(self):

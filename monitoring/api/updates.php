@@ -39,12 +39,14 @@ function updates_install_status_sql(): string
         ) THEN 'completed'
         WHEN COALESCE(nu.install_queued, 0) = 1
             AND n.last_command IN ('install-updates', 'install-update-batch')
+            AND n.command_status = 'running'
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'installing'
+        WHEN COALESCE(nu.install_queued, 0) = 1
+            AND n.last_command IN ('install-updates', 'install-update-batch')
             AND n.command_status = 'pending'
             AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'pending'
         WHEN COALESCE(nu.install_queued, 0) = 1
-            AND n.last_command IN ('install-updates', 'install-update-batch')
-            AND n.command_status IN ('completed', 'running', 'installing')
-            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'installing'
+            AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'pending'
         WHEN n.last_command IS NOT NULL 
             AND n.last_command LIKE CONCAT('install-update ', nu.package, '%')
             AND n.command_status = 'pending' 
@@ -55,6 +57,59 @@ function updates_install_status_sql(): string
             AND n.command_timestamp > DATE_SUB(NOW(), INTERVAL 60 MINUTE) THEN 'installing'
         ELSE 'available'
     END as install_status";
+}
+
+/** Список обновлений из БД без постановки команд агентам */
+function updates_list_payload(PDO $pdo, $nodeId = null): array
+{
+    if ($nodeId) {
+        $updatesStmt = $pdo->prepare("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
+            n.command_status, n.last_command, n.command_timestamp,
+            " . updates_install_status_sql() . "
+            FROM node_updates nu 
+            JOIN nodes n ON nu.node_id = n.id 
+            WHERE nu.node_id = ?
+            ORDER BY nu.priority DESC, nu.package ASC");
+        $updatesStmt->execute([$nodeId]);
+    } else {
+        $updatesStmt = $pdo->query("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
+            n.command_status, n.last_command, n.command_timestamp,
+            " . updates_install_status_sql() . "
+            FROM node_updates nu 
+            JOIN nodes n ON nu.node_id = n.id 
+            ORDER BY nu.priority DESC, nu.package ASC");
+    }
+    $allUpdates = $updatesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $formattedUpdates = [];
+    $securityUpdates = 0;
+    foreach ($allUpdates as $update) {
+        $priority = $update['priority'] ?? 'normal';
+        if ($priority === 'security') {
+            $securityUpdates++;
+        }
+        $formattedUpdates[] = [
+            'package' => $update['package'],
+            'current_version' => $update['current_version'] ?? '-',
+            'new_version' => $update['new_version'] ?? '-',
+            'priority' => $priority,
+            'node_id' => $update['node_id'],
+            'node_name' => $update['node_name'],
+            'install_status' => $update['install_status'] ?? 'available',
+            'install_queued' => (int)($update['install_queued'] ?? 0),
+        ];
+    }
+
+    $lastCheckStmt = $pdo->query("SELECT MAX(last_check) as last_check FROM node_updates");
+    $lastCheckRow = $lastCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+    return [
+        'success' => true,
+        'updates' => $formattedUpdates,
+        'total_updates' => count($formattedUpdates),
+        'security_updates' => $securityUpdates,
+        'last_check' => $lastCheckRow['last_check'] ?? date('Y-m-d H:i:s'),
+    ];
 }
 
 // Для GET запросов (история, проверка) проверяем сессию пользователя
@@ -150,11 +205,20 @@ try {
                 'history' => $history,
                 'stats' => $stats
             ]);
+        } elseif ($action === 'list') {
+            $nodeId = $_GET['node_id'] ?? null;
+            echo json_encode(updates_list_payload($pdo, $nodeId), JSON_UNESCAPED_UNICODE);
         } else {
             http_response_code(400);
             echo json_encode(['error' => 'Invalid action']);
         }
     } elseif ($method === 'POST') {
+        // Только чтение списка (без постановки check-updates) — для UI-poll
+        if ($action === 'list') {
+            $nodeId = $_GET['node_id'] ?? null;
+            echo json_encode(updates_list_payload($pdo, $nodeId), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         // Обработка отчетов от агентов
         if ($action === 'report') {
             
@@ -179,8 +243,17 @@ try {
                 error_log("First update sample: " . json_encode($updates[0]));
             }
             
+            // Пустой отчёт = на ноде нет апдейтов: чистим список, но не трогаем install_queued
             if (empty($updates)) {
-                error_log("Warning: No updates received from node {$nodeName}");
+                try {
+                    $clear = $pdo->prepare(
+                        "DELETE FROM node_updates WHERE node_id = ? AND COALESCE(install_queued, 0) = 0"
+                    );
+                    $clear->execute([$nodeId]);
+                    error_log("Cleared {$clear->rowCount()} non-queued updates for node {$nodeName} (empty report)");
+                } catch (Throwable $e) {
+                    error_log("Empty-report clear failed for {$nodeName}: " . $e->getMessage());
+                }
                 echo json_encode([
                     'success' => true,
                     'count' => 0,
@@ -193,16 +266,27 @@ try {
             $pdo->beginTransaction();
             
             try {
-                // Удаляем старые обновления для этой ноды
-                $deleteStmt = $pdo->prepare("DELETE FROM node_updates WHERE node_id = ?");
+                // Удаляем только не в очереди установки — иначе report во время apt сбрасывает install_queued
+                $deleteStmt = $pdo->prepare(
+                    "DELETE FROM node_updates WHERE node_id = ? AND COALESCE(install_queued, 0) = 0"
+                );
                 $deleteStmt->execute([$nodeId]);
                 $deleted = $deleteStmt->rowCount();
-                error_log("Deleted {$deleted} old updates for node {$nodeName}");
+                error_log("Deleted {$deleted} non-queued updates for node {$nodeName}");
                 
-                // Сохраняем новые обновления
+                // Upsert: версии обновляем, install_queued сохраняем
                 $insertStmt = $pdo->prepare("INSERT INTO node_updates 
-                    (node_id, node_name, package, current_version, new_version, priority, os_name, os_version, kernel_version) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    (node_id, node_name, package, current_version, new_version, priority, os_name, os_version, kernel_version, install_queued) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    ON DUPLICATE KEY UPDATE
+                        node_name = VALUES(node_name),
+                        current_version = VALUES(current_version),
+                        new_version = VALUES(new_version),
+                        priority = VALUES(priority),
+                        os_name = VALUES(os_name),
+                        os_version = VALUES(os_version),
+                        kernel_version = VALUES(kernel_version),
+                        last_check = CURRENT_TIMESTAMP");
                 
                 $saved = 0;
                 $errors = [];
@@ -351,108 +435,45 @@ try {
             
             // Отправляем команду проверки обновлений
             if ($nodeId) {
-                // Проверка для конкретной ноды
                 $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE id = ? AND status = 'online'");
                 $stmt->execute([$nodeId]);
                 $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
-                // Проверка для всех онлайн нод
                 $stmt = $pdo->query("SELECT id, name FROM nodes WHERE status = 'online'");
                 $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             
             foreach ($nodes as $node) {
-                // Проверяем, нет ли уже активной команды для этой ноды
                 $checkStmt = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?");
                 $checkStmt->execute([$node['id']]);
                 $currentNode = $checkStmt->fetch(PDO::FETCH_ASSOC);
-                
-                // Не устанавливаем команду check-updates, если уже есть pending команда
-                if ($currentNode && $currentNode['command_status'] === 'pending' && $currentNode['last_command']) {
-                    // Проверяем, не истекла ли команда (более 5 минут)
-                    $commandAge = time() - strtotime($currentNode['command_timestamp']);
-                    if ($commandAge < 300) { // 5 минут
-                        error_log("Skipping check-updates for node {$node['name']} (ID: {$node['id']}): already has pending command {$currentNode['last_command']} (age: {$commandAge}s)");
-                        continue;
-                    } else {
-                        // Команда слишком старая, очищаем её
-                        error_log("Clearing stale command for node {$node['name']} (ID: {$node['id']}): command {$currentNode['last_command']} is {$commandAge}s old");
-                        $clearStmt = $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?");
-                        $clearStmt->execute([$node['id']]);
-                    }
-                }
-                
-                // Не ставим check-updates если уже есть check-updates в pending (даже если недавно выполнилась)
-                if ($currentNode && $currentNode['last_command'] === 'check-updates' && $currentNode['command_status'] === 'pending') {
-                    $commandAge = time() - strtotime($currentNode['command_timestamp']);
-                    if ($commandAge < 60) { // 1 минута - не ставим новую команду если недавно уже была check-updates
-                        error_log("Skipping check-updates for node {$node['name']} (ID: {$node['id']}): check-updates was queued {$commandAge}s ago");
+                $cmd = (string)($currentNode['last_command'] ?? '');
+                $st = (string)($currentNode['command_status'] ?? '');
+                $commandAge = $currentNode['command_timestamp']
+                    ? (time() - strtotime($currentNode['command_timestamp']))
+                    : 999999;
+
+                // Не мешаем install / любой running-команде
+                if (in_array($st, ['pending', 'running'], true) && $cmd !== '') {
+                    $isInstall = in_array($cmd, ['install-updates', 'install-update-batch'], true)
+                        || str_starts_with($cmd, 'install-update ');
+                    $ttl = $isInstall || $st === 'running' ? 3600 : 300;
+                    if ($commandAge < $ttl) {
+                        error_log("Skipping check-updates for node {$node['name']}: busy {$cmd}/{$st} age={$commandAge}s");
                         continue;
                     }
+                    error_log("Clearing stale command for node {$node['name']}: {$cmd}/{$st} age={$commandAge}s");
+                    $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?")
+                        ->execute([$node['id']]);
                 }
                 
-                // Сохраняем команду проверки обновлений
-                $updateStmt = $pdo->prepare("UPDATE nodes SET last_command = 'check-updates', command_status = 'pending', command_timestamp = NOW() WHERE id = ?");
-                $updateStmt->execute([$node['id']]);
+                $pdo->prepare("UPDATE nodes SET last_command = 'check-updates', command_status = 'pending', command_timestamp = NOW() WHERE id = ?")
+                    ->execute([$node['id']]);
                 error_log("Queued check-updates command for node {$node['name']} (ID: {$node['id']})");
             }
             
-            // Получаем все доступные обновления из БД с информацией о статусе установки
-            // Проверяем также историю установок для определения успешных установок
-            if ($nodeId) {
-                $updatesStmt = $pdo->prepare("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
-                    n.command_status, n.last_command, n.command_timestamp,
-                    " . updates_install_status_sql() . "
-                    FROM node_updates nu 
-                    JOIN nodes n ON nu.node_id = n.id 
-                    WHERE nu.node_id = ?
-                    ORDER BY nu.priority DESC, nu.package ASC");
-                $updatesStmt->execute([$nodeId]);
-            } else {
-                $updatesStmt = $pdo->query("SELECT nu.*, n.id as node_id, COALESCE(n.name, nu.node_name) as node_name,
-                    n.command_status, n.last_command, n.command_timestamp,
-                    " . updates_install_status_sql() . "
-                    FROM node_updates nu 
-                    JOIN nodes n ON nu.node_id = n.id 
-                    ORDER BY nu.priority DESC, nu.package ASC");
-            }
-            $allUpdates = $updatesStmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // Форматируем обновления для фронтенда
-            $formattedUpdates = [];
-            foreach ($allUpdates as $update) {
-                $formattedUpdates[] = [
-                    'package' => $update['package'],
-                    'current_version' => $update['current_version'] ?? '-',
-                    'new_version' => $update['new_version'] ?? '-',
-                    'priority' => $update['priority'] ?? 'normal',
-                    'node_id' => $update['node_id'],
-                    'node_name' => $update['node_name'],
-                    'install_status' => $update['install_status'] ?? 'available',
-                ];
-            }
-            
-            // Подсчитываем статистику
-            $totalUpdates = count($formattedUpdates);
-            $securityUpdates = 0;
-            foreach ($formattedUpdates as $update) {
-                if ($update['priority'] === 'security') {
-                    $securityUpdates++;
-                }
-            }
-            
-            // Получаем время последней проверки
-            $lastCheckStmt = $pdo->query("SELECT MAX(last_check) as last_check FROM node_updates");
-            $lastCheckRow = $lastCheckStmt->fetch(PDO::FETCH_ASSOC);
-            $lastCheck = $lastCheckRow['last_check'] ?? date('Y-m-d H:i:s');
-            
-            echo json_encode([
-                'success' => true,
-                'updates' => $formattedUpdates,
-                'total_updates' => $totalUpdates,
-                'security_updates' => $securityUpdates,
-                'last_check' => $lastCheck
-            ]);
+            echo json_encode(updates_list_payload($pdo, $nodeId), JSON_UNESCAPED_UNICODE);
+            exit;
         } elseif ($action === 'install') {
             $data = json_decode(file_get_contents('php://input'), true);
             $updates = $data['updates'] ?? [];
@@ -505,15 +526,18 @@ try {
 
                 $pendingCmd = trim((string)($node['last_command'] ?? ''));
                 $pendingStatus = (string)($node['command_status'] ?? '');
-                if ($pendingStatus === 'pending' && $pendingCmd !== '') {
-                    $allowReplace = in_array($pendingCmd, ['check-updates', 'install-updates', 'install-update-batch'], true)
-                        || str_starts_with($pendingCmd, 'install-update ');
+                if (in_array($pendingStatus, ['pending', 'running'], true) && $pendingCmd !== '') {
+                    $allowReplace = $pendingStatus === 'pending'
+                        && (
+                            in_array($pendingCmd, ['check-updates', 'install-updates', 'install-update-batch'], true)
+                            || str_starts_with($pendingCmd, 'install-update ')
+                        );
                     if ($allowReplace) {
                         $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?")
                             ->execute([$nodeId]);
-                        $pdo->prepare("UPDATE node_updates SET install_queued = 0 WHERE node_id = ?")->execute([$nodeId]);
+                        // Не сбрасываем install_queued целиком — ниже выставим нужные пакеты
                     } else {
-                        $errors[] = "Нода {$node['name']} занята командой: {$pendingCmd}";
+                        $errors[] = "Нода {$node['name']} занята командой: {$pendingCmd} ({$pendingStatus})";
                         continue;
                     }
                 }

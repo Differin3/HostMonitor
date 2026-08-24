@@ -121,53 +121,53 @@ function handleGet($pdo) {
             'command_timestamp' => null,
         ];
 
-        if (!$nodeInfo) {
-            // Если нет токена, пытаемся найти по имени
+        $targetId = null;
+        if ($nodeInfo) {
+            $targetId = (int)$nodeInfo['id'];
+        } else {
             $nodeName = $_GET['id'] ?? null;
             if ($nodeName) {
-                $stmt = $pdo->prepare("SELECT * FROM nodes WHERE name = ?");
+                $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name = ?");
                 $stmt->execute([$nodeName]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($row) {
+                    $targetId = (int)$row['id'];
+                }
+            }
+        }
+
+        if ($targetId) {
+            // Забираем pending → running. Повторно отдаём только если running «завис»
+            // (агент упал: last_seen старше 3 мин) — иначе длинный apt перезапустится.
+            $claim = $pdo->prepare(
+                "UPDATE nodes
+                 SET command_status = 'running', last_seen = NOW(), status = 'online',
+                     command_timestamp = IF(command_status = 'pending', NOW(), command_timestamp)
+                 WHERE id = ?
+                   AND last_command IS NOT NULL
+                   AND last_command <> ''
+                   AND (
+                       command_status = 'pending'
+                       OR (
+                           command_status = 'running'
+                           AND (last_seen IS NULL OR last_seen < DATE_SUB(NOW(), INTERVAL 3 MINUTE))
+                       )
+                   )"
+            );
+            $claim->execute([$targetId]);
+
+            if ($claim->rowCount() > 0) {
+                $stmt = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?");
+                $stmt->execute([$targetId]);
                 $node = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($node && $node['command_status'] === 'pending' && $node['last_command']) {
+                if ($node && $node['last_command']) {
                     $result = [
                         'status' => 'ok',
                         'command' => $node['last_command'],
-                        'command_status' => $node['command_status'],
+                        'command_status' => 'running',
                         'command_timestamp' => $node['command_timestamp'],
                     ];
                 }
-            }
-        } else {
-            // Используем node_id из токена
-            $nodeId = $nodeInfo['id'];
-            $nodeName = $nodeInfo['name'];
-            
-            // Проверяем команду по node_id (основной способ)
-            $stmt = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?");
-            $stmt->execute([$nodeId]);
-            $node = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            // Дополнительная проверка - может быть команда поставлена по node_name
-            if (!$node || !$node['last_command'] || $node['command_status'] !== 'pending') {
-                $stmt2 = $pdo->prepare("SELECT last_command, command_status, command_timestamp FROM nodes WHERE name = ?");
-                $stmt2->execute([$nodeName]);
-                $node2 = $stmt2->fetch(PDO::FETCH_ASSOC);
-                if ($node2 && $node2['command_status'] === 'pending' && $node2['last_command']) {
-                    $node = $node2;
-                    error_log("Command found by node_name={$nodeName}, node_id={$nodeId}, command={$node['last_command']}");
-                }
-            }
-            
-            if ($node && $node['command_status'] === 'pending' && $node['last_command']) {
-                $result = [
-                    'status' => 'ok',
-                    'command' => $node['last_command'],
-                    'command_status' => $node['command_status'],
-                    'command_timestamp' => $node['command_timestamp'],
-                ];
-                error_log("Command found for node_id={$nodeId}, node_name={$nodeName}, command={$node['last_command']}");
-            } else {
-                error_log("No command found for node_id={$nodeId}, node_name={$nodeName}, status=" . ($node['command_status'] ?? 'NULL') . ", command=" . ($node['last_command'] ?? 'NULL'));
             }
         }
 
@@ -757,33 +757,51 @@ function handlePost($pdo) {
         }
         
         $commandStatus = $data['status'] ?? 'completed'; // completed / failed / pending
-        $command = $data['command'] ?? '';
+        $command = trim((string)($data['command'] ?? ''));
         
-        // Получаем текущее состояние команды для логирования
         $currentStmt = $pdo->prepare("SELECT last_command, command_status FROM nodes WHERE id = ?");
         $currentStmt->execute([$targetNodeId]);
         $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
+        $currentCmd = trim((string)($current['last_command'] ?? ''));
         
         error_log("=== COMMAND STATUS UPDATE ===");
         error_log("Node ID: {$targetNodeId}");
         error_log("Command from request: {$command}");
         error_log("Status from request: {$commandStatus}");
-        error_log("Current command in DB: " . ($current['last_command'] ?? 'NULL'));
+        error_log("Current command in DB: " . ($currentCmd !== '' ? $currentCmd : 'NULL'));
         error_log("Current status in DB: " . ($current['command_status'] ?? 'NULL'));
+
+        // Не затираем чужую/новую команду: очищаем слот только если совпадает
+        $sameCommand = ($command === '' || $currentCmd === '' || $command === $currentCmd);
         
-        // Если команда завершена (completed или failed), очищаем команду чтобы избежать повторного выполнения
-        if ($commandStatus === 'completed' || $commandStatus === 'failed') {
-            $updateStmt = $pdo->prepare("UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL WHERE id = ?");
+        if (($commandStatus === 'completed' || $commandStatus === 'failed') && $sameCommand) {
+            $updateStmt = $pdo->prepare(
+                "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL,
+                 last_seen = NOW(), status = 'online' WHERE id = ?"
+            );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
             error_log("Command cleared: status={$commandStatus}, last_command=NULL");
+        } elseif ($commandStatus === 'completed' || $commandStatus === 'failed') {
+            // Старый отчёт после постановки новой команды — только touch last_seen
+            $pdo->prepare("UPDATE nodes SET last_seen = NOW(), status = 'online' WHERE id = ?")
+                ->execute([$targetNodeId]);
+            error_log("Ignored stale command-status for '{$command}' (current='{$currentCmd}')");
+            echo json_encode([
+                'status' => 'ok',
+                'success' => true,
+                'message' => 'Stale command status ignored',
+                'command_status' => $current['command_status'] ?? null,
+                'ignored' => true,
+            ]);
+            return;
         } else {
-            // Для pending просто обновляем статус
-            $updateStmt = $pdo->prepare("UPDATE nodes SET command_status = ? WHERE id = ?");
+            $updateStmt = $pdo->prepare(
+                "UPDATE nodes SET command_status = ?, last_seen = NOW(), status = 'online' WHERE id = ?"
+            );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
             error_log("Command status updated: status={$commandStatus}");
         }
         
-        // Проверяем результат
         $verifyStmt = $pdo->prepare("SELECT last_command, command_status FROM nodes WHERE id = ?");
         $verifyStmt->execute([$targetNodeId]);
         $verified = $verifyStmt->fetch(PDO::FETCH_ASSOC);

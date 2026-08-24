@@ -86,6 +86,24 @@ function populateNodeFilter() {
     });
 }
 
+async function refreshUpdatesList(silent = true) {
+    try {
+        const nodeId = document.getElementById('nodeFilter')?.value || '';
+        const url = nodeId ? `/updates.php?action=list&node_id=${nodeId}` : '/updates.php?action=list';
+        const result = await fetchJson(url, { method: 'GET' });
+        if (!result.success) return;
+        syncSelectedKeysFromDom();
+        updatesData = result.updates || [];
+        pruneSelectedKeys();
+        applyFilters();
+        updateStats(result);
+    } catch (error) {
+        if (!silent) {
+            console.error('Error refreshing updates list:', error);
+        }
+    }
+}
+
 async function checkUpdates(silent = false) {
     // Блокируем повторные нажатия при ручной проверке
     if (!silent && isChecking) {
@@ -96,21 +114,25 @@ async function checkUpdates(silent = false) {
     try {
         const nodeId = document.getElementById('nodeFilter')?.value || '';
         
-        // Блокируем кнопку проверки при ручной проверке
-        if (!silent) {
-            isChecking = true;
-            const checkBtn = document.querySelector('button[onclick="checkUpdates()"]');
-            if (checkBtn) {
-                checkBtn.disabled = true;
-                const originalContent = checkBtn.innerHTML;
-                checkBtn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i> Проверка...';
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons();
-                }
-                checkBtn.dataset.originalContent = originalContent;
-            }
-            showToast('Проверка обновлений...', 'info');
+        // Silent = только чтение списка, без постановки check-updates на все ноды
+        if (silent) {
+            await refreshUpdatesList(true);
+            return;
         }
+
+        // Блокируем кнопку проверки при ручной проверке
+        isChecking = true;
+        const checkBtn = document.querySelector('button[onclick="checkUpdates()"]');
+        if (checkBtn) {
+            checkBtn.disabled = true;
+            const originalContent = checkBtn.innerHTML;
+            checkBtn.innerHTML = '<i data-lucide="loader-2" class="spinning"></i> Проверка...';
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+            checkBtn.dataset.originalContent = originalContent;
+        }
+        showToast('Проверка обновлений...', 'info');
         
         const url = nodeId ? `/updates.php?action=check&node_id=${nodeId}` : '/updates.php?action=check';
         const result = await fetchJson(url, { method: 'POST' });
@@ -131,43 +153,40 @@ async function checkUpdates(silent = false) {
                 }
             }
             
-            if (offlineNodesInUpdates.length > 0 && !silent) {
+            if (offlineNodesInUpdates.length > 0) {
                 const nodeNames = offlineNodesInUpdates.map(n => n.name).join(', ');
                 showToast(`Внимание: ${offlineNodesInUpdates.length} нод(а) офлайн (${nodeNames}). Обновления для них недоступны.`, 'warning');
             }
             
             applyFilters();
             updateStats(result);
-            // Показываем уведомление только при ручной проверке (не silent)
-            if (!silent) {
-                if (updatesData.length > 0) {
-                    const nodeName = nodeId ? allNodes.find(n => n.id.toString() === nodeId)?.name : '';
-                    showToast(`Найдено обновлений: ${result.total_updates || 0}${nodeName ? ` для ${nodeName}` : ''}`, 'success');
-                } else {
-                    showToast('Обновления не найдены', 'info');
-                }
+            if (updatesData.length > 0) {
+                const nodeName = nodeId ? allNodes.find(n => n.id.toString() === nodeId)?.name : '';
+                showToast(`Найдено обновлений: ${result.total_updates || 0}${nodeName ? ` для ${nodeName}` : ''}`, 'success');
+            } else {
+                showToast('Команда проверки отправлена. Список обновится по мере ответа агентов.', 'info');
             }
+            // После ручной проверки пару минут подтягиваем список без re-queue
+            let refreshCount = 0;
+            const poll = setInterval(async () => {
+                await refreshUpdatesList(true);
+                refreshCount++;
+                if (refreshCount >= 30) clearInterval(poll);
+            }, 3000);
         } else {
-            if (!silent) {
-                showToast(result.error || 'Ошибка проверки обновлений', 'error');
-            }
+            showToast(result.error || 'Ошибка проверки обновлений', 'error');
         }
     } catch (error) {
         console.error('Error checking updates:', error);
-        if (!silent) {
-            showToast('Ошибка проверки обновлений', 'error');
-        }
+        showToast('Ошибка проверки обновлений', 'error');
     } finally {
-        // Разблокируем кнопку проверки
-        if (!silent) {
-            isChecking = false;
-            const checkBtn = document.querySelector('button[onclick="checkUpdates()"]');
-            if (checkBtn && checkBtn.dataset.originalContent) {
-                checkBtn.disabled = false;
-                checkBtn.innerHTML = checkBtn.dataset.originalContent;
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons();
-                }
+        isChecking = false;
+        const checkBtn = document.querySelector('button[onclick="checkUpdates()"]');
+        if (checkBtn && checkBtn.dataset.originalContent) {
+            checkBtn.disabled = false;
+            checkBtn.innerHTML = checkBtn.dataset.originalContent;
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
             }
         }
     }
