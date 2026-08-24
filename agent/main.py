@@ -860,11 +860,10 @@ class MonitoringAgent:
             return {**info, 'ok': False, 'update_available': False, 'error': str(e)[:500]}
 
     def update_agent(self) -> dict:
+        # Команда с панели: всегда fetch+pull (не полагаемся только на флаг update_available)
         checked = self.check_agent_update()
         if not checked.get('ok'):
             return checked
-        if not checked.get('update_available'):
-            return {**checked, 'ok': True, 'updated': False, 'message': 'Уже актуальная версия'}
         if checked.get('agent_dirty'):
             return {
                 **checked,
@@ -874,6 +873,15 @@ class MonitoringAgent:
             }
         root = self.install_root()
         remote_ref = checked.get('remote_ref') or 'origin/main'
+        before = checked.get('agent_commit') or ''
+        if not checked.get('update_available'):
+            # Локально уже = origin после fetch — для панели это «актуален относительно remote»
+            return {
+                **checked,
+                'ok': True,
+                'updated': False,
+                'message': f'Уже на remote ({before or "unknown"})',
+            }
         try:
             pull = subprocess.run(
                 ['git', '-C', str(root), 'pull', '--ff-only', 'origin', remote_ref.split('/', 1)[-1]],
@@ -905,7 +913,7 @@ class MonitoringAgent:
                 'updated': True,
                 'update_available': False,
                 'agent_remote_commit': after.get('agent_commit'),
-                'message': f"Обновлено {checked.get('agent_commit')} → {after.get('agent_commit')}",
+                'message': f"Обновлено {before} → {after.get('agent_commit')}",
                 'error': None,
             }
         except Exception as e:

@@ -69,7 +69,10 @@
         if (!silent) setBtnLoading(btn, true, 'refresh-cw');
 
         try {
-            const data = await fetchJson(`${API}?action=check`);
+            // Silent (каждая вкладка): только local compare — без git fetch (иначе CGI 20–60с).
+            // Кнопка «Проверить»: полный fetch с origin.
+            const qs = silent ? '?action=check&local=1' : '?action=check';
+            const data = await fetchJson(`${API}${qs}`);
             if (data.error && !data.available) {
                 console.warn('[panel-update]', data.error);
                 if (!silent) toast(data.error.split('\n\n')[0], 'warning');

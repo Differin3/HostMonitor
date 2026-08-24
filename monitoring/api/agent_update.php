@@ -42,6 +42,26 @@ function agent_desired_version(): array
     return ['desired_version' => $version, 'desired_commit' => $commit];
 }
 
+function agent_is_outdated(array $row, array $desired): bool
+{
+    if ((int)($row['agent_update_available'] ?? 0) === 1) {
+        return true;
+    }
+    $local = (string)($row['agent_commit'] ?? '');
+    $ver = (string)($row['agent_version'] ?? '');
+    if ($desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
+        return true;
+    }
+    if ($desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * check/update агента могут сменять друг друга.
+ * Прочие pending-команды младше 120с блокируют постановку.
+ */
 function agent_queue_command(PDO $pdo, int $nodeId, string $command): bool
 {
     $stmt = $pdo->prepare('SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?');
@@ -50,10 +70,21 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command): bool
     if (!$row) {
         return false;
     }
-    if (($row['command_status'] ?? '') === 'pending' && !empty($row['last_command'])) {
-        $age = time() - (int)strtotime((string)($row['command_timestamp'] ?? 'now'));
-        if ($age < 120 && (string)$row['last_command'] !== $command) {
-            return false;
+    $pending = (string)($row['last_command'] ?? '');
+    $status = (string)($row['command_status'] ?? '');
+    if ($status === 'pending' && $pending !== '' && $pending !== $command) {
+        $agentCmds = [
+            'check-agent-update',
+            'check-agent-updates',
+            'update-agent',
+            'upgrade-agent',
+        ];
+        $bothAgent = in_array($pending, $agentCmds, true) && in_array($command, $agentCmds, true);
+        if (!$bothAgent) {
+            $age = time() - (int)strtotime((string)($row['command_timestamp'] ?? 'now'));
+            if ($age < 120) {
+                return false;
+            }
         }
     }
     $upd = $pdo->prepare(
@@ -139,17 +170,21 @@ try {
         }
 
         $outdated = 0;
+        $sync = $pdo->prepare('UPDATE nodes SET agent_update_available = ? WHERE id = ?');
         foreach ($rows as &$row) {
-            $local = (string)($row['agent_commit'] ?? '');
-            $flag = (int)($row['agent_update_available'] ?? 0) === 1;
-            $ver = (string)($row['agent_version'] ?? '');
-            if (!$flag && $desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
-                $flag = true;
-            }
-            if (!$flag && $desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
-                $flag = true;
-            }
+            $flag = agent_is_outdated($row, $desired);
             $row['outdated'] = $flag;
+            // Синхронизируем флаг в БД с тем, что видит UI (commit/version панели)
+            $dbFlag = (int)($row['agent_update_available'] ?? 0);
+            $want = $flag ? 1 : 0;
+            if ($dbFlag !== $want) {
+                try {
+                    $sync->execute([$want, (int)$row['id']]);
+                    $row['agent_update_available'] = $want;
+                } catch (Throwable $e) {
+                    // не ломаем status из‑за sync
+                }
+            }
             if ($flag) {
                 $outdated++;
             }
@@ -175,8 +210,9 @@ try {
         $onlyOutdated = !empty($data['only_outdated']);
 
         $desired = agent_desired_version();
+        $explicitIds = is_array($ids) && count($ids) > 0;
 
-        if (is_array($ids) && $ids) {
+        if ($explicitIds) {
             $ids = array_values(array_filter(array_map('intval', $ids), static fn($v) => $v > 0));
             if (!$ids) {
                 json_error('No nodes selected', 400);
@@ -195,34 +231,47 @@ try {
             )->fetchAll(PDO::FETCH_ASSOC);
         }
 
-        // Та же логика outdated, что в status — не только флаг в БД
-        if ($onlyOutdated && $action === 'apply') {
-            $nodes = array_values(array_filter($nodes, static function (array $row) use ($desired): bool {
-                if ((int)($row['agent_update_available'] ?? 0) === 1) {
-                    return true;
-                }
-                $local = (string)($row['agent_commit'] ?? '');
-                $ver = (string)($row['agent_version'] ?? '');
-                if ($desired['desired_commit'] !== '' && $local !== '' && $local !== $desired['desired_commit']) {
-                    return true;
-                }
-                if ($desired['desired_version'] !== '' && $ver !== '' && $ver !== $desired['desired_version']) {
-                    return true;
-                }
-                return false;
-            }));
+        // Явный список node_ids — доверяем UI (уже отфильтровал outdated+online).
+        // Без списка + only_outdated — та же логика, что status.
+        if ($onlyOutdated && $action === 'apply' && !$explicitIds) {
+            $nodes = array_values(array_filter(
+                $nodes,
+                static fn(array $row): bool => agent_is_outdated($row, $desired)
+            ));
+        }
+
+        if (!$explicitIds) {
+            $nodes = array_values(array_filter(
+                $nodes,
+                static fn(array $row): bool => (string)($row['status'] ?? '') === 'online'
+            ));
         }
 
         $queued = 0;
         $skipped = 0;
         $names = [];
+        $skippedNames = [];
         foreach ($nodes as $node) {
             if (agent_queue_command($pdo, (int)$node['id'], $command)) {
                 $queued++;
                 $names[] = (string)($node['name'] ?? $node['id']);
             } else {
                 $skipped++;
+                $skippedNames[] = (string)($node['name'] ?? $node['id']);
             }
+        }
+
+        if ($queued > 0) {
+            $message = "Команда «{$command}» поставлена в очередь для {$queued} нод(ы): " . implode(', ', $names);
+            if ($skipped > 0) {
+                $message .= ". Пропущено ({$skipped}): " . implode(', ', $skippedNames);
+            }
+        } elseif ($skipped > 0) {
+            $message = "Не удалось поставить «{$command}» (заняты другой pending-командой): " . implode(', ', $skippedNames);
+        } elseif ($onlyOutdated) {
+            $message = 'Нет устаревших онлайн-нод. Обновите статус агентов или нажмите «Проверить агенты».';
+        } else {
+            $message = 'Нет подходящих нод для команды.';
         }
 
         echo json_encode([
@@ -231,11 +280,8 @@ try {
             'queued' => $queued,
             'skipped' => $skipped,
             'nodes' => $names,
-            'message' => $queued > 0
-                ? "Команда «{$command}» поставлена в очередь для {$queued} нод(ы): " . implode(', ', $names)
-                : ($onlyOutdated
-                    ? 'Нет нод для обновления (флаг в БД пуст или commit уже совпадает). Нажмите «Проверить агенты», затем снова «Обновить».'
-                    : 'Не удалось поставить команду в очередь (возможно, другая pending-команда).'),
+            'skipped_nodes' => $skippedNames,
+            'message' => $message,
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }

@@ -452,7 +452,8 @@ els.form?.addEventListener('submit', async (e) => {
     }
 });
 
-load(true).catch((e) => {
+// Без probe на открытии — иначе N×12с к недоступным БД → Gateway Timeout
+load(false).catch((e) => {
     els.grid.innerHTML = `<div class="card"><p class="list-empty">${esc(e.message)}</p></div>`;
 });
 setInterval(() => load(false).catch(() => {}), 60000);

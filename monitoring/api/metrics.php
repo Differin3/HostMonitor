@@ -31,6 +31,12 @@ function metrics_ensure_schema(PDO $pdo): void
         return;
     }
     $done = true;
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('metrics')) {
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
     foreach ([
         "ALTER TABLE metrics ADD COLUMN memory_used BIGINT NULL",
         "ALTER TABLE metrics ADD COLUMN memory_total BIGINT NULL",
@@ -45,6 +51,9 @@ function metrics_ensure_schema(PDO $pdo): void
         } catch (Exception $e) {
             // column exists
         }
+    }
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('metrics');
     }
 }
 

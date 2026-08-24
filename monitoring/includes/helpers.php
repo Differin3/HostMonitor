@@ -290,3 +290,43 @@ if (!function_exists('nodes_ensure_agent_columns_all')) {
     }
 }
 
+if (!function_exists('schema_marker_path')) {
+    function schema_marker_path(string $name): string
+    {
+        $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
+        return $dir . DIRECTORY_SEPARATOR . '.schema_' . preg_replace('/[^a-z0-9_]+/i', '_', $name) . '_ok';
+    }
+}
+
+if (!function_exists('schema_marker_fresh')) {
+    /** true = миграцию можно пропустить */
+    function schema_marker_fresh(string $name, int $ttlSec = 86400): bool
+    {
+        $path = schema_marker_path($name);
+        return is_file($path) && (time() - (int)@filemtime($path)) < $ttlSec;
+    }
+}
+
+if (!function_exists('schema_marker_touch')) {
+    function schema_marker_touch(string $name): void
+    {
+        $path = schema_marker_path($name);
+        $dir = dirname($path);
+        if (is_dir($dir) || @mkdir($dir, 0750, true)) {
+            @file_put_contents($path, (string)time());
+        }
+    }
+}
+
+if (!function_exists('schema_short_lock')) {
+    /** Короткий lock wait перед ALTER — иначе CGI ждёт lock_wait_timeout=50с */
+    function schema_short_lock(PDO $pdo): void
+    {
+        try {
+            $pdo->exec('SET SESSION lock_wait_timeout = 2');
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+}
+

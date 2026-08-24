@@ -672,7 +672,7 @@ function handlePost($pdo) {
             exit;
         }
 
-        nodes_ensure_agent_columns($pdo);
+        // Не вызываем nodes_ensure_agent_columns на heartbeat — маркер/миграцию делает UI/старт
         
         $nodeId = $nodeInfo['id'];
         $data = json_decode((string)file_get_contents('php://input'), true);

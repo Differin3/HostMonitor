@@ -893,10 +893,11 @@ async function applyAgentUpdates() {
         }
 
         showToast(`Обновление агентов (${ids.length})...`, 'info');
+        // node_ids уже отфильтрованы по status; only_outdated не нужен (иначе старый бэкенд мог обнулить список)
         const result = await fetchJson('/agent_update.php?action=apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ only_outdated: true, node_ids: ids }),
+            body: JSON.stringify({ node_ids: ids }),
         });
         const queued = result.queued ?? 0;
         const skipped = result.skipped ?? 0;

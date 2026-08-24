@@ -408,7 +408,7 @@ function db_connection_status(): array
     $GLOBALS['_db_ep_primary_host'] = $primaryEp['host'];
     $GLOBALS['_db_ep_primary_name'] = $primaryEp['name'];
     try {
-        $status['primary'] = db_ping_endpoint($primaryEp, 12);
+        $status['primary'] = db_ping_endpoint($primaryEp, 3);
     } catch (Throwable $e) {
         $status['primary'] = ['ok' => false, 'ms' => 0, 'error' => $e->getMessage()];
     }
@@ -422,7 +422,7 @@ function db_connection_status(): array
         $GLOBALS['_db_ep_replica_host'] = $replicaEp['host'];
         $GLOBALS['_db_ep_replica_name'] = $replicaEp['name'];
         try {
-            $status['replica'] = db_ping_endpoint($replicaEp, 12);
+            $status['replica'] = db_ping_endpoint($replicaEp, 3);
         } catch (Throwable $e) {
             $status['replica'] = ['ok' => false, 'ms' => 0, 'error' => $e->getMessage()];
         }
@@ -733,7 +733,7 @@ function db_ensure_database(array $ep): void
     $server->exec('CREATE DATABASE IF NOT EXISTS `' . $name . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 }
 
-function db_try_connect(array $ep, int $timeout = 12): PDO
+function db_try_connect(array $ep, int $timeout = 3): PDO
 {
     $name = (string)($ep['name'] ?? '');
     if ($name === '') {
@@ -744,7 +744,7 @@ function db_try_connect(array $ep, int $timeout = 12): PDO
     return $pdo;
 }
 
-function db_ping_endpoint(array $ep, int $timeout = 12): array
+function db_ping_endpoint(array $ep, int $timeout = 3): array
 {
     $started = microtime(true);
     try {

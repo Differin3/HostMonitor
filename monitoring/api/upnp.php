@@ -16,6 +16,12 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 function upnp_ensure_schema(PDO $pdo): void
 {
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('upnp')) {
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
     $pdo->exec("CREATE TABLE IF NOT EXISTS upnp_devices (
         id INT AUTO_INCREMENT PRIMARY KEY,
         node_id INT NULL,
@@ -105,6 +111,9 @@ function upnp_ensure_schema(PDO $pdo): void
         UNIQUE KEY uniq_map (device_id, external_port, protocol, remote_host),
         INDEX idx_device_id (device_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('upnp');
+    }
 }
 
 function upnp_ident_empty(?string $value): bool

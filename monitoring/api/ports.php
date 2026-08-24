@@ -16,6 +16,12 @@ $nodeInfo = $auth['node'];
 
 function ensure_network_interfaces_table(PDO $pdo): void
 {
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('network_interfaces')) {
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
     $pdo->exec("CREATE TABLE IF NOT EXISTS network_interfaces (
         id INT AUTO_INCREMENT PRIMARY KEY,
         node_id INT NOT NULL,
@@ -45,6 +51,9 @@ function ensure_network_interfaces_table(PDO $pdo): void
         } catch (Exception $e) {
             // column already exists
         }
+    }
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('network_interfaces');
     }
 }
 

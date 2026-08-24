@@ -4,6 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../includes/database.php';
+require_once __DIR__ . '/../includes/helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -46,6 +47,12 @@ function containers_ensure_schema(PDO $pdo): void
         return;
     }
     $done = true;
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('containers')) {
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
 
     $alters = [
         "ALTER TABLE containers ADD COLUMN networks TEXT NULL",
@@ -76,6 +83,9 @@ function containers_ensure_schema(PDO $pdo): void
         UNIQUE KEY uniq_node_net (node_id, network_id),
         INDEX idx_node_id (node_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('containers');
+    }
 }
 
 function containers_decode_json($value): array

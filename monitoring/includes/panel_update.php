@@ -447,7 +447,8 @@ function panel_update_check(bool $fetch = true): array
     }
 
     if ($fetch) {
-        $fetchResult = panel_git($root, 'fetch origin --prune', 90);
+        // Короткий таймаут: UI CGI ~20с; длинный fetch вешал каждую вкладку админа
+        $fetchResult = panel_git($root, 'fetch origin --prune', 12);
         if (!$fetchResult['ok']) {
             $detail = trim((string)($fetchResult['output'] ?? ''));
             if ($detail === '') {

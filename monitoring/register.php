@@ -22,8 +22,9 @@ if (db_is_configured()) {
         $dbOk = false;
     }
     if (!$dbOk) {
-        $status = db_connection_status();
-        db_render_error_page($status);
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "База данных недоступна.\n";
         exit;
     }
 }
@@ -37,8 +38,9 @@ try {
     }
 } catch (Exception $e) {
     if (db_is_configured()) {
-        $status = db_connection_status();
-        db_render_error_page($status);
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "База данных недоступна.\n";
         exit;
     }
     header('Location: setup.php');

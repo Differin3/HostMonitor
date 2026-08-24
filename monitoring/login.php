@@ -24,8 +24,12 @@ if (db_is_configured()) {
         $dbOk = false;
     }
     if (!$dbOk) {
-        $status = db_connection_status();
-        db_render_error_page($status);
+        // Не вызывать db_connection_status() (2×12с ping) — страница логина и так без БД
+        http_response_code(503);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>БД недоступна</title></head><body>';
+        echo '<h1>База данных недоступна</h1><p>Проверьте подключение и настройки в monitoring/data/db.local.php</p>';
+        echo '</body></html>';
         exit;
     }
 }
