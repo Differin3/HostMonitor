@@ -149,6 +149,10 @@
     pointer-events: none;
 }
 
+.netmap-stage.is-loading .netmap-empty {
+    display: none !important;
+}
+
 .netmap-loading-spinner {
     width: 40px;
     height: 40px;

@@ -17,6 +17,8 @@ const state = {
     panY: 0,
     dragging: null,
     panning: null,
+    booted: false,
+    loading: false,
 };
 
 const els = {
@@ -589,6 +591,11 @@ const persistLayout = () => {
 };
 
 const render = ({ geometry = true, panel = true } = {}) => {
+    // Пока идёт первая загрузка — не показываем «Нет узлов»
+    if (!state.booted || state.loading) {
+        els.empty?.classList.add('hidden');
+        return;
+    }
     const real = state.nodes.filter((n) => n.id !== 'wan' && n.kind !== 'subnet');
     if (!real.length) {
         packets.length = 0;
@@ -641,24 +648,40 @@ const relayout = () => {
 };
 
 const setLoading = (on, message = 'Загрузка карты узлов…') => {
+    state.loading = !!on;
+    els.stage?.classList.toggle('is-loading', on);
     if (els.loading) {
         const label = els.loading.querySelector('p');
         if (label && message) label.textContent = message;
         els.loading.classList.toggle('hidden', !on);
         els.loading.setAttribute('aria-busy', on ? 'true' : 'false');
     }
+    // Пока грузим — всегда прячем empty (даже без оверлея в старом HTML)
+    if (on) els.empty?.classList.add('hidden');
     if (els.refresh) {
         els.refresh.classList.toggle('is-loading', on);
         els.refresh.disabled = !!on;
     }
-    if (els.stats && on && !state.nodes.length) {
+    if (els.stats && on && !state.booted) {
         els.stats.innerHTML = '<span class="muted">Загрузка…</span>';
     }
 };
 
+const resetEmptyCopy = () => {
+    const title = els.empty?.querySelector('h3');
+    const text = els.empty?.querySelector('p');
+    if (title) title.textContent = 'Нет узлов';
+    if (text) text.textContent = 'Добавьте ноды, чтобы построить карту сети';
+};
+
 const load = async (silent = false) => {
     if (!els.stage) return;
-    if (!silent) setLoading(true);
+    if (state.loading && silent) return;
+    setLoading(true, silent && state.booted ? 'Обновление карты…' : 'Загрузка карты узлов…');
+    // Silent refresh: лёгкий индикатор только на кнопке, оверлей — если ещё не booted
+    if (silent && state.booted && els.loading) {
+        els.loading.classList.add('hidden');
+    }
     try {
         const payload = await fetchTopology();
         const prev = new Map(state.nodes.map((n) => [String(n.id), n]));
@@ -670,18 +693,23 @@ const load = async (silent = false) => {
             }
             return node;
         });
-        if (!silent && !state.selectedId) {
+        if (!state.selectedId) {
             const first = state.nodes.find((n) => n.kind === 'core' || n.kind === 'router') || state.nodes.find((n) => n.id !== 'wan');
             state.selectedId = first ? first.id : 'wan';
         }
+        state.booted = true;
+        resetEmptyCopy();
+        state.loading = false;
         render();
     } catch (error) {
         console.error('Карта сети:', error);
-        if (els.stats && !state.nodes.length) {
+        if (els.stats && !state.booted) {
             els.stats.innerHTML = '<span class="muted">Ошибка загрузки</span>';
         }
         if (window.showToast) window.showToast('Не удалось загрузить топологию', 'error');
-        if (!silent && !state.nodes.length) {
+        if (!state.booted) {
+            state.booted = true;
+            state.loading = false;
             els.empty?.classList.remove('hidden');
             const title = els.empty?.querySelector('h3');
             const text = els.empty?.querySelector('p');
@@ -689,7 +717,16 @@ const load = async (silent = false) => {
             if (text) text.textContent = 'Проверьте API topology.php и обновите карту';
         }
     } finally {
-        if (!silent) setLoading(false);
+        state.loading = false;
+        els.stage?.classList.remove('is-loading');
+        if (els.loading) {
+            els.loading.classList.add('hidden');
+            els.loading.setAttribute('aria-busy', 'false');
+        }
+        if (els.refresh) {
+            els.refresh.classList.remove('is-loading');
+            els.refresh.disabled = false;
+        }
     }
 };
 
@@ -823,6 +860,7 @@ if (els.stage) {
     if (typeof ResizeObserver !== 'undefined') {
         let lastBox = { w: 0, h: 0 };
         new ResizeObserver(() => {
+            if (!state.booted || state.loading) return;
             if (state.dragging || state.panning) return;
             const box = els.stage.getBoundingClientRect();
             if (box.width < 40 || box.height < 40) return;
@@ -838,6 +876,9 @@ if (els.stage) {
         }).observe(els.stage);
     }
 
+    // Сразу loading, empty скрыт — до ответа topology.php
+    els.empty?.classList.add('hidden');
+    setLoading(true);
     load();
     setInterval(() => {
         if (!window.NETMAP_TOPOLOGY) load(true);
