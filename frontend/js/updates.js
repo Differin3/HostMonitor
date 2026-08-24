@@ -897,7 +897,7 @@ async function applyAgentUpdates() {
         const result = await fetchJson('/agent_update.php?action=apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_ids: ids }),
+            body: JSON.stringify({ node_ids: ids, force: true }),
         });
         const queued = result.queued ?? 0;
         const skipped = result.skipped ?? 0;

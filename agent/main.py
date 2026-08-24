@@ -947,7 +947,14 @@ class MonitoringAgent:
             if command in ('update-agent', 'upgrade-agent'):
                 result = self.update_agent()
                 self.report_agent_update(result)
+                # Сначала снимаем pending, потом exit (иначе команда висит в БД)
+                try:
+                    self.report_command_status(command, 'completed' if result.get('ok') else 'failed')
+                except Exception as e:
+                    _log(f'command-status after update failed: {e}')
                 _log(f"update-agent: {result}")
+                if result.get('updated'):
+                    self._exit_after_command = True
                 return bool(result.get('ok'))
             if command.startswith('reboot'):
                 # Перезагрузка системы - ОПАСНАЯ КОМАНДА

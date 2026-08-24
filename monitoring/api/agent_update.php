@@ -59,10 +59,34 @@ function agent_is_outdated(array $row, array $desired): bool
 }
 
 /**
- * check/update агента могут сменять друг друга.
- * Прочие pending-команды младше 120с блокируют постановку.
+ * Очередь команд для агента.
+ * check/update-agent всегда перезаписывают любой pending (кнопка с панели = приоритет).
+ * Прочие команды блокируют только свежий чужой pending (<45с).
  */
-function agent_queue_command(PDO $pdo, int $nodeId, string $command): bool
+function agent_is_agent_cmd(string $command): bool
+{
+    return in_array($command, [
+        'check-agent-update',
+        'check-agent-updates',
+        'update-agent',
+        'upgrade-agent',
+    ], true);
+}
+
+function agent_pending_age_sec(array $row): int
+{
+    $raw = $row['command_timestamp'] ?? null;
+    if ($raw === null || $raw === '') {
+        return 999999; // нет метки — считаем протухшим
+    }
+    $ts = strtotime((string)$raw);
+    if ($ts === false || $ts <= 0) {
+        return 999999;
+    }
+    return max(0, time() - $ts);
+}
+
+function agent_queue_command(PDO $pdo, int $nodeId, string $command, bool $force = false): bool
 {
     $stmt = $pdo->prepare('SELECT last_command, command_status, command_timestamp FROM nodes WHERE id = ?');
     $stmt->execute([$nodeId]);
@@ -70,28 +94,47 @@ function agent_queue_command(PDO $pdo, int $nodeId, string $command): bool
     if (!$row) {
         return false;
     }
-    $pending = (string)($row['last_command'] ?? '');
+    $pending = trim((string)($row['last_command'] ?? ''));
     $status = (string)($row['command_status'] ?? '');
-    if ($status === 'pending' && $pending !== '' && $pending !== $command) {
-        $agentCmds = [
-            'check-agent-update',
-            'check-agent-updates',
-            'update-agent',
-            'upgrade-agent',
-        ];
-        $bothAgent = in_array($pending, $agentCmds, true) && in_array($command, $agentCmds, true);
-        if (!$bothAgent) {
-            $age = time() - (int)strtotime((string)($row['command_timestamp'] ?? 'now'));
-            if ($age < 120) {
-                return false;
-            }
+    $age = agent_pending_age_sec($row);
+
+    // Протухший pending (>3 мин) всегда можно заменить
+    if ($status === 'pending' && $pending !== '' && $age > 180) {
+        $force = true;
+    }
+
+    if (!$force && $status === 'pending' && $pending !== '' && $pending !== $command) {
+        // Команды обновления агента с панели всегда имеют приоритет
+        if (agent_is_agent_cmd($command)) {
+            $force = true;
+        } elseif ($age < 45) {
+            return false;
         }
     }
+
     $upd = $pdo->prepare(
         "UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW(), command_result = NULL WHERE id = ?"
     );
     $upd->execute([$command, $nodeId]);
     return true;
+}
+
+function agent_clear_stale_pending(PDO $pdo, int $maxAgeSec = 180): int
+{
+    try {
+        $stmt = $pdo->prepare(
+            "UPDATE nodes
+             SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+             WHERE command_status = 'pending'
+               AND last_command IS NOT NULL
+               AND last_command != ''
+               AND (command_timestamp IS NULL OR command_timestamp < (NOW() - INTERVAL ? SECOND))"
+        );
+        $stmt->execute([$maxAgeSec]);
+        return $stmt->rowCount();
+    } catch (Throwable $e) {
+        return 0;
+    }
 }
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -141,6 +184,16 @@ try {
              WHERE id = ?"
         );
         $stmt->execute([$version, $commit, $remote, $branch, $available, $msg, $nodeId]);
+
+        // Снимаем зависший check/update-agent после отчёта (рестарт агента часто не успевает command-status)
+        $clr = $pdo->prepare(
+            "UPDATE nodes
+             SET last_command = NULL, command_status = NULL, command_timestamp = NULL
+             WHERE id = ?
+               AND last_command IN ('check-agent-update','check-agent-updates','update-agent','upgrade-agent')"
+        );
+        $clr->execute([$nodeId]);
+
         echo json_encode(['ok' => true, 'node_id' => $nodeId], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -153,6 +206,7 @@ try {
     }
 
     if ($method === 'GET' && ($action === '' || $action === 'status')) {
+        agent_clear_stale_pending($pdo, 180);
         $desired = agent_desired_version();
         try {
             $rows = $pdo->query(
@@ -211,6 +265,10 @@ try {
         $command = $action === 'apply' ? 'update-agent' : 'check-agent-update';
         $ids = $data['node_ids'] ?? $data['ids'] ?? null;
         $onlyOutdated = !empty($data['only_outdated']);
+        // С панели всегда force: иначе чужой/зависший pending блокирует обновление
+        $force = !isset($data['force']) || !empty($data['force']);
+
+        agent_clear_stale_pending($pdo, 120);
 
         $desired = agent_desired_version();
         $explicitIds = is_array($ids) && count($ids) > 0;
@@ -255,7 +313,7 @@ try {
         $names = [];
         $skippedNames = [];
         foreach ($nodes as $node) {
-            if (agent_queue_command($pdo, (int)$node['id'], $command)) {
+            if (agent_queue_command($pdo, (int)$node['id'], $command, $force || agent_is_agent_cmd($command))) {
                 $queued++;
                 $names[] = (string)($node['name'] ?? $node['id']);
             } else {
