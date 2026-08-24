@@ -1,3 +1,6 @@
 psutil>=5.9.0
 requests>=2.28.0
+# LLDP passive (нужны CAP_NET_RAW / root). Без scapy активный SNMP-опрос всё равно работает.
+scapy>=2.5.0
+# pysnmp не обязателен — встроенный SNMPv2c walker в snmp_if.py
 

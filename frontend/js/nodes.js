@@ -479,14 +479,21 @@ function generateNewKey(type = 'create') {
         .then(res => res.text())
         .then(text => {
             const data = text ? JSON.parse(text) : {};
+            const key = data.secret_key || '';
             const input = document.getElementById(inputId);
-            if (input) input.value = data.secret_key;
+            if (input) input.value = key;
+            if (type === 'create' && key) {
+                generatedNodeToken = key;
+            }
         })
         .catch(() => {
             // Генерируем локально если API недоступен
             const key = btoa(Array.from(crypto.getRandomValues(new Uint8Array(64))).join(''));
             const input = document.getElementById(inputId);
             if (input) input.value = key;
+            if (type === 'create') {
+                generatedNodeToken = key;
+            }
         });
 }
 
@@ -530,43 +537,107 @@ NODE_HOST="${host}"
 NODE_PORT="${port}"
 NODE_TOKEN="${token}"
 COLLECT_INTERVAL=60
+HEARTBEAT_INTERVAL=15
+UPNP_ENABLED=true
+UPNP_INTERVAL_CYCLES=2
+UPNP_MX=3
+UPNP_TIMEOUT=8
+UPNP_GENA_PORT=0
+SNMP_ENABLED=true
+SNMP_COMMUNITY="public"
+SNMP_TIMEOUT=0.8
+# SNMP_TARGETS="192.168.1.1,192.168.1.2"
+LLDP_PASSIVE=true
+# LLDP_LISTEN_INTERFACE=eth0
+LLDP_ACTIVE_POLL_KNOWN=true
 TLS_VERIFY=false
 
 # Установка зависимостей:
-# pip install -r requirements.txt
+# pip install -r agent/requirements.txt
+# pip install scapy   # LLDP passive (root)
 
 # Запуск:
 # python agent/main.py
 `;
 }
 
-function copyConfig(type = 'create') {
+async function copyTextToClipboard(text) {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (_) { /* fallback below */ }
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return ok;
+    } catch (_) {
+        return false;
+    }
+}
+
+async function copyConfig(type = 'create') {
     if (!createForm && type === 'create') return;
     const form = type === 'create' ? createForm : editForm;
+
+    // Редактирование существующей ноды — конфиг с API (как «Скачать»)
+    if (type === 'edit') {
+        const nodeId = form?.dataset?.nodeId || document.getElementById('node-edit-form')?.dataset?.nodeId;
+        if (!nodeId) {
+            showToast('Откройте ноду для копирования конфига', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch(`${API_BASE}/nodes.php?id=${nodeId}&action=generate-config`, { credentials: 'include' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const text = await response.text();
+            const data = text ? JSON.parse(text) : {};
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+            const config = data.config || '';
+            if (!config) {
+                showToast('Конфиг не найден', 'error');
+                return;
+            }
+            const ok = await copyTextToClipboard(config);
+            showToast(ok ? 'Конфиг скопирован' : 'Не удалось скопировать конфиг', ok ? 'success' : 'error');
+        } catch (error) {
+            console.error('copyConfig edit', error);
+            showToast('Ошибка копирования конфига', 'error');
+        }
+        return;
+    }
     
     const name = form.name.value.trim();
     const host = form.host.value.trim();
     const port = form.port.value || '2222';
-    const token = type === 'create' ? (generatedNodeToken || document.getElementById('secret-key-input-create')?.value || '') : '';
+    const token = (generatedNodeToken
+        || document.getElementById('secret-key-input-create')?.value
+        || form.secret_key?.value
+        || '').trim();
     
-    if (!name || !host || !token) {
-        showToast('Заполните основные поля перед копированием конфига', 'warning');
+    if (!name || !host) {
+        showToast('Заполните имя и хост перед копированием конфига', 'warning');
+        return;
+    }
+    if (!token) {
+        showToast('Сгенерируйте секретный ключ перед копированием конфига', 'warning');
         return;
     }
     
     const configText = getConfigText(name, host, port, token);
-    navigator.clipboard.writeText(configText).then(() => {
-        showToast('Конфиг скопирован', 'success');
-    }).catch(() => {
-        // Fallback для старых браузеров
-        const textarea = document.createElement('textarea');
-        textarea.value = configText;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        showToast('Конфиг скопирован', 'success');
-    });
+    const ok = await copyTextToClipboard(configText);
+    showToast(ok ? 'Конфиг скопирован' : 'Не удалось скопировать конфиг', ok ? 'success' : 'error');
 }
 
 async function exportNodeConfig(nodeId) {

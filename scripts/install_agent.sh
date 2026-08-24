@@ -8,8 +8,13 @@ INSTALL_DIR="${3:-/opt/monitoring}"
 
 echo "[install_agent] Пакеты..."
 sudo apt-get update -y
+# iproute2/procps — метрики/соседи; libpcap — scapy LLDP; snmp — fallback snmpwalk
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    git python3 python3-pip iproute2 procps
+    git python3 python3-pip iproute2 procps \
+    libpcap0.8 || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y snmp || true
+# Опционально: системный scapy (если pip недоступен / для CAP sniff)
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-scapy || true
 
 # Проверяем, доступен ли модуль venv
 if python3 -c "import venv" &>/dev/null; then
@@ -80,6 +85,8 @@ fi
 if [[ -f "${REQ}" ]]; then
     pip install --upgrade pip
     pip install -r "${REQ}"
+    # LLDP passive (опционально; без root/CAP_NET_RAW sniff не заведётся)
+    pip install "scapy>=2.5.0" || echo "[install_agent] scapy не установлен — пассивный LLDP будет выключен"
 fi
 deactivate
 
@@ -118,6 +125,17 @@ if grep -q "^User=" "${UNIT_DST}"; then
 elif [[ "${SERVICE_USER}" != "root" ]]; then
     sudo sed -i "/^\[Service\]/a User=${SERVICE_USER}" "${UNIT_DST}"
 fi
+# LLDP sniff без полного root: CAP_NET_RAW / CAP_NET_ADMIN
+if ! grep -q "^AmbientCapabilities=" "${UNIT_DST}"; then
+    sudo sed -i "/^\[Service\]/a AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN" "${UNIT_DST}"
+fi
+if ! grep -q "^CapabilityBoundingSet=" "${UNIT_DST}"; then
+    sudo sed -i "/^\[Service\]/a CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE" "${UNIT_DST}"
+fi
+if ! grep -q "^NoNewPrivileges=" "${UNIT_DST}"; then
+    # CAP из unit применяются при старте; NoNewPrivileges=false чтобы AmbientCapabilities работали
+    sudo sed -i "/^\[Service\]/a NoNewPrivileges=false" "${UNIT_DST}"
+fi
 sudo systemctl daemon-reload
 
 NODE_CONF="${INSTALL_DIR}/agent/node.conf"
@@ -141,15 +159,56 @@ if [[ ! -f "${NODE_CONF}" ]]; then
     read -r -p "Введите порт для агента (по умолчанию 2222): " PORT
     PORT="${PORT:-2222}"
 
+    NODE_NAME_DEFAULT="$(hostname -s 2>/dev/null || echo node-1)"
+    read -r -p "Имя ноды [${NODE_NAME_DEFAULT}]: " NODE_NAME
+    NODE_NAME="${NODE_NAME:-$NODE_NAME_DEFAULT}"
+    read -r -p "Интерфейс для LLDP (пусто = авто, напр. eth0): " LLDP_IFACE
+
     sudo mkdir -p "$(dirname "${NODE_CONF}")"
     sudo tee "${NODE_CONF}" >/dev/null <<EOF
-MASTER_URL=${MASTER_URL}
-NODE_TOKEN=${NODE_TOKEN}
-PORT=${PORT}
+MASTER_URL="${MASTER_URL}"
+NODE_TOKEN="${NODE_TOKEN}"
+NODE_NAME="${NODE_NAME}"
+NODE_PORT="${PORT}"
+COLLECT_INTERVAL=60
+HEARTBEAT_INTERVAL=15
+UPNP_ENABLED=true
+UPNP_INTERVAL_CYCLES=2
+UPNP_MX=3
+UPNP_TIMEOUT=8
+UPNP_GENA_PORT=0
+SNMP_ENABLED=true
+SNMP_COMMUNITY="public"
+SNMP_TIMEOUT=0.8
+# SNMP_TARGETS="192.168.1.1"
+LLDP_PASSIVE=true
+LLDP_ACTIVE_POLL_KNOWN=true
 EOF
+    if [[ -n "${LLDP_IFACE}" ]]; then
+        echo "LLDP_LISTEN_INTERFACE=\"${LLDP_IFACE}\"" | sudo tee -a "${NODE_CONF}" >/dev/null
+    fi
+    echo "TLS_VERIFY=false" | sudo tee -a "${NODE_CONF}" >/dev/null
     sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${NODE_CONF}"
     sudo chmod 640 "${NODE_CONF}"
     echo "[install_agent] Конфиг создан: ${NODE_CONF}"
+fi
+
+# Дописать LLDP/SNMP в уже существующий конфиг, если ключей ещё нет
+if [[ -f "${NODE_CONF}" ]]; then
+    ensure_conf_key() {
+        local key="$1"
+        local line="$2"
+        if ! grep -qE "^[[:space:]]*${key}=" "${NODE_CONF}" 2>/dev/null; then
+            echo "${line}" | sudo tee -a "${NODE_CONF}" >/dev/null
+            echo "[install_agent] Добавлено в node.conf: ${key}"
+        fi
+    }
+    ensure_conf_key "UPNP_ENABLED" 'UPNP_ENABLED=true'
+    ensure_conf_key "SNMP_ENABLED" 'SNMP_ENABLED=true'
+    ensure_conf_key "SNMP_COMMUNITY" 'SNMP_COMMUNITY="public"'
+    ensure_conf_key "SNMP_TIMEOUT" 'SNMP_TIMEOUT=0.8'
+    ensure_conf_key "LLDP_PASSIVE" 'LLDP_PASSIVE=true'
+    ensure_conf_key "LLDP_ACTIVE_POLL_KNOWN" 'LLDP_ACTIVE_POLL_KNOWN=true'
 fi
 
 # Запускаем сервис, если конфиг есть
@@ -166,8 +225,11 @@ echo ""
 echo "=========================================="
 echo "Агент не использует MySQL — он шлёт JSON на панель."
 echo ""
-echo "1. В панели: Ноды → Создать ноду → скопировать конфиг"
-echo "2. При необходимости отредактируйте конфиг: sudo nano ${NODE_CONF}"
-echo "3. Перезапустите агент: sudo systemctl restart monitoring-agent"
+echo "1. В панели: Ноды → Создать ноду → скопировать / скачать конфиг"
+echo "2. При необходимости отредактируйте: sudo nano ${NODE_CONF}"
+echo "3. Перезапустите: sudo systemctl restart monitoring-agent"
 echo "4. Статус: sudo systemctl status monitoring-agent"
+echo ""
+echo "LLDP: LLDP_PASSIVE=true (нужны scapy + CAP_NET_RAW в unit)."
+echo "SNMP: SNMP_COMMUNITY / SNMP_TARGETS для активного опроса соседей."
 echo "=========================================="

@@ -14,6 +14,10 @@ const TEXT_FIELDS = {
     upnp_mx: 'upnp_mx',
     upnp_timeout: 'upnp_timeout',
     upnp_gena_port: 'upnp_gena_port',
+    lldp_listen_interface: 'lldp_listen_interface',
+    snmp_community: 'snmp_community',
+    snmp_timeout: 'snmp_timeout',
+    snmp_targets: 'snmp_targets',
     'log-retention-days': 'log_retention_days',
     'metrics-retention-days': 'metrics_retention_days',
     'alerts-retention-days': 'alerts_retention_days',
@@ -33,6 +37,9 @@ const TEXT_FIELDS = {
 
 const CHECK_FIELDS = {
     upnp_enabled: 'upnp_enabled',
+    lldp_passive: 'lldp_passive',
+    lldp_active_poll_known: 'lldp_active_poll_known',
+    snmp_enabled: 'snmp_enabled',
     notify_email_enabled: 'notify_email_enabled',
     notify_telegram_enabled: 'notify_telegram_enabled',
 };
@@ -65,7 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('upnp-env-copy')?.addEventListener('click', () => {
         copyText(buildUpnpEnv(), 'Переменные UPnP скопированы');
     });
-    ['upnp_enabled', 'upnp_interval_cycles', 'upnp_mx', 'upnp_timeout', 'upnp_gena_port'].forEach((id) => {
+    ['upnp_enabled', 'upnp_interval_cycles', 'upnp_mx', 'upnp_timeout', 'upnp_gena_port',
+        'lldp_passive', 'lldp_active_poll_known', 'lldp_listen_interface',
+        'snmp_enabled', 'snmp_community', 'snmp_timeout', 'snmp_targets'].forEach((id) => {
         document.getElementById(id)?.addEventListener('input', paintUpnpEnv);
         document.getElementById(id)?.addEventListener('change', paintUpnpEnv);
     });
@@ -150,6 +159,11 @@ function fillSettingsForm(settings) {
     Object.entries(CHECK_FIELDS).forEach(([id, key]) => {
         const el = val(id);
         if (!el) return;
+        const defaultsOn = ['upnp_enabled', 'lldp_passive', 'lldp_active_poll_known', 'snmp_enabled'];
+        if (settings[key] === undefined || settings[key] === null || settings[key] === '') {
+            el.checked = defaultsOn.includes(key);
+            return;
+        }
         const raw = String(settings[key] ?? '');
         el.checked = raw === '1' || raw === 'true';
     });
@@ -188,7 +202,12 @@ function collectPanelSettings() {
     Object.entries(CHECK_FIELDS).forEach(([id, key]) => {
         const el = val(id);
         if (!el) return;
-        settings[key] = el.checked ? (key === 'upnp_enabled' ? 'true' : '1') : (key === 'upnp_enabled' ? 'false' : '0');
+        const boolKeys = ['upnp_enabled', 'lldp_passive', 'lldp_active_poll_known', 'snmp_enabled'];
+        if (boolKeys.includes(key)) {
+            settings[key] = el.checked ? 'true' : 'false';
+        } else {
+            settings[key] = el.checked ? '1' : '0';
+        }
     });
     const smtpPass = val('smtp_password')?.value || '';
     const tgToken = val('telegram_bot_token')?.value || '';
@@ -220,13 +239,28 @@ function buildUpnpEnv() {
     const mx = val('upnp_mx')?.value || '3';
     const timeout = val('upnp_timeout')?.value || '8';
     const port = val('upnp_gena_port')?.value || '0';
-    return [
+    const lldpPassive = val('lldp_passive')?.checked !== false ? 'true' : 'false';
+    const lldpActive = val('lldp_active_poll_known')?.checked !== false ? 'true' : 'false';
+    const lldpIface = (val('lldp_listen_interface')?.value || '').trim();
+    const snmpOn = val('snmp_enabled')?.checked !== false ? 'true' : 'false';
+    const snmpCommunity = (val('snmp_community')?.value || 'public').trim() || 'public';
+    const snmpTimeout = (val('snmp_timeout')?.value || '0.8').trim() || '0.8';
+    const snmpTargets = (val('snmp_targets')?.value || '').trim();
+    const lines = [
         `UPNP_ENABLED=${on}`,
         `UPNP_INTERVAL_CYCLES=${cycles}`,
         `UPNP_MX=${mx}`,
         `UPNP_TIMEOUT=${timeout}`,
         `UPNP_GENA_PORT=${port}`,
-    ].join('\n');
+        `SNMP_ENABLED=${snmpOn}`,
+        `SNMP_COMMUNITY="${snmpCommunity}"`,
+        `SNMP_TIMEOUT=${snmpTimeout}`,
+        `LLDP_PASSIVE=${lldpPassive}`,
+        `LLDP_ACTIVE_POLL_KNOWN=${lldpActive}`,
+    ];
+    if (lldpIface) lines.push(`LLDP_LISTEN_INTERFACE="${lldpIface}"`);
+    if (snmpTargets) lines.push(`SNMP_TARGETS="${snmpTargets}"`);
+    return lines.join('\n');
 }
 
 function paintUpnpEnv() {

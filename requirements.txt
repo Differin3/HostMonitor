@@ -1,3 +1,4 @@
 # Python-зависимости агента. Панель на PHP их не требует.
 psutil>=5.9.0
 requests>=2.28.0
+# Optional LLDP (agent): scapy (passive), pysnmp (optional — built-in SNMP walker used by default)

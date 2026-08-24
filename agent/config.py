@@ -21,3 +21,12 @@ UPNP_TIMEOUT = float(os.getenv("UPNP_TIMEOUT", "8"))
 UPNP_INTERVAL_CYCLES = int(os.getenv("UPNP_INTERVAL_CYCLES", "2"))
 UPNP_GENA_PORT = int(os.getenv("UPNP_GENA_PORT", "0"))
 
+# SNMP / LLDP
+SNMP_ENABLED = os.getenv("SNMP_ENABLED", "true").lower() == "true"
+SNMP_COMMUNITY = os.getenv("SNMP_COMMUNITY", "public")
+SNMP_TIMEOUT = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+SNMP_TARGETS = os.getenv("SNMP_TARGETS", "")
+LLDP_PASSIVE = os.getenv("LLDP_PASSIVE", "true").lower() == "true"
+LLDP_LISTEN_INTERFACE = os.getenv("LLDP_LISTEN_INTERFACE", "")
+LLDP_ACTIVE_POLL_KNOWN = os.getenv("LLDP_ACTIVE_POLL_KNOWN", "true").lower() == "true"
+

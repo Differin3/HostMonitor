@@ -155,6 +155,15 @@ def _getnext_pdu(community: str, oid: str, req_id: int) -> bytes:
     return _seq(0x30, _ber_int(1) + _ber_octets(community.encode("latin-1")) + pdu)
 
 
+def _get_pdu(community: str, oid: str, req_id: int) -> bytes:
+    varbind = _seq(0x30, _ber_oid(oid) + b"\x05\x00")
+    pdu = _seq(
+        0xA0,
+        _ber_int(req_id) + _ber_int(0) + _ber_int(0) + _seq(0x30, varbind),
+    )
+    return _seq(0x30, _ber_int(1) + _ber_octets(community.encode("latin-1")) + pdu)
+
+
 def _udp(host: str, payload: bytes, timeout: float) -> bytes:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -209,6 +218,44 @@ def _classify(name: str, if_type: int, speed: int) -> Optional[str]:
     if speed >= 10000:
         return "sfp"
     return None
+
+
+def snmp_get(host: str, oid: str, community: Optional[str] = None, timeout: Optional[float] = None) -> Any:
+    """SNMPv2c GET одного OID. Возвращает значение или None."""
+    if not host or not oid:
+        return None
+    if os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return None
+    community = community or os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(timeout if timeout is not None else os.getenv("SNMP_TIMEOUT", "0.8"))
+    raw = _udp(host, _get_pdu(community, oid.lstrip("."), 1), timeout)
+    if not raw:
+        return None
+    parsed = _find_varbind(raw)
+    if not parsed:
+        return None
+    _, value = parsed
+    return value
+
+
+def snmp_sysinfo(host: str) -> Dict[str, str]:
+    """sysDescr / sysObjectID / sysName / sysLocation."""
+    out: Dict[str, str] = {}
+    mapping = {
+        "sysDescr": "10.20.0.3.10.20.0.5.0",
+        "sysObjectID": "10.20.0.3.10.0.1.1.0",
+        "sysName": "10.20.0.3.10.0.1.5.0",
+        "sysLocation": "10.20.0.3.172.16.0.2.0",
+    }
+    for key, oid in mapping.items():
+        try:
+            val = snmp_get(host, oid)
+        except Exception:
+            val = None
+        if val is None:
+            continue
+        out[key] = str(val).strip()
+    return out
 
 
 def collect_ports(host: str) -> List[Dict[str, Any]]:

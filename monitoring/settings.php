@@ -124,6 +124,48 @@ render_layout_start('Настройки', 'settings');
                         <button type="button" class="btn-outline" id="upnp-env-copy">Копировать переменные</button>
                     </div>
                 </div>
+                <div class="settings-section" style="margin-top: 24px;">
+                    <h3>LLDP / SNMP</h3>
+                    <p class="form-hint-text">Пишутся в node.conf при скачивании/копировании конфига агента. Пассивный LLDP требует root и пакет scapy на ноде.</p>
+                    <div class="form-field">
+                        <label>
+                            <input type="checkbox" id="lldp_passive" checked>
+                            Пассивный LLDP (LLDP_PASSIVE)
+                        </label>
+                    </div>
+                    <div class="form-field">
+                        <label>
+                            <input type="checkbox" id="lldp_active_poll_known" checked>
+                            Активный опрос известных хостов (LLDP_ACTIVE_POLL_KNOWN)
+                        </label>
+                    </div>
+                    <div class="form-field">
+                        <label for="lldp_listen_interface">LLDP_LISTEN_INTERFACE</label>
+                        <input type="text" id="lldp_listen_interface" placeholder="eth0 (пусто = авто)">
+                        <small>Опционально. Интерфейс для sniffer.</small>
+                    </div>
+                    <div class="form-field">
+                        <label>
+                            <input type="checkbox" id="snmp_enabled" checked>
+                            SNMP на агенте (SNMP_ENABLED)
+                        </label>
+                    </div>
+                    <div class="ha-grid">
+                        <div class="form-field">
+                            <label for="snmp_community">SNMP_COMMUNITY</label>
+                            <input type="text" id="snmp_community" value="public">
+                        </div>
+                        <div class="form-field">
+                            <label for="snmp_timeout">SNMP_TIMEOUT</label>
+                            <input type="text" id="snmp_timeout" value="0.8">
+                        </div>
+                    </div>
+                    <div class="form-field">
+                        <label for="snmp_targets">SNMP_TARGETS</label>
+                        <input type="text" id="snmp_targets" placeholder="192.168.1.1,192.168.10.1">
+                        <small>Статический список IP для SNMP/LLDP (через запятую).</small>
+                    </div>
+                </div>
             </div>
 
             <div class="tab-content" id="logs-tab">

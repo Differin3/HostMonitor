@@ -613,10 +613,25 @@ function generateAgentConfig($node) {
         $config .= "UPNP_MX=" . (int)setting_get('upnp_mx', '3') . "\n";
         $config .= "UPNP_TIMEOUT=" . (int)setting_get('upnp_timeout', '8') . "\n";
         $config .= "UPNP_GENA_PORT=" . (int)setting_get('upnp_gena_port', '0') . "\n";
+        $config .= "SNMP_ENABLED=" . (setting_get('snmp_enabled', 'true') === 'true' ? 'true' : 'false') . "\n";
+        $config .= "SNMP_COMMUNITY=\"" . str_replace('"', '', (string)setting_get('snmp_community', 'public')) . "\"\n";
+        $config .= "SNMP_TIMEOUT=" . (string)setting_get('snmp_timeout', '0.8') . "\n";
+        $snmpTargets = trim((string)setting_get('snmp_targets', ''));
+        if ($snmpTargets !== '') {
+            $config .= "SNMP_TARGETS=\"" . str_replace('"', '', $snmpTargets) . "\"\n";
+        }
+        $config .= "LLDP_PASSIVE=" . (setting_get('lldp_passive', 'true') === 'true' ? 'true' : 'false') . "\n";
+        $lldpIface = trim((string)setting_get('lldp_listen_interface', ''));
+        if ($lldpIface !== '') {
+            $config .= "LLDP_LISTEN_INTERFACE=\"" . str_replace('"', '', $lldpIface) . "\"\n";
+        }
+        $config .= "LLDP_ACTIVE_POLL_KNOWN=" . (setting_get('lldp_active_poll_known', 'true') === 'true' ? 'true' : 'false') . "\n";
     $config .= "TLS_VERIFY=false\n";
     $config .= "TLS_CERT_PATH=\"\"\n\n";
     $config .= "# Установка зависимостей:\n";
-        $config .= "# pip install -r agent/requirements.txt\n\n";
+        $config .= "# pip install -r agent/requirements.txt\n";
+        $config .= "# pip install scapy          # LLDP passive (root)\n";
+        $config .= "# pip install pysnmp         # optional SNMP (встроенный walker уже есть)\n\n";
     $config .= "# Запуск:\n";
     $config .= "# python agent/main.py\n";
     

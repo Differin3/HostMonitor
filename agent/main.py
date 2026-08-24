@@ -17,8 +17,10 @@ from typing import Optional  # типы
 
 try:
     from . import upnp as upnp_mod
+    from . import lldp_discovery as lldp_mod
 except ImportError:
     import upnp as upnp_mod
+    import lldp_discovery as lldp_mod
 
 
 def load_node_conf(path: str = "node.conf") -> None:
@@ -162,6 +164,8 @@ class MonitoringAgent:
         self.upnp_devices = []
         self._upnp_lock = Lock()
         self._upnp_alive_at = 0.0
+        self.lldp_cache = {}  # key -> neighbor info (passive + active)
+        self._lldp_lock = Lock()
         self._log_cursors = self._load_log_cursors()
     
     @staticmethod
@@ -1776,6 +1780,211 @@ class MonitoringAgent:
         _log(f"Error sending network interfaces: HTTP {resp.status_code if resp else 'no response'} {body}".strip())
         return False
 
+    def _on_lldp_device(self, info):
+        """Колбэк пассивного LLDP: кладём соседа в кеш."""
+        if not isinstance(info, dict):
+            return
+        mac = (info.get("mac") or "").lower()
+        ip = (info.get("ip") or info.get("mgmt_ip") or "").strip()
+        name = (info.get("sys_name") or "").strip()
+        key = mac or ip or name or info.get("port_id") or f"anon-{int(time.time())}"
+        row = dict(info)
+        row["seen_at"] = time.time()
+        row.setdefault("source", "lldp-passive")
+        with self._lldp_lock:
+            prev = self.lldp_cache.get(key) or {}
+            prev.update({k: v for k, v in row.items() if v not in (None, "", [])})
+            self.lldp_cache[key] = prev
+        _log(f"LLDP passive neighbor: {name or key} ip={ip or '-'} mac={mac or '-'}")
+
+    def _get_known_hosts(self):
+        """IP известных устройств: UPnP hosts + SNMP_TARGETS + LLDP cache."""
+        hosts = []
+        seen = set()
+
+        def add(ip):
+            ip = (ip or "").strip().split("%", 1)[0]
+            if not ip or ip in seen:
+                return
+            # skip link-local / obvious junk
+            if ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0":
+                return
+            seen.add(ip)
+            hosts.append(ip)
+
+        for target in lldp_mod.parse_snmp_targets():
+            add(target)
+
+        with self._upnp_lock:
+            devices = list(self.upnp_devices or [])
+        for device in devices:
+            add(device.get("host") or device.get("wan_ip") or "")
+            for host in device.get("lan_hosts") or (device.get("extra") or {}).get("hosts") or []:
+                if isinstance(host, dict):
+                    add(host.get("ip") or "")
+                else:
+                    add(str(host))
+
+        with self._lldp_lock:
+            for row in self.lldp_cache.values():
+                add(row.get("ip") or row.get("mgmt_ip") or row.get("host") or "")
+
+        return hosts
+
+    def _poll_lldp_devices(self):
+        """Активный опрос LLDP RemTable + SNMP sysinfo/ports по известным IP."""
+        enabled = os.getenv("LLDP_ACTIVE_POLL_KNOWN", "true").lower() == "true"
+        if not enabled and os.getenv("LLDP_PASSIVE", "true").lower() != "true":
+            return []
+
+        devices = []
+        seen_udn = set()
+
+        # 1) Пассивный кеш → устройства (+ SNMP enrich если есть IP)
+        with self._lldp_lock:
+            passive_rows = list(self.lldp_cache.values())
+        for row in passive_rows:
+            info = dict(row)
+            ip = (info.get("ip") or info.get("mgmt_ip") or info.get("host") or "").strip()
+            if ip and enabled:
+                try:
+                    info = lldp_mod.enrich_host(ip, info)
+                except Exception as e:
+                    _log(f"LLDP enrich {ip}: {e}")
+            device = lldp_mod.device_from_lldp(info)
+            udn = device.get("udn") or ""
+            if udn and udn not in seen_udn:
+                seen_udn.add(udn)
+                devices.append(device)
+
+        if not enabled:
+            return devices
+
+        # 2) SNMP RemTable с известных хостов
+        for host in self._get_known_hosts():
+            try:
+                neighbors = lldp_mod.poll_remote_table(host)
+            except Exception as e:
+                _log(f"LLDP SNMP poll {host}: {e}")
+                neighbors = []
+            for nb in neighbors:
+                info = dict(nb)
+                # Если у соседа нет mgmt IP — всё равно регистрируем; иначе enrich
+                nb_ip = (info.get("ip") or "").strip()
+                if nb_ip:
+                    try:
+                        info = lldp_mod.enrich_host(nb_ip, info)
+                    except Exception:
+                        pass
+                # Также сохраняем в кеш
+                key = (info.get("mac") or nb_ip or info.get("sys_name") or info.get("port_id") or host)
+                with self._lldp_lock:
+                    prev = self.lldp_cache.get(key) or {}
+                    prev.update({k: v for k, v in info.items() if v not in (None, "", [])})
+                    prev["seen_at"] = time.time()
+                    self.lldp_cache[key] = prev
+                device = lldp_mod.device_from_lldp(info)
+                udn = device.get("udn") or ""
+                if udn and udn not in seen_udn:
+                    seen_udn.add(udn)
+                    devices.append(device)
+
+            # Сам polled host как устройство (если отвечает на SNMP)
+            try:
+                self_info = lldp_mod.enrich_host(host, {"source": f"snmp-target:{host}", "ip": host})
+                if self_info.get("ports") or self_info.get("sys_name"):
+                    device = lldp_mod.device_from_lldp(self_info)
+                    udn = device.get("udn") or ""
+                    if udn and udn not in seen_udn:
+                        seen_udn.add(udn)
+                        devices.append(device)
+            except Exception:
+                pass
+
+        _log(f"LLDP poll produced {len(devices)} device(s), cache={len(self.lldp_cache)}")
+        return devices
+
+    @staticmethod
+    def merge_devices(upnp_list, lldp_list):
+        """Объединяет UPnP и LLDP по IP/MAC, без дублей, дополняя поля."""
+        merged = []
+        by_udn = {}
+        by_ip = {}
+        by_mac = {}
+
+        def _mac_of(d):
+            mac = (d.get("mac") or "").lower()
+            if mac:
+                return mac
+            extra = d.get("extra") if isinstance(d.get("extra"), dict) else {}
+            return (extra.get("mac") or d.get("serial_number") or "").lower()
+
+        def _ip_of(d):
+            return (d.get("host") or d.get("wan_ip") or (d.get("extra") or {}).get("mgmt_ip") or "").strip()
+
+        def _merge_into(dst, src):
+            for key, val in src.items():
+                if key == "extra":
+                    continue
+                if val in (None, "", [], {}):
+                    continue
+                cur = dst.get(key)
+                if cur in (None, "", [], {}):
+                    dst[key] = val
+                elif key == "ports" and isinstance(val, list) and isinstance(cur, list):
+                    if len(val) > len(cur):
+                        dst[key] = val
+            src_extra = src.get("extra") if isinstance(src.get("extra"), dict) else {}
+            dst_extra = dst.get("extra") if isinstance(dst.get("extra"), dict) else {}
+            if src_extra or dst_extra:
+                combined = dict(dst_extra)
+                combined.update({k: v for k, v in src_extra.items() if v not in (None, "", [])})
+                # отметим источники
+                sources = set()
+                for s in (dst_extra.get("discovery"), src_extra.get("discovery"), dst.get("ssdp_st"), src.get("ssdp_st")):
+                    if s:
+                        sources.add(str(s))
+                if sources:
+                    combined["discovery"] = "+".join(sorted(sources))
+                dst["extra"] = combined
+
+        for device in list(upnp_list or []) + list(lldp_list or []):
+            if not isinstance(device, dict):
+                continue
+            udn = (device.get("udn") or "").strip()
+            ip = _ip_of(device)
+            mac = _mac_of(device)
+
+            target = None
+            if udn and udn in by_udn:
+                target = by_udn[udn]
+            elif ip and ip in by_ip:
+                target = by_ip[ip]
+            elif mac and mac in by_mac:
+                target = by_mac[mac]
+
+            if target is None:
+                row = dict(device)
+                if isinstance(device.get("extra"), dict):
+                    row["extra"] = dict(device["extra"])
+                merged.append(row)
+                if udn:
+                    by_udn[udn] = row
+                if ip:
+                    by_ip[ip] = row
+                if mac:
+                    by_mac[mac] = row
+            else:
+                _merge_into(target, device)
+                if udn:
+                    by_udn[udn] = target
+                if ip:
+                    by_ip[ip] = target
+                if mac:
+                    by_mac[mac] = target
+
+        return merged
+
     def collect_upnp(self):
         enabled = os.getenv("UPNP_ENABLED", "true").lower() == "true"
         if not enabled:
@@ -2574,6 +2783,12 @@ class MonitoringAgent:
                 _log("UPnP SSDP NOTIFY + GENA listeners started")
             except Exception as e:
                 _log(f"UPnP listeners failed: {e}")
+        try:
+            if lldp_mod.start_passive(self._on_lldp_device):
+                iface = os.getenv("LLDP_LISTEN_INTERFACE", "").strip() or "auto"
+                _log(f"LLDP passive sniff started (iface={iface})")
+        except Exception as e:
+            _log(f"LLDP passive start failed: {e}")
         
         cycle = 0
         last_heartbeat = 0
@@ -2652,10 +2867,31 @@ class MonitoringAgent:
                     devices = self.collect_upnp()
                     if devices is None:
                         _log("UPnP discovery failed, keeping last snapshot")
+                        devices = list(self.upnp_devices or [])
                     else:
-                        _log(f"Sending {len(devices)} UPnP devices")
-                        if not self.send_upnp(devices):
-                            _log("Error: failed to send UPnP snapshot")
+                        _log(f"UPnP discovery found {len(devices)} device(s)")
+                    try:
+                        lldp_devices = self._poll_lldp_devices()
+                    except Exception as e:
+                        _log(f"LLDP poll error: {e}")
+                        lldp_devices = []
+                    all_devices = self.merge_devices(devices or [], lldp_devices or [])
+                    _log(f"Sending {len(all_devices)} devices (UPnP+LLDP)")
+                    if all_devices and not self.send_upnp(all_devices):
+                        _log("Error: failed to send UPnP/LLDP snapshot")
+            elif os.getenv("LLDP_PASSIVE", "true").lower() == "true" or os.getenv("LLDP_ACTIVE_POLL_KNOWN", "true").lower() == "true":
+                # UPnP выключен — всё равно шлём LLDP-снимок
+                lldp_every = max(1, int(os.getenv("UPNP_INTERVAL_CYCLES", "2")))
+                if cycle == 1 or cycle % lldp_every == 0:
+                    try:
+                        lldp_devices = self._poll_lldp_devices()
+                    except Exception as e:
+                        _log(f"LLDP poll error: {e}")
+                        lldp_devices = []
+                    if lldp_devices:
+                        _log(f"Sending {len(lldp_devices)} LLDP devices")
+                        if not self.send_upnp(lldp_devices):
+                            _log("Error: failed to send LLDP snapshot")
             
             # Собираем и отправляем логи (реже, раз в несколько циклов)
             logs = self.collect_logs()
