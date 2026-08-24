@@ -73,9 +73,9 @@ render_layout_start(
     </div>
 
     <section class="card dbmon-ha-card" id="dbmon-ha-card" aria-label="Резерв и синхронизация панели">
-        <div class="dbmon-ha-bar">
+        <header class="dbmon-ha-bar">
             <div class="dbmon-ha-brand">
-                <span class="dbmon-ha-icon"><i data-lucide="database-backup"></i></span>
+                <span class="dbmon-ha-icon" aria-hidden="true"><i data-lucide="database-backup"></i></span>
                 <strong>Резерв панели</strong>
             </div>
             <div class="dbmon-ha-pills" id="dbmon-ha-pills">
@@ -91,19 +91,19 @@ render_layout_start(
                     <i data-lucide="settings"></i><span>Настройки</span>
                 </a>
             </div>
+        </header>
+
+        <div class="dbmon-ha-hosts" id="dbmon-ha-info">
+            <div class="dbmon-ha-host">
+                <span>Основная</span>
+                <code id="dbmon-ha-primary-label" title="">—</code>
+            </div>
+            <div class="dbmon-ha-host">
+                <span>Резерв</span>
+                <code id="dbmon-ha-replica-label" title="">—</code>
+            </div>
         </div>
 
-        <div class="dbmon-ha-meta" id="dbmon-ha-info">
-            <span class="dbmon-ha-meta-item">
-                <em>Основная</em>
-                <code id="dbmon-ha-primary-label" title="">—</code>
-            </span>
-            <span class="dbmon-ha-meta-sep" aria-hidden="true">·</span>
-            <span class="dbmon-ha-meta-item">
-                <em>Резерв</em>
-                <code id="dbmon-ha-replica-label" title="">—</code>
-            </span>
-        </div>
         <p class="dbmon-ha-note" id="dbmon-ha-note">Загрузка статуса…</p>
 
         <div class="dbmon-ha-actions" id="dbmon-sync-actions">
