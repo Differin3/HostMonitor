@@ -30,7 +30,7 @@ if (db_is_configured()) {
         // Не пинговать primary+replica по 12с — страница и так уже без БД
         http_response_code(503);
         header('Content-Type: text/plain; charset=utf-8');
-        echo "База данных недоступна. Проверьте 192.168.10.3 и настройки в data/db.local.php\n";
+        echo "База данных недоступна. Проверьте настройки подключения в data/db.local.php\n";
         exit;
     }
 }

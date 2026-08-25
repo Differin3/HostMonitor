@@ -105,35 +105,18 @@ if (!function_exists('require_api_auth')) {
         
         if ($authHeader && preg_match('/Bearer\s+(.+)/i', $authHeader, $m)) {
             $token = trim($m[1]);
-            // Логируем для отладки (первые и последние символы токена)
-            $tokenPreview = strlen($token) > 8 ? substr($token, 0, 4) . '...' . substr($token, -4) : '***';
-            error_log("[require_api_auth] Token received, length: " . strlen($token) . ", preview: " . $tokenPreview);
             
             $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
             $stmt->execute([$token]);
             $nodeInfo = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($nodeInfo) {
-                error_log("[require_api_auth] Node found: id=" . $nodeInfo['id'] . ", name=" . $nodeInfo['name']);
                 if (session_status() === PHP_SESSION_ACTIVE) {
                     session_write_close();
                 }
                 return ['user' => null, 'node' => $nodeInfo];
-            } else {
-                // Проверяем, есть ли вообще ноды с токенами
-                $checkStmt = $pdo->query("SELECT COUNT(*) as cnt FROM nodes WHERE node_token IS NOT NULL AND node_token != ''");
-                $checkResult = $checkStmt->fetch(PDO::FETCH_ASSOC);
-                error_log("[require_api_auth] Node not found. Total nodes with tokens: " . ($checkResult['cnt'] ?? 0));
-                // Пробуем найти по первым символам для отладки
-                $tokenStart = substr($token, 0, 8);
-                $debugStmt = $pdo->prepare("SELECT id, name, LEFT(node_token, 8) as token_start FROM nodes WHERE LEFT(node_token, 8) = ? LIMIT 1");
-                $debugStmt->execute([$tokenStart]);
-                $debugNode = $debugStmt->fetch(PDO::FETCH_ASSOC);
-                if ($debugNode) {
-                    error_log("[require_api_auth] Found node with matching token start: id=" . $debugNode['id'] . ", name=" . $debugNode['name']);
-                }
             }
         } else {
-            error_log("[require_api_auth] No Authorization header found. HTTP_AUTHORIZATION: " . ($_SERVER['HTTP_AUTHORIZATION'] ?? 'NOT SET'));
+            error_log("[require_api_auth] No Authorization header found");
         }
 
         if (session_status() === PHP_SESSION_ACTIVE) {

@@ -65,9 +65,13 @@ function dashboard_summary(PDO $pdo): array
             $cpuStats = $pdo->query(sprintf($avgSqlFull, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
         }
     } catch (Throwable $e) {
-        $cpuStats = $pdo->query(sprintf($avgSqlBasic, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
-        if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
-            $cpuStats = $pdo->query(sprintf($avgSqlBasic, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+        try {
+            $cpuStats = $pdo->query(sprintf($avgSqlBasic, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
+            if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
+                $cpuStats = $pdo->query(sprintf($avgSqlBasic, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+            }
+        } catch (Throwable $e2) {
+            $cpuStats = null;
         }
     }
 

@@ -1,7 +1,7 @@
 // JavaScript для управления нодами
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
-const esc = (value) => String(value ?? '');
+const esc = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 // Глобальные переменные
 let nodesState = [];
@@ -1095,7 +1095,7 @@ let _importNodesData = null;
 function exportNodes() {
     const btn = document.querySelector('[onclick="exportNodes()"]');
     if (btn) { btn.disabled = true; btn.textContent = 'Экспорт…'; }
-    fetch(`${MONITORING_API_BASE}/nodes_export.php?download=1`, { credentials: 'same-origin' })
+    fetch(`${API_BASE}/nodes_export.php?download=1`, { credentials: 'same-origin' })
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
         .then(blob => {
             const url = URL.createObjectURL(blob);
@@ -1193,7 +1193,7 @@ function applyImport() {
 
     if (btn) { btn.disabled = true; btn.textContent = 'Импорт…'; }
 
-    fetch(`${MONITORING_API_BASE}/nodes_export.php`, {
+    fetch(`${API_BASE}/nodes_export.php`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },

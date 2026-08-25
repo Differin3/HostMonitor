@@ -31,8 +31,8 @@ function metrics_ensure_schema(PDO $pdo): void
     if ($done) {
         return;
     }
-    $done = true;
     if (function_exists('schema_marker_fresh') && schema_marker_fresh('metrics')) {
+        $done = true;
         return;
     }
     if (function_exists('schema_short_lock')) {
@@ -56,6 +56,7 @@ function metrics_ensure_schema(PDO $pdo): void
     if (function_exists('schema_marker_touch')) {
         schema_marker_touch('metrics');
     }
+    $done = true;
 }
 
 function metrics_bucket_seconds(int $from, int $to, int $limit): int

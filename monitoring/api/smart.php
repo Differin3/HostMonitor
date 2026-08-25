@@ -29,9 +29,9 @@ function ensure_smart_tables(PDO $pdo): void
 {
     static $done = false;
     if ($done) return;
-    $done = true;
 
     if (function_exists('schema_marker_fresh') && schema_marker_fresh('smart')) {
+        $done = true;
         return;
     }
     if (function_exists('schema_short_lock')) {
@@ -82,6 +82,7 @@ function ensure_smart_tables(PDO $pdo): void
     if (function_exists('schema_marker_touch')) {
         schema_marker_touch('smart');
     }
+    $done = true;
 }
 
 try {

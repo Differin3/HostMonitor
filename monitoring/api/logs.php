@@ -301,18 +301,19 @@ try {
             }
         }
 
-        // Flush batches
-        if ($systemBatch) {
-            $inserted += logs_flush_batch($pdo, "INSERT INTO logs (node_id, level, message, timestamp, type) VALUES ", $systemBatch, $BATCH_SIZE);
-        }
-        if ($processBatch) {
-            $inserted += logs_flush_batch($pdo, "INSERT INTO process_logs (node_id, pid, process, level, message, timestamp) VALUES ", $processBatch, $BATCH_SIZE);
-        }
-        if ($containerBatch) {
-            $inserted += logs_flush_batch($pdo, "INSERT INTO container_logs (node_id, container_id, level, message, timestamp) VALUES ", $containerBatch, $BATCH_SIZE);
-        }
-        if ($sshBatch) {
-            $inserted += logs_flush_batch($pdo, "INSERT INTO ssh_auth_logs (node_id, level, process, username, ip_address, port, success, message, raw_message, timestamp) VALUES ", $sshBatch, $BATCH_SIZE);
+        // Flush batches — each wrapped so one failure doesn't skip the rest
+        foreach ([
+            ['logs (node_id, level, message, timestamp, type)', $systemBatch],
+            ['process_logs (node_id, pid, process, level, message, timestamp)', $processBatch],
+            ['container_logs (node_id, container_id, level, message, timestamp)', $containerBatch],
+            ['ssh_auth_logs (node_id, level, process, username, ip_address, port, success, message, raw_message, timestamp)', $sshBatch],
+        ] as [$table, $batch]) {
+            if (!$batch) continue;
+            try {
+                $inserted += logs_flush_batch($pdo, "INSERT INTO {$table} VALUES ", $batch, $BATCH_SIZE);
+            } catch (Exception $e) {
+                error_log("[logs] batch insert into {$table} failed: " . $e->getMessage());
+            }
         }
 
         retention_maybe_tick($pdo);

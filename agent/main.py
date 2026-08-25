@@ -437,7 +437,7 @@ class MonitoringAgent:
             if isinstance(proc_data, dict) and 'error' in proc_data:
                 _log(f"Failed to send processes: {proc_data.get('error')}")
                 return False
-        except:
+        except Exception:
             pass
         _log(f"Processes sent successfully: status={proc_resp.status_code}")
         return True
@@ -1831,9 +1831,9 @@ class MonitoringAgent:
                                             try:
                                                 proc = psutil.Process(pid)
                                                 process_name = proc.name()
-                                            except:
+                                            except Exception:
                                                 pass
-                                        except:
+                                        except (ValueError, TypeError):
                                             pass
                                 
                                 ports.append({
@@ -3175,7 +3175,6 @@ class MonitoringAgent:
             )
             if key in buckets:
                 buckets[key]['count'] += 1
-                buckets[key]['last'] = entry
                 if entry.get('timestamp', '') > buckets[key]['last_ts']:
                     buckets[key]['last_ts'] = entry.get('timestamp', '')
                     buckets[key]['last'] = entry
@@ -3406,7 +3405,7 @@ class MonitoringAgent:
                 if self.send_heartbeat():
                     last_heartbeat = current_time
                 else:
-                    _log("Warning: heartbeat failed, will retry")
+                    last_heartbeat = current_time  # откладываем следующую попытку
             
             _log(f"Cycle {cycle}: collecting metrics...")
             
@@ -3501,7 +3500,7 @@ class MonitoringAgent:
                     if self.send_heartbeat():
                         last_heartbeat = now
                     else:
-                        _log("Warning: heartbeat failed during wait, will retry")
+                        last_heartbeat = now  # откладываем следующую попытку на heartbeat_interval
                     # Быстрый отклик на логи контейнеров/процессов и прочие команды
                     self.run_pending_command(quiet=True)
                 remaining = deadline - time.time()

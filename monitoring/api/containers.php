@@ -49,8 +49,8 @@ function containers_ensure_schema(PDO $pdo): void
     if ($done) {
         return;
     }
-    $done = true;
     if (function_exists('schema_marker_fresh') && schema_marker_fresh('containers')) {
+        $done = true;
         return;
     }
     if (function_exists('schema_short_lock')) {
@@ -89,6 +89,7 @@ function containers_ensure_schema(PDO $pdo): void
     if (function_exists('schema_marker_touch')) {
         schema_marker_touch('containers');
     }
+    $done = true;
 }
 
 function containers_decode_json($value): array

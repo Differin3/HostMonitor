@@ -540,10 +540,10 @@ try {
             $udn = $device['udn'];
             if ($action === 'add-mapping') {
                 $ext = (int)($data['external_port'] ?? 0);
-                $intIp = $data['internal_client'] ?? '';
+                $intIp = preg_replace('/[^0-9a-fA-F.:]/', '', (string)($data['internal_client'] ?? ''));
                 $intPort = (int)($data['internal_port'] ?? 0);
                 $proto = strtoupper($data['protocol'] ?? 'TCP');
-                $desc = preg_replace('/\s+/', '_', (string)($data['description'] ?? 'HostMonitor'));
+                $desc = preg_replace('/[^a-zA-Z0-9_-]/', '_', (string)($data['description'] ?? 'HostMonitor'));
                 if (!$ext || !$intIp || !$intPort) {
                     json_error('external_port, internal_client and internal_port required');
                 }
