@@ -789,6 +789,38 @@ function db_ensure_database(array $ep): void
     $server->exec('CREATE DATABASE IF NOT EXISTS `' . $name . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 }
 
+/**
+ * Синхронизирует таймзону MySQL-сессии с PHP-таймзоной.
+ * Без этого MySQL NOW() и PHP time()/strtotime() считают в разных поясах,
+ * и node_presence_from_last_seen() завышает возраст ноды на разницу часовых поясов
+ * (нода уходит в offline хотя heartbeat пришёл секунду назад).
+ */
+function db_sync_timezone(PDO $pdo): void
+{
+    try {
+        $tzName = date_default_timezone_get();
+        if (!$tzName || $tzName === 'UTC') {
+            $pdo->exec("SET time_zone = '+00:00'");
+            return;
+        }
+        $tz = new DateTimeZone($tzName);
+        $now = new DateTime('now', $tz);
+        $offset = $tz->getOffset($now);
+        $sign = $offset >= 0 ? '+' : '-';
+        $offset = abs($offset);
+        $h = (int)($offset / 3600);
+        $m = (int)(($offset % 3600) / 60);
+        $pdo->exec("SET time_zone = '" . $sign . sprintf('%d:%02d', $h, $m) . "'");
+    } catch (Throwable $e) {
+        // Fallback: если таймзона не поддерживается MySQL — ставим UTC
+        try {
+            $pdo->exec("SET time_zone = '+00:00'");
+        } catch (Throwable $e2) {
+            // ignore — MySQL может быть без поддержки таймзон
+        }
+    }
+}
+
 function db_try_connect(array $ep, int $timeout = 3): PDO
 {
     $name = (string)($ep['name'] ?? '');
@@ -797,6 +829,7 @@ function db_try_connect(array $ep, int $timeout = 3): PDO
     }
     $pdo = db_pdo($ep, $name, $timeout);
     $pdo->query('SELECT 1');
+    db_sync_timezone($pdo);
     return $pdo;
 }
 
