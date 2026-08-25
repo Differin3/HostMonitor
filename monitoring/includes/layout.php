@@ -53,6 +53,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token_generate()) ?>">
         <title><?= htmlspecialchars($title) ?> · <?= htmlspecialchars($brandName) ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -83,6 +84,26 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                 Chart.defaults.scale.grid.color = 'rgba(255,255,255,0.06)';
                 Chart.defaults.scale.ticks.maxRotation = 0;
             }
+        </script>
+        <script>
+            (function() {
+                var token = document.querySelector('meta[name="csrf-token"]');
+                if (token) {
+                    var _fetch = window.fetch;
+                    window.fetch = function(url, opts) {
+                        opts = opts || {};
+                        if (opts.method && opts.method.toUpperCase() !== 'GET') {
+                            opts.headers = opts.headers || {};
+                            if (typeof opts.headers.set === 'function') {
+                                opts.headers.set('X-CSRF-Token', token.content);
+                            } else if (!(opts.headers['X-CSRF-Token'])) {
+                                opts.headers['X-CSRF-Token'] = token.content;
+                            }
+                        }
+                        return _fetch.call(this, url, opts);
+                    };
+                }
+            })();
         </script>
     </head>
     <body>

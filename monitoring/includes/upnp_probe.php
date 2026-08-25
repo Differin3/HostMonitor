@@ -103,7 +103,7 @@ function upnp_probe_soap(string $controlUrl, string $serviceType, string $action
         return $out;
     }
     $prev = libxml_use_internal_errors(true);
-    $xml = simplexml_load_string($res['body']);
+    $xml = @simplexml_load_string($res['body'], 'SimpleXMLElement', defined('LIBXML_NONET') ? LIBXML_NONET : 0);
     libxml_use_internal_errors($prev);
     if (!$xml) {
         return $out;
@@ -174,7 +174,7 @@ function upnp_probe_load_scpd(array &$svc): void
     $names = [];
     if ($body) {
         $prev = libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($body);
+        $xml = @simplexml_load_string($body, 'SimpleXMLElement', defined('LIBXML_NONET') ? LIBXML_NONET : 0);
         libxml_use_internal_errors($prev);
         if ($xml) {
             foreach ($xml->xpath('//*[local-name()="action"]/*[local-name()="name"]') ?: [] as $n) {
@@ -285,7 +285,7 @@ function upnp_probe_parse_listings(string $xml): array
         return $maps;
     }
     $prev = libxml_use_internal_errors(true);
-    $root = simplexml_load_string($xml) ?: simplexml_load_string('<root>' . $xml . '</root>');
+    $root = @simplexml_load_string($xml, 'SimpleXMLElement', defined('LIBXML_NONET') ? LIBXML_NONET : 0) ?: @simplexml_load_string('<root>' . $xml . '</root>', 'SimpleXMLElement', defined('LIBXML_NONET') ? LIBXML_NONET : 0);
     libxml_use_internal_errors($prev);
     if (!$root) {
         return $maps;
@@ -603,7 +603,7 @@ function upnp_probe_discover(int $timeout = 8): array
             continue;
         }
         $prev = libxml_use_internal_errors(true);
-        $root = simplexml_load_string($xml);
+        $root = @simplexml_load_string($xml, 'SimpleXMLElement', defined('LIBXML_NONET') ? LIBXML_NONET : 0);
         libxml_use_internal_errors($prev);
         if (!$root) {
             continue;

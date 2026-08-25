@@ -8,9 +8,10 @@ if (!isset($_SESSION['user_id'])) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
-session_write_close();
-
 require_once __DIR__ . '/../includes/database.php';
+require_once __DIR__ . '/../includes/helpers.php';
+require_csrf();
+session_write_close();
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -33,8 +34,9 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
+    error_log('payments.php error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }
 
 function handleGet($pdo) {

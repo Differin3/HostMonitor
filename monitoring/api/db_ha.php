@@ -15,6 +15,7 @@ if (!isset($_SESSION['user_id'])) {
 if (($_SESSION['role'] ?? 'admin') !== 'admin') {
     json_error('Forbidden', 403);
 }
+require_csrf();
 session_write_close();
 
 function db_ha_status_payload(bool $ping): array
@@ -193,7 +194,8 @@ try {
         try {
             db_try_connect(db_endpoint($cfg, 'primary'), 12);
         } catch (Throwable $e) {
-            json_error('Основная база недоступна: ' . $e->getMessage(), 503);
+            error_log('db_ha primary connect error: ' . $e->getMessage());
+            json_error('Primary database unavailable', 503);
         }
         db_ha_state_save('primary', 'manual');
         getDbConnection(true);
@@ -248,7 +250,8 @@ try {
             $dst->exec('SET UNIQUE_CHECKS=0');
             db_copy_table_schema($src, $dst, $table);
         } catch (Throwable $e) {
-            json_error('Схема: ' . $e->getMessage(), 503);
+            error_log('db_ha schema sync error: ' . $e->getMessage());
+            json_error('Schema sync error', 503);
         }
         echo json_encode(['ok' => true, 'table' => $table, 'schema' => true], JSON_UNESCAPED_UNICODE);
         exit;
@@ -279,7 +282,8 @@ try {
             $src = db_try_connect($eps['src'], 10);
             $dst = db_try_connect($eps['dst'], 10);
         } catch (Throwable $e) {
-            json_error('Нет соединения: ' . $e->getMessage(), 503);
+            error_log('db_ha connection error: ' . $e->getMessage());
+            json_error('Connection error', 503);
         }
 
         try {
@@ -326,7 +330,8 @@ try {
             $dst = db_try_connect($eps['dst'], 8);
             db_sync_restore_checks($dst);
         } catch (Throwable $e) {
-            json_error($e->getMessage(), 503);
+            error_log('db_ha restore checks error: ' . $e->getMessage());
+            json_error('Restore checks error', 503);
         }
         echo json_encode(['ok' => true, 'message' => 'Синхронизация прервана'], JSON_UNESCAPED_UNICODE);
         exit;

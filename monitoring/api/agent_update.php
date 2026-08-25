@@ -431,6 +431,7 @@ try {
     if (!isset($_SESSION['user_id'])) {
         json_error('Unauthorized', 401);
     }
+    require_csrf();
     if (session_status() === PHP_SESSION_ACTIVE) {
         session_write_close();
     }

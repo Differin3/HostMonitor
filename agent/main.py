@@ -58,6 +58,15 @@ def load_node_conf(path: str = "node.conf") -> None:
     print(f"[agent] Loading node.conf from: {cfg_path}")
     try:
         loaded_count = 0
+        _ALLOWED_CONF_KEYS = {
+            'NODE_TOKEN', 'MASTER_URL', 'NODE_NAME', 'COLLECT_INTERVAL',
+            'HEALTH_PORT', 'TLS_VERIFY', 'TLS_CERT_PATH',
+            'ALLOW_DANGEROUS_COMMANDS', 'SNMP_COMMUNITY', 'SMART_INTERVAL',
+        }
+        _BLOCKED_CONF_KEYS = {
+            'LD_PRELOAD', 'LD_LIBRARY_PATH', 'PYTHONPATH', 'PYTHONSTARTUP',
+            'PATH', 'IFS', 'CDPATH', 'ENV', 'BASH_ENV',
+        }
         for line in cfg_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
@@ -74,6 +83,12 @@ def load_node_conf(path: str = "node.conf") -> None:
                 val = val[1:-1]
             val = val.strip()
             if key:
+                if key in _BLOCKED_CONF_KEYS:
+                    print(f"[agent] WARNING: ignoring dangerous key '{key}' in node.conf")
+                    continue
+                if key not in _ALLOWED_CONF_KEYS:
+                    print(f"[agent] WARNING: ignoring unknown key '{key}' in node.conf (not in allowlist)")
+                    continue
                 # Перезаписываем переменные окружения из node.conf (приоритет выше дефолтных)
                 os.environ[key] = val
                 loaded_count += 1

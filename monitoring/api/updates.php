@@ -351,7 +351,7 @@ try {
                 http_response_code(500);
                 echo json_encode([
                     'success' => false,
-                    'error' => 'Database error: ' . $e->getMessage(),
+                    'error' => 'Internal server error',
                     'count' => 0
                 ]);
                 exit;
@@ -625,6 +625,6 @@ try {
 } catch (Exception $e) {
     http_response_code(500);
     error_log("Error in updates API: " . $e->getMessage());
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }
 

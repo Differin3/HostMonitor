@@ -23,6 +23,7 @@ $nodeInfo = null;
 
 if (isset($_SESSION['user_id'])) {
     $isAuthorized = true;
+    require_csrf();
 } else {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(.+)/i', $authHeader, $matches)) {
@@ -138,8 +139,9 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
+    error_log('containers.php error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }
 
 function handleGet($pdo) {

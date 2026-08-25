@@ -31,6 +31,7 @@ $nodeInfo = null;
 
 if (isset($_SESSION['user_id'])) {
     $isAuthorized = true;
+    require_csrf();
 } else {
     // Проверяем токен ноды из заголовка Authorization
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -71,8 +72,9 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
+    error_log('nodes.php error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }
 
 function generateSecretKey() {
@@ -938,7 +940,7 @@ function handlePost($pdo) {
     } catch (PDOException $e) {
         http_response_code(500);
         error_log("Error creating node: " . $e->getMessage());
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Internal server error']);
     }
 }
 
@@ -1097,7 +1099,7 @@ function handleDelete($pdo) {
     } catch (PDOException $e) {
         http_response_code(500);
         error_log("Error deleting node: " . $e->getMessage());
-        echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'Internal server error']);
     }
 }
 

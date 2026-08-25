@@ -4,8 +4,17 @@
 ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_samesite', 'Lax');
+if (php_sapi_name() !== 'cli' && (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') && (!isset($_SERVER['HTTP_X_FORWARDED_PROTO']) || $_SERVER['HTTP_X_FORWARDED_PROTO'] !== 'https')) {
+    ini_set('session.cookie_secure', '0');
+} else {
+    ini_set('session.cookie_secure', '1');
+}
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
+}
+// Generate CSRF token for session-based auth
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
 require_once __DIR__ . '/database.php';

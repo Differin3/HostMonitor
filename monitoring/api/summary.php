@@ -10,6 +10,8 @@ if (!isset($_SESSION['user_id'])) {
     echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
+require_once __DIR__ . '/../includes/helpers.php';
+require_csrf();
 session_write_close();
 
 require_once __DIR__ . '/../includes/database.php';
@@ -20,6 +22,7 @@ $pdo = getDbConnection();
 try {
     echo json_encode(dashboard_summary($pdo));
 } catch (Exception $e) {
+    error_log('summary.php error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
 }

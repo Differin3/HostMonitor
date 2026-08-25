@@ -47,6 +47,69 @@ if (!function_exists('json_exception')) {
     }
 }
 
+if (!function_exists('csrf_token_generate')) {
+    function csrf_token_generate(): string
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+}
+
+if (!function_exists('csrf_token_validate')) {
+    function csrf_token_validate(?string $token): bool
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $expected = $_SESSION['csrf_token'] ?? '';
+        if ($expected === '' || $token === '' || $token === null) {
+            return false;
+        }
+        return hash_equals($expected, $token);
+    }
+}
+
+if (!function_exists('require_csrf')) {
+    /**
+     * Validate CSRF token for session-authenticated POST/PUT/PATCH/DELETE requests.
+     * Skips validation for Bearer token auth (agent API).
+     */
+    function require_csrf(): void
+    {
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            return;
+        }
+
+        // If Bearer token auth is present, skip CSRF (agents don't use cookies)
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (empty($authHeader) && function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+        if (empty($authHeader)) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+        }
+        if ($authHeader && preg_match('/Bearer\s+/i', $authHeader)) {
+            return;
+        }
+
+        // Session-based auth requires CSRF token
+        $token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (empty($token)) {
+            $token = $_POST['csrf_token'] ?? '';
+        }
+        if (!csrf_token_validate($token)) {
+            json_error('CSRF token missing or invalid', 403);
+        }
+    }
+}
+
 if (!function_exists('log_auth_event')) {
     function log_auth_event(PDO $pdo, $userId, $username, $eventType, $success, $message = null) {
         try {
@@ -85,6 +148,8 @@ if (!function_exists('require_api_auth')) {
         $nodeInfo = null;
         if (isset($_SESSION['user_id'])) {
             $userId = (int)$_SESSION['user_id'];
+            // Validate CSRF for session-authenticated state-changing requests
+            require_csrf();
             // Не держим session lock на время SQL/ответа — иначе другие вкладки виснут
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();

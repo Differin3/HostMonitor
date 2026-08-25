@@ -15,6 +15,7 @@ if (!isset($_SESSION['user_id'])) {
 if (($_SESSION['role'] ?? 'admin') !== 'admin') {
     json_error('Forbidden', 403);
 }
+require_csrf();
 session_write_close();
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

@@ -12,6 +12,8 @@ if (session_status() === PHP_SESSION_NONE) {
 if (!isset($_SESSION['user_id'])) {
     json_error('Unauthorized', 401);
 }
+require_once __DIR__ . '/../includes/helpers.php';
+require_csrf();
 session_write_close();
 
 try {
@@ -68,7 +70,8 @@ try {
         'settings' => settings_public(),
     ], JSON_UNESCAPED_UNICODE);
 } catch (InvalidArgumentException $e) {
-    json_error($e->getMessage(), 400);
+    error_log('settings.php error: ' . $e->getMessage());
+    json_error('Invalid request', 400);
 } catch (Throwable $e) {
     json_exception($e, true);
 }
