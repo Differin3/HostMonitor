@@ -290,7 +290,7 @@ const loadMetrics = async (nodeId) => {
         return;
     }
     try {
-        const res = await fetch(`${API_URL}?id=${nodeId}`, { credentials: 'include' });
+        const res = await fetch(`${API_URL}?id=${encodeURIComponent(nodeId)}`, { credentials: 'include' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = JSON.parse(await res.text() || '{}');
         const node = data?.node || null;

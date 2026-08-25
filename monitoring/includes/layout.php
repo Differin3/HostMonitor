@@ -43,6 +43,10 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
     if (@date_default_timezone_set($tz) === false) {
         date_default_timezone_set('Europe/Moscow');
     }
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
     ?>
     <!DOCTYPE html>
     <html lang="ru">

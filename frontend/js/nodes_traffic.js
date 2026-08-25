@@ -1,5 +1,6 @@
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
+const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 const formatBytes = (bytes) => {
     const n = Number(bytes) || 0;
@@ -56,7 +57,7 @@ const renderTrafficTable = (nodes, grandTotal) => {
         const total = download + upload;
         const share = Math.round((total / max) * 100);
         return `<tr>
-            <td>${node.name || '-'}</td>
+            <td>${escapeHtml(node.name || '-')}</td>
             <td>${formatBytes(download)}</td>
             <td>${formatBytes(upload)}</td>
             <td class="meter-cell">

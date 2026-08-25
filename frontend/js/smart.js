@@ -1,6 +1,7 @@
 // JavaScript для страницы SMART мониторинга дисков
 (function() {
     const API_BASE = window.MONITORING_API_BASE || '/api';
+    const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     let allDrives = [];
     let selectedDrive = null;
     let charts = {};
@@ -158,20 +159,21 @@
             const capacity = formatBytes(d.capacity_bytes);
             const bay = d.bay_number != null ? '#' + d.bay_number : '—';
             const isSelected = selectedDrive && selectedDrive.node_id === d.node_id && selectedDrive.device_name === d.device_name;
+            const safeDevName = esc(d.device_name);
 
             return `<tr class="${isSelected ? 'smart-row-selected' : ''} ${(d.health_status || '').toLowerCase() === 'failed' ? 'smart-row-critical' : ''} ${(d.health_status || '').toLowerCase() === 'warning' ? 'smart-row-warning' : ''}"
-                        onclick="smartSelectDrive(${d.node_id}, '${d.device_name.replace(/'/g, "\\'")}')">
+                        data-node-id="${d.node_id}" data-device="${safeDevName}" onclick="window._smartSelectFromRow(this)">
                 <td>${healthBadge(d.health_status)}</td>
-                <td><span class="node-badge">${d._node_name || 'N/A'}</span></td>
-                <td><strong>${d.device_name}</strong></td>
-                <td>${d.model || '—'}</td>
-                <td><code>${d.serial_number || '—'}</code></td>
+                <td><span class="node-badge">${esc(d._node_name || 'N/A')}</span></td>
+                <td><strong>${safeDevName}</strong></td>
+                <td>${esc(d.model || '—')}</td>
+                <td><code>${esc(d.serial_number || '—')}</code></td>
                 <td>${capacity}</td>
                 <td>${temp}</td>
                 <td>${hours}</td>
                 <td>${bay}</td>
                 <td>
-                    <button onclick="event.stopPropagation(); smartSelectDrive(${d.node_id}, '${d.device_name.replace(/'/g, "\\'")}')" class="btn-sm" title="Подробнее">
+                    <button onclick="event.stopPropagation(); window._smartSelectDrive(${parseInt(d.node_id)||0}, '${safeDevName.replace(/'/g, "\\'")}')" class="btn-sm" title="Подробнее">
                         <i data-lucide="eye"></i>
                     </button>
                 </td>
@@ -197,6 +199,13 @@
 
         // Загружаем историю
         await loadHistory();
+    };
+
+    window._smartSelectDrive = window.smartSelectDrive;
+    window._smartSelectFromRow = function(row) {
+        const nid = parseInt(row.dataset.nodeId) || 0;
+        const dev = row.dataset.device || '';
+        window.smartSelectDrive(nid, dev);
     };
 
     function renderKeyAttributes(attrs) {
@@ -346,13 +355,13 @@
             const rowClass = attrRowColor(a, KEY_ATTRIBUTES);
             const thresh = a.threshold > 0 ? a.threshold : '—';
             return `<tr class="${rowClass}">
-                <td><code>${a.id}</code></td>
-                <td><strong>${a.name}</strong></td>
-                <td>${a.value}</td>
-                <td>${a.worst}</td>
+                <td><code>${esc(String(a.id))}</code></td>
+                <td><strong>${esc(a.name)}</strong></td>
+                <td>${esc(String(a.value))}</td>
+                <td>${esc(String(a.worst))}</td>
                 <td>${thresh}</td>
-                <td><code>${a.raw}</code></td>
-                <td><span class="badge">${a.flags || '—'}</span></td>
+                <td><code>${esc(String(a.raw))}</code></td>
+                <td><span class="badge">${esc(a.flags || '—')}</span></td>
             </tr>`;
         }).join('');
     }

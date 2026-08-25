@@ -4,6 +4,10 @@ ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_samesite', 'Lax');
 session_start();
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/database.php';
 
@@ -46,33 +50,57 @@ if (isset($_GET['expired'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
-    
-    try {
-        $pdo = getDbConnection();
-        $stmt = $pdo->prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        $user = $stmt->fetch();
-        
-        if ($user && password_verify($password, $user['password_hash'])) {
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['role'] = $user['role'];
-            $_SESSION['last_activity'] = time();
-            
-            // Логируем успешный вход
-            log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
-            
-            session_write_close(); // Сохраняем сессию перед редиректом
-            header('Location: index.php');
-            exit;
-        } else {
-            $error = 'Неверный логин или пароль';
-            
-            // Логируем неудачную попытку входа
-            log_auth_event($pdo, null, $username, 'failed', false, 'Invalid credentials');
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+    // Brute-force rate limiting: max 5 attempts per 15 minutes per IP
+    $rlFile = __DIR__ . '/data/login_attempts.json';
+    $rlMax = 5;
+    $rlWindow = 900; // 15 min
+    $attempts = [];
+    if (file_exists($rlFile)) {
+        $attempts = json_decode(file_get_contents($rlFile), true) ?: [];
+    }
+    $now = time();
+    $ipAttempts = $attempts[$clientIp] ?? [];
+    $ipAttempts = array_filter($ipAttempts, fn($ts) => $ts > $now - $rlWindow);
+    if (count($ipAttempts) >= $rlMax) {
+        $error = 'Слишком много неудачных попыток. Попробуйте через 15 минут.';
+    } else {
+        try {
+            $pdo = getDbConnection();
+            $stmt = $pdo->prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?");
+            $stmt->execute([$username]);
+            $user = $stmt->fetch();
+
+            if ($user && password_verify($password, $user['password_hash'])) {
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['role'] = $user['role'];
+                $_SESSION['last_activity'] = time();
+
+                // Clear attempts on success
+                unset($attempts[$clientIp]);
+                file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+
+                log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
+
+                session_write_close();
+                header('Location: index.php');
+                exit;
+            } else {
+                $error = 'Неверный логин или пароль';
+
+                // Record failed attempt
+                $ipAttempts[] = $now;
+                $attempts[$clientIp] = $ipAttempts;
+                file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+
+                log_auth_event($pdo, null, $username, 'failed', false, 'Invalid credentials');
+            }
+        } catch (Exception $e) {
+            $error = 'Ошибка подключения к базе данных';
         }
-    } catch (Exception $e) {
-        $error = 'Ошибка подключения к базе данных';
     }
 }
 ?>

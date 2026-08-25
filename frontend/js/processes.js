@@ -38,7 +38,7 @@ async function loadProcesses(nodeId, silent = false) {
         if (!silent && window.toggleTableLoader) {
             window.toggleTableLoader('processes-tbody', true);
         }
-        const processesRes = await fetch(`${API_BASE}/processes.php?node_id=${nodeId}`, { credentials: 'include' });
+        const processesRes = await fetch(`${API_BASE}/processes.php?node_id=${encodeURIComponent(nodeId)}`, { credentials: 'include' });
         if (!processesRes.ok) throw new Error(`HTTP ${processesRes.status}`);
         const text = await processesRes.text();
         const processesData = text ? JSON.parse(text) : { processes: [] };
@@ -713,7 +713,7 @@ async function killProcess(pid, nodeId) {
     if (!confirmed) return;
     
     try {
-        const response = await fetch(`${API_BASE}/processes.php?node_id=${nodeId}&pid=${pid}&action=kill`, {
+        const response = await fetch(`${API_BASE}/processes.php?node_id=${encodeURIComponent(nodeId)}&pid=${encodeURIComponent(pid)}&action=kill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',

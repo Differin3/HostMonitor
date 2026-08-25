@@ -20,7 +20,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
     $stmt = $pdo->query("
         SELECT
-            name, host, port, node_token, secret_key, country,
+            name, host, port, country,
             provider_name, provider_url,
             billing_amount, billing_currency, billing_period,
             last_payment_date, next_payment_date
@@ -28,6 +28,11 @@ if ($method === 'GET') {
         ORDER BY id
     ");
     $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($nodes as &$node) {
+        unset($node['node_token'], $node['secret_key']);
+    }
+    unset($node);
 
     $export = [
         'version'     => 1,

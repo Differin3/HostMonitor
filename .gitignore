@@ -20,6 +20,7 @@ agent/log.*.json
 monitoring/data/db.local.php
 monitoring/data/*.php
 monitoring/data/retention.last
+monitoring/data/login_attempts.json
 monitoring/data/ssl/*.pem
 .db-credentials
 /NA

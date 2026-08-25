@@ -127,12 +127,13 @@ const renderNodes = (nodesToRender = null) => {
         const statusClass = getStatusClass(node.status);
         const agentHtml = formatAgentCell(node);
         
+        const safeUrl = (node.provider_url && /^https?:\/\//i.test(node.provider_url)) ? node.provider_url : '#';
         tr.innerHTML = `
             <td><input type="checkbox" class="node-checkbox" value="${node.id}" onchange="updateSelection()"></td>
             <td>${node.id ?? '-'}</td>
-            <td>${node.name ?? '-'}</td>
-            <td>${node.host ?? '-'}</td>
-            <td>${node.provider_name ? `<a href="${node.provider_url || '#'}" target="_blank">${node.provider_name}</a>` : '-'}</td>
+            <td>${esc(node.name ?? '-')}</td>
+            <td>${esc(node.host ?? '-')}</td>
+            <td>${node.provider_name ? `<a href="${safeUrl}" target="_blank" rel="noopener">${esc(node.provider_name)}</a>` : '-'}</td>
             <td>
                 <span class="status pill ${statusClass}">${formatNodeStatusLabel(node.status)}</span>
             </td>
@@ -164,11 +165,11 @@ function formatAgentCell(node) {
     }
     const outdated = Number(node.agent_update_available) === 1;
     const label = version || 'agent';
-    const commitShort = commit ? ` <code style="font-size:11px;">${commit}</code>` : '';
+    const commitShort = commit ? ` <code style="font-size:11px;">${esc(commit)}</code>` : '';
     const badge = outdated
         ? ' <span class="status pill" style="background:#f59e0b;color:#111;">update</span>'
         : '';
-    return `<span title="${commit || ''}">${label}${commitShort}${badge}</span>`;
+    return `<span title="${esc(commit)}">${esc(label)}${commitShort}${badge}</span>`;
 }
 
 const loadNodes = async (silent = false) => {
@@ -604,7 +605,7 @@ async function copyConfig(type = 'create') {
             return;
         }
         try {
-            const response = await fetch(`${API_BASE}/nodes.php?id=${nodeId}&action=generate-config`, { credentials: 'include' });
+            const response = await fetch(`${API_BASE}/nodes.php?id=${encodeURIComponent(nodeId)}&action=generate-config`, { credentials: 'include' });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const text = await response.text();
             const data = text ? JSON.parse(text) : {};
@@ -655,7 +656,7 @@ async function exportNodeConfig(nodeId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/nodes.php?id=${nodeId}&action=generate-config`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE}/nodes.php?id=${encodeURIComponent(nodeId)}&action=generate-config`, { credentials: 'include' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const text = await response.text();
         const data = text ? JSON.parse(text) : {};
@@ -672,7 +673,7 @@ async function exportNodeConfig(nodeId) {
         }
         
         // Получаем имя ноды
-        const nodeRes = await fetch(`${API_BASE}/nodes.php?id=${nodeId}`, { credentials: 'include' });
+        const nodeRes = await fetch(`${API_BASE}/nodes.php?id=${encodeURIComponent(nodeId)}`, { credentials: 'include' });
         const nodeText = await nodeRes.text();
         const nodeData = nodeText ? JSON.parse(nodeText) : {};
         const node = nodeData.node || {};

@@ -149,7 +149,7 @@ async function load() {
     allDevices = upnp.devices || [];
     allNodes = nodes.nodes || nodes.data || [];
     const prev = els.nodeFilter.value;
-    els.nodeFilter.innerHTML = '<option value="">Все ноды</option>' + allNodes.map((n) => `<option value="${n.id}">${escapeHtml(n.name)}</option>`).join('');
+    els.nodeFilter.innerHTML = '<option value="">Все ноды</option>' + allNodes.map((n) => `<option value="${escapeHtml(n.id)}">${escapeHtml(n.name)}</option>`).join('');
     if (prev) els.nodeFilter.value = prev;
     fillVendorFilter();
     render();

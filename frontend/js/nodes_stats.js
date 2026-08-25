@@ -2,6 +2,7 @@
 const API_BASE = window.MONITORING_API_BASE || '/api'; // базовый URL API
 const API_URL = `${API_BASE}/nodes.php`; // эндпоинт статистики нод
 const METRICS_URL = `${API_BASE}/metrics.php`; // эндпоинт истории метрик
+const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 let nodesCpuChart = null; // график CPU по нодам
 let nodesUsageChart = null; // график RAM/диск
@@ -95,8 +96,8 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
         const tone = (v) => v >= 90 ? 'bad' : (v >= 75 ? 'warn' : 'ok');
         const meter = (v, kind) => `<div class="hm-meter hm-meter-${kind}" data-tone="${tone(v)}"><span style="width:${Math.min(100, v)}%"></span></div><small class="meter-label">${v.toFixed(0)}%</small>`;
         tr.innerHTML = `
-            <td>${node.name || '-'}</td>
-            <td><span class="status pill ${node.status || 'offline'}">${node.status || 'unknown'}</span></td>
+            <td>${esc(node.name || '-')}</td>
+            <td><span class="status pill ${esc(node.status || 'offline')}">${esc(node.status || 'unknown')}</span></td>
             <td class="meter-cell">${meter(cpu, 'cpu')}</td>
             <td class="meter-cell">${meter(ram, 'ram')}</td>
             <td class="meter-cell">${meter(disk, 'disk')}</td>

@@ -1,7 +1,15 @@
 <?php
 declare(strict_types=1);
 
+session_start();
 header('Content-Type: application/json; charset=utf-8');
+
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+session_write_close();
 
 $config = require __DIR__ . '/includes/config.php';
 $apiBase = rtrim($config['api_url'] ?? '', '/');
@@ -13,7 +21,19 @@ if ($apiBase === '' || $endpoint === '') {
     exit;
 }
 
-// Собираем query string, исключая endpoint
+$ALLOWED_ENDPOINTS = [
+    'nodes.php', 'metrics.php', 'logs.php', 'summary.php', 'processes.php',
+    'settings.php', 'health.php', 'ports.php', 'smart.php', 'containers.php',
+    'databases.php', 'db_ha.php', 'providers.php', 'payments.php',
+    'panel_update.php', 'updates.php', 'nodes_export.php', 'upnp.php',
+];
+$epBase = basename($endpoint);
+if (!in_array($epBase, $ALLOWED_ENDPOINTS, true)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Endpoint not allowed']);
+    exit;
+}
+
 $query = $_GET;
 unset($query['endpoint']);
 $queryString = http_build_query($query);
@@ -25,22 +45,20 @@ curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_CUSTOMREQUEST => $method,
     CURLOPT_TIMEOUT => (int)($config['timeout'] ?? 15),
-    CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_FOLLOWLOCATION => false,
 ]);
 
-// Тело запроса
 $hasBody = in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true);
 if ($hasBody) {
     $body = file_get_contents('php://input');
     curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
 }
 
-// Пробрасываем часть заголовков
 $forwardHeaders = [];
 $incomingHeaders = function_exists('getallheaders') ? getallheaders() : [];
 foreach ($incomingHeaders as $name => $value) {
     $normalized = strtolower($name);
-    if (in_array($normalized, ['content-type', 'authorization', 'accept'], true)) {
+    if (in_array($normalized, ['content-type', 'accept'], true)) {
         $forwardHeaders[] = $name . ': ' . $value;
     }
 }

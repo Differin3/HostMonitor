@@ -89,7 +89,7 @@ function populateNodeFilter() {
 async function refreshUpdatesList(silent = true) {
     try {
         const nodeId = document.getElementById('nodeFilter')?.value || '';
-        const url = nodeId ? `/updates.php?action=list&node_id=${nodeId}` : '/updates.php?action=list';
+        const url = nodeId ? `/updates.php?action=list&node_id=${encodeURIComponent(nodeId)}` : '/updates.php?action=list';
         const result = await fetchJson(url, { method: 'GET' });
         if (!result.success) return;
         syncSelectedKeysFromDom();
@@ -134,7 +134,7 @@ async function checkUpdates(silent = false) {
         }
         showToast('Проверка обновлений...', 'info');
         
-        const url = nodeId ? `/updates.php?action=check&node_id=${nodeId}` : '/updates.php?action=check';
+        const url = nodeId ? `/updates.php?action=check&node_id=${encodeURIComponent(nodeId)}` : '/updates.php?action=check';
         const result = await fetchJson(url, { method: 'POST' });
         
         if (result.success) {

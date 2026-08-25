@@ -79,9 +79,10 @@ def load_node_conf(path: str = "node.conf") -> None:
                 loaded_count += 1
                 # Логируем важные переменные (без значений для безопасности)
                 if key in ["NODE_TOKEN", "MASTER_URL", "NODE_NAME"]:
-                    print(f"[agent] Loaded {key}={'***' + val[-10:] if key == 'NODE_TOKEN' and len(val) > 10 else val if key != 'NODE_TOKEN' else '***'}")
                     if key == "NODE_TOKEN":
-                        print(f"[agent] NODE_TOKEN length after parsing: {len(val)}")
+                        print(f"[agent] Loaded {key}={'set (len=' + str(len(val)) + ')' if val else '(empty)'}")
+                    else:
+                        print(f"[agent] Loaded {key}=***")
         print(f"[agent] Loaded {loaded_count} variables from node.conf")
     except Exception as e:
         print(f"[agent] Error loading node.conf: {e}")
@@ -93,6 +94,8 @@ def _get_verify():
     # Параметр verify для requests: путь к сертификату или булево из конфига
     tls_cert_path = os.getenv("TLS_CERT_PATH", "")
     tls_verify = os.getenv("TLS_VERIFY", "true").lower() == "true"
+    if not tls_verify and not tls_cert_path:
+        _log("WARNING: TLS verification is DISABLED (TLS_VERIFY=false). All connections are vulnerable to MITM attacks.")
     return tls_cert_path or tls_verify
 
 
@@ -386,18 +389,7 @@ class MonitoringAgent:
         # Отправка данных на главный сервер
         data = {"metrics": metrics, "processes": processes}
         _log(f"Sending metrics to {self.master_url}/api/metrics.php")
-        # Логируем наличие токена для отладки (без самого токена)
-        token_info = f"Token present: {bool(self.node_token)}, length: {len(self.node_token) if self.node_token else 0}"
-        if self.node_token:
-            # Показываем первые 4 и последние 4 символа для проверки
-            token_preview = f"{self.node_token[:4]}...{self.node_token[-4:]}" if len(self.node_token) > 8 else "***"
-            token_info += f", preview: {token_preview}"
-        _log(token_info)
-        # Логируем заголовок Authorization (первые символы)
-        auth_header_preview = self.headers.get("Authorization", "NOT SET")
-        if auth_header_preview != "NOT SET":
-            auth_preview = auth_header_preview[:20] + "..." if len(auth_header_preview) > 20 else auth_header_preview
-            _log(f"Authorization header: {auth_preview}")
+        _log(f"Token present: {bool(self.node_token)}")
         resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/metrics.php",
@@ -1116,6 +1108,9 @@ class MonitoringAgent:
                 _log(f"check-agent-update: {result}")
                 return bool(result.get('ok'))
             if command in ('update-agent', 'upgrade-agent'):
+                if not allow_dangerous:
+                    _log("BLOCKED: update-agent command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    return False
                 result = self.update_agent()
                 self.report_agent_update(result)
                 _log(f"update-agent: {result}")
@@ -1139,21 +1134,51 @@ class MonitoringAgent:
                 subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=False)
                 return True
             elif command.startswith('kill'):
-                # Убить процесс
+                # Убить процесс — ОПАСНАЯ КОМАНДА
+                if not allow_dangerous:
+                    _log("BLOCKED: kill command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    return False
                 parts = command.split()
                 if len(parts) > 1:
-                    pid = int(parts[1])
-                    proc = psutil.Process(pid)
-                    proc.kill()
-                    return True
+                    try:
+                        pid = int(parts[1])
+                    except ValueError:
+                        _log(f"ERROR: invalid PID for kill: {parts[1]}")
+                        return False
+                    if pid <= 1:
+                        _log(f"BLOCKED: refusing to kill PID {pid} (init/kernel)")
+                        return False
+                    try:
+                        proc = psutil.Process(pid)
+                        proc.kill()
+                        _log(f"Killed process PID={pid} name={proc.name()}")
+                        return True
+                    except psutil.NoSuchProcess:
+                        _log(f"ERROR: process PID={pid} not found")
+                        return False
             elif command.startswith('restart'):
-                # Перезапуск процесса: сейчас реализуем как завершение процесса по PID
+                # Перезапуск процесса — ОПАСНАЯ КОМАНДА
+                if not allow_dangerous:
+                    _log("BLOCKED: restart command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    return False
                 parts = command.split()
                 if len(parts) > 1:
-                    pid = int(parts[1])
-                    proc = psutil.Process(pid)
-                    proc.terminate()
-                    return True
+                    try:
+                        pid = int(parts[1])
+                    except ValueError:
+                        _log(f"ERROR: invalid PID for restart: {parts[1]}")
+                        return False
+                    if pid <= 1:
+                        _log(f"BLOCKED: refusing to restart PID {pid} (init/kernel)")
+                        return False
+                    try:
+                        proc = psutil.Process(pid)
+                        proc.terminate()
+                        _log(f"Terminated process PID={pid} name={proc.name()}")
+                        return True
+                    except psutil.NoSuchProcess:
+                        _log(f"ERROR: process PID={pid} not found")
+                        return False
             elif command.startswith('docker-logs'):
                 parts = command.split()
                 if len(parts) < 2:
@@ -1297,6 +1322,9 @@ class MonitoringAgent:
                 
                 if len(parts) >= 2:
                     package = parts[1]
+                    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9+._:-]*$', package):
+                        _log(f"ERROR: invalid package name: {package}")
+                        return False
                     # Получаем версию из команды (если указана)
                     expected_version = parts[2] if len(parts) >= 3 else None
                     _log(f"Package to install: {package}")
@@ -1457,6 +1485,10 @@ class MonitoringAgent:
             elif command.startswith('upnp'):
                 return self.handle_upnp_command(command)
             elif command.startswith('firewall'):
+                # Firewall команды — ОПАСНАЯ КОМАНДА
+                if not allow_dangerous:
+                    _log("BLOCKED: firewall command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    return False
                 # Firewall команды (простая обёртка над ufw/iptables)
                 parts = command.split()
                 if len(parts) >= 3:
@@ -3534,17 +3566,21 @@ if __name__ == "__main__":
     collect_interval = int(os.getenv("COLLECT_INTERVAL", "60"))
     health_port = int(os.getenv("HEALTH_PORT", "0"))
     
+    if not master_url.startswith("https://"):
+        print(f"[agent] WARNING: MASTER_URL does not use HTTPS: {master_url}")
+        print("[agent] Agent tokens and data will be transmitted in cleartext. Use https:// for production.")
+    
     print(f"[agent] Configuration loaded:")
     print(f"  MASTER_URL: {master_url}")
     print(f"  NODE_NAME: {node_name}")
-    print(f"  NODE_TOKEN: {'***' + node_token[-10:] if node_token else '(not set)'}")
+    print(f"  NODE_TOKEN: {'set (len=' + str(len(node_token)) + ')' if node_token else '(not set)'}")
     print(f"  COLLECT_INTERVAL: {collect_interval}")
 
     if not node_token:
         print("[agent] ERROR: NODE_TOKEN is not set. Please configure the agent.")
         print(f"[agent] MASTER_URL: {master_url}")
         print(f"[agent] NODE_NAME: {node_name}")
-        print(f"[agent] NODE_TOKEN from env: {os.getenv('NODE_TOKEN', 'NOT SET')}")
+        print(f"[agent] NODE_TOKEN from env: {'set' if os.getenv('NODE_TOKEN') else 'NOT SET'}")
         print("[agent] Check that node.conf exists and contains NODE_TOKEN=...")
         exit(1)
     

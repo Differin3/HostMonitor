@@ -3,6 +3,7 @@ const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 const API_NODES = `${API_BASE}/nodes.php`;
 const API_PROVIDERS = `${API_BASE}/providers.php`;
+const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const API_PAYMENTS = `${API_BASE}/payments.php`;
 let selectedBillingNodes = new Set();
 let providersList = [];
@@ -160,6 +161,7 @@ function renderBillingNodes(nodes) {
         }) : '-';
         const countryFlag = node.country ? getCountryFlag(node.country) : '';
         
+        const safeUrl = (node.provider_url && /^https?:\/\//i.test(node.provider_url)) ? node.provider_url : '#';
         return `
             <tr data-node-id="${node.id}" style="cursor: pointer;">
                 <td onclick="event.stopPropagation();">
@@ -169,14 +171,14 @@ function renderBillingNodes(nodes) {
                     <div class="table-cell-with-icon">
                         ${getProviderIcon(node.favicon_url, node.provider_name, node.provider_url)}
                         <div>
-                            ${node.provider_name ? `<a href="${node.provider_url || '#'}" target="_blank" onclick="event.stopPropagation();">${node.provider_name}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '-'}
+                            ${node.provider_name ? `<a href="${safeUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${esc(node.provider_name)}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '-'}
                         </div>
                     </div>
                 </td>
                 <td onclick="editNodeBilling(${node.id})">
                     <div class="table-cell-with-icon">
                         ${countryFlag}
-                        <span>${node.name}</span>
+                        <span>${esc(node.name)}</span>
                     </div>
                 </td>
                 <td onclick="editNodeBilling(${node.id})">
@@ -233,7 +235,7 @@ function renderPayments(payments) {
                 <td>
                     <div class="table-cell-with-icon">
                         ${getProviderIcon(node?.favicon_url || '', providerName, node?.provider_url)}
-                        <span>${providerName || payment.node_name || `node-${payment.node_id}`}</span>
+                        <span>${esc(providerName || payment.node_name || `node-${payment.node_id}`)}</span>
                     </div>
                 </td>
                 <td>
@@ -550,7 +552,7 @@ async function updateSelectedPaymentDates() {
         const newDate = nextMonth.toISOString().split('T')[0];
         
         for (const nodeId of selectedBillingNodes) {
-            await fetch(`${API_NODES}?id=${nodeId}`, {
+            await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
                 method: 'PUT',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
@@ -572,7 +574,7 @@ async function deleteSelectedBillingNodes() {
     if (!confirmed) return;
     try {
         for (const nodeId of selectedBillingNodes) {
-            await fetch(`${API_NODES}?id=${nodeId}`, {
+            await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
                 method: 'PUT',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
@@ -965,7 +967,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const newDate = formData.get('new_date');
             
             try {
-                const res = await fetch(`${API_NODES}?id=${nodeId}`, {
+                const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
                     method: 'PUT',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
@@ -1005,7 +1007,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const billingAmount = parseFloat(formData.get('billing_amount')) || null;
                 const provider = providersList.find(p => p.name === providerName);
                 
-                const res = await fetch(`${API_NODES}?id=${nodeId}`, {
+                const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
                     method: 'PUT',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },

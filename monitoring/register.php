@@ -1,5 +1,9 @@
 <?php
 session_start();
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
 require_once __DIR__ . '/includes/helpers.php';
 require_once __DIR__ . '/includes/database.php';
 

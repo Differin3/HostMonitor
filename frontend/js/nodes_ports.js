@@ -1,6 +1,7 @@
 // JavaScript для страницы портов нод
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
+const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function loadPorts(silent = false) {
     const select = document.getElementById('nodeFilter');
@@ -100,14 +101,14 @@ function renderPorts(ports) {
     
     tbody.innerHTML = ports.map(p => `
         <tr>
-            <td><strong>${p.port}</strong></td>
-            <td><span class="badge">${p.type?.toUpperCase() || 'TCP'}</span></td>
-            <td><span class="node-badge">${p.node_name || 'N/A'}</span></td>
-            <td>${p.process || '-'}</td>
-            <td>${p.pid || '-'}</td>
-            <td><span class="status ${p.status}">${p.status || 'unknown'}</span></td>
+            <td><strong>${escapeHtml(p.port)}</strong></td>
+            <td><span class="badge">${escapeHtml(p.type?.toUpperCase() || 'TCP')}</span></td>
+            <td><span class="node-badge">${escapeHtml(p.node_name || 'N/A')}</span></td>
+            <td>${escapeHtml(p.process || '-')}</td>
+            <td>${escapeHtml(p.pid || '-')}</td>
+            <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status || 'unknown')}</span></td>
             <td>
-                <button onclick="closePort(${p.port}, ${p.node_id})" class="btn-danger" title="Закрыть порт">
+                <button onclick="closePort(${parseInt(p.port) || 0}, ${parseInt(p.node_id) || 0})" class="btn-danger" title="Закрыть порт">
                     <i data-lucide="x"></i>
                 </button>
             </td>
@@ -131,7 +132,7 @@ async function closePort(port, nodeId) {
     if (!confirmed) return;
     
     try {
-        const response = await fetch(`${API_BASE}/ports.php?node_id=${nodeId}&action=deny`, {
+        const response = await fetch(`${API_BASE}/ports.php?node_id=${encodeURIComponent(nodeId)}&action=deny`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',

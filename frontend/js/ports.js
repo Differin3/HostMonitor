@@ -3,6 +3,7 @@ const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 let allPorts = [];
 let allNodes = [];
+const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function loadNodes() {
     const select = document.getElementById('nodeFilter');
@@ -112,13 +113,13 @@ function renderPorts(ports) {
     tbody.innerHTML = ports.map(p => `
         <tr>
             <td>${p.port}</td>
-            <td>${p.type?.toUpperCase() || 'TCP'}</td>
-            <td>${p.node_name || 'N/A'}</td>
-            <td>${p.process_name || 'N/A'}</td>
-            <td>${p.pid || 'N/A'}</td>
-            <td><span class="status ${p.status}">${p.status || 'unknown'}</span></td>
+            <td>${escapeHtml(p.type?.toUpperCase() || 'TCP')}</td>
+            <td>${escapeHtml(p.node_name || 'N/A')}</td>
+            <td>${escapeHtml(p.process_name || 'N/A')}</td>
+            <td>${escapeHtml(p.pid || 'N/A')}</td>
+            <td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status || 'unknown')}</span></td>
             <td>
-                <button onclick="togglePort(${p.port}, '${p.type || 'tcp'}', ${p.node_id})" class="${p.status === 'open' ? 'btn-danger' : 'primary'}" title="${p.status === 'open' ? 'Закрыть порт' : 'Открыть порт'}">
+                <button onclick="togglePort(${parseInt(p.port) || 0}, '${escapeHtml(p.type || 'tcp')}', ${parseInt(p.node_id) || 0})" class="${p.status === 'open' ? 'btn-danger' : 'primary'}" title="${p.status === 'open' ? 'Закрыть порт' : 'Открыть порт'}">
                     ${p.status === 'open' ? '<i data-lucide="lock"></i> Закрыть' : '<i data-lucide="unlock"></i> Открыть'}
                 </button>
             </td>
@@ -185,7 +186,7 @@ async function togglePort(port, type, nodeId) {
     if (!confirmed) return;
     
     try {
-        const response = await fetch(`${API_BASE}/ports.php?node_id=${nodeId}&action=${action}`, {
+        const response = await fetch(`${API_BASE}/ports.php?node_id=${encodeURIComponent(nodeId)}&action=${encodeURIComponent(action)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
