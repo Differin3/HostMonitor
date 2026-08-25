@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # <img src="frontend/icons/lucide/server.svg" width="32" height="32" alt="Server"> HostMonitor
 
@@ -11,7 +11,7 @@
 
 **Мониторинг серверов в реальном времени | Метрики | Процессы | Порты | Контейнеры**
 
-[🚀 Быстрая установка](#-быстрая-установка) • [📖 Документация](#-документация) • [<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Конфигурация](#️-конфигурация) • [🐛 Исправления](#-последние-исправления)
+[🚀 Быстрая установка](#-быстрая-установка) • [📖 Документация](#-документация) • [<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Конфигурация](#️-конфигурация) • [🛡️ Безопасность](#️-безопасность)
 
 </div>
 
@@ -25,7 +25,7 @@
 - [Быстрая установка](#-быстрая-установка)
 - [Конфигурация](#️-конфигурация)
 - [Использование](#-использование)
-- [Последние исправления](#-последние-исправления)
+- [Безопасность](#️-безопасность)
 - [Поддержка](#-поддержка)
 
 ---
@@ -58,16 +58,41 @@
 </table>
 
 ### <img src="frontend/icons/lucide/shield.svg" width="20" height="20" alt="Security"> Безопасность
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Аутентификация пользователей
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Токены для агентов
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита API endpoints
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> TLS/SSL поддержка
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Аутентификация пользователей (сессии + Bearer token)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Токены для агентов (NODE_TOKEN + Bearer)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> CSRF-защита всех POST-запросов (X-CSRF-Token header)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Security-заголовки (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Brute-force защита (5 попыток / 15 мин lockout)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита от SQL-инъекций (PDO prepared statements)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита от XSS (esc/escapeHtml для всех пользовательских данных)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита от XXE (LIBXML_NONET для XML-парсинга)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита от SSRF (allowlist URL, запрет FOLLOWLOCATION)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Защита от command injection (escapeshellarg, валидация параметров)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> TLS/SSL поддержка с валидацией сертификатов
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Безопасность сессий (HttpOnly, SameSite=Lax, Secure при HTTPS)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Регенерация session ID после логина
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Generic ошибки (утечка $e->getMessage() устранена)
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Агент: allowlist node.conf, запрет опасных команд без флага
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Агент: health server только на 127.0.0.1
+- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Агент: отказ от запуска без HTTPS (MASTER_URL_INSECURE для override)
 
 ### ⚡ Производительность
 - ⚡ Легковесный агент (Python)
 - ⚡ Быстрый веб-интерфейс (PHP + JS)
-- ⚡ Оптимизированные SQL запросы
+- ⚡ Оптимизированные SQL запросы (batch INSERT, 8 индексов для retention)
 - ⚡ Кэширование метрик
+- ⚡ Свертывание дублей логов на стороне агента
+- ⚡ Тримминг raw_message перед отправкой (≤500 символов)
+- ⚡ Тонкая настройка retention (500K / 50K строк на ноду)
+
+### <img src="frontend/icons/lucide/hard-drive.svg" width="20" height="20" alt="SMART"> Расширенные возможности
+- <img src="frontend/icons/lucide/hard-drive.svg" width="16" height="16" alt="SMART"> **SMART мониторинг**: Состояние дисков, температура, наработка,bad sectors
+- <img src="frontend/icons/lucide/refresh-cw.svg" width="16" height="16" alt="Refresh"> **DB HA**: Синхронизация базы данных между primary/replica
+- <img src="frontend/icons/lucide/network.svg" width="16" height="16" alt="Network"> **LLDP/SNMP**: Автообнаружение сетевого оборудования
+- <img src="frontend/icons/lucide/upload.svg" width="16" height="16" alt="Export"> **Экспорт нод**: JSON-экспорт/импорт конфигураций (токены автоматически исключаются)
+- <img src="frontend/icons/lucide/cpu.svg" width="16" height="16" alt="GPU"> **GPU мониторинг**: Загрузка, память, температура
+- <img src="frontend/icons/lucide/shield.svg" width="16" height="16" alt="Security"> **Agent updates**: Удалённое обновление агентов через панель
+- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> **Panel updates**: Самообновление панели из Git
 
 ---
 
@@ -273,6 +298,26 @@ TLS_VERIFY=false
 TLS_CERT_PATH=""
 ```
 
+**Дополнительные опции (node.conf или env):**
+```ini
+# Опасные команды (kill, reboot, firewall, update-agent) — только с этим флагом
+ALLOW_DANGEROUS_COMMANDS=true
+
+# Интервал сбора SMART данных (в циклах, по умолчанию 5)
+SMART_INTERVAL=5
+
+# SNMP community string
+SNMP_COMMUNITY=public
+
+# Health-check сервер порт (0 = отключен)
+HEALTH_PORT=8081
+
+# Отказ от HTTPS (только для dev, НЕ для production)
+MASTER_URL_INSECURE=1
+```
+
+> **Безопасность**: `node.conf` загружает только разрешённые ключи (allowlist). Опасные переменные окружения (`LD_PRELOAD`, `PATH`, `PYTHONPATH` и др.) блокируются.
+
 **Или переменные окружения:**
 ```bash
 export MASTER_URL=https://your-master-server.com
@@ -379,33 +424,71 @@ docker-compose up -d
 
 ---
 
-## 🐛 Последние исправления
+## 🛡️ Безопасность
 
-### <img src="frontend/icons/lucide/check-circle.svg" width="20" height="20" alt="Check"> Исправление бага с отображением нод (2024)
+### Проведённый аудит
 
-**<img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Проблема:**
-- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> Ноды со статусом `offline` пропадали из списка
-- <img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> При статусе `online` появлялись дубликаты нод
-- 🔄 Нестабильное отображение при перезагрузке страницы
+Полный аудит безопасности проведён в несколько раундов. Найдено и исправлено **40+ уязвимостей**:
 
-**<img src="frontend/icons/lucide/search.svg" width="16" height="16" alt="Search"> Причина:**
-1. <img src="frontend/icons/lucide/cpu.svg" width="16" height="16" alt="CPU"> Сложная логика ручного удаления дубликатов по ID
-2. <img src="frontend/icons/lucide/database.svg" width="16" height="16" alt="Database"> Автоматическое обновление статуса в БД при каждом GET-запросе
-3. <img src="frontend/icons/lucide/link.svg" width="16" height="16" alt="Link"> Отсутствие JOIN с таблицей providers
+### Исправленные проблемы (по категориям)
 
-**<img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Решение:**
-1. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Возврат к простому LEFT JOIN запросу (как в старой версии)
-2. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Убрано автоматическое обновление статуса в БД - статус обновляется только через heartbeat/refresh
-3. <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Упрощена логика удаления дубликатов
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="XSS"> XSS (Cross-Site Scripting)
+- Все пользовательские данные экранируются через `esc()` / `escapeHtml()` перед вставкой в innerHTML
+- `onclick`-хендлеры используют `JSON.stringify()` для безопасной передачи строк
+- `node.id` кастуется через `parseInt()` для атрибутов и обработчиков событий
+- `provider.url` валидируется через `https?://` regex перед вставкой в `href`
+- `iconSrc` и `fallbackLetter` экранируются через `escHtmlAttr()` для атрибутов
 
-**<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Результат:**
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Все ноды отображаются корректно (online/offline)
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Нет дубликатов
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Стабильное отображение
-- <img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Меньше нагрузка на БД
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Injection"> Injection
+- **Command injection** (processes.php, upnp.php): приведение к int для IP и port
+- **Command injection** (ports.php): валидация port (1-65535) и proto (tcp/udp)
+- **SQL injection**: все запросы через PDO prepared statements
+- **XXE**: `LIBXML_NONET` для всех `simplexml_load_string()`
+- **SSRF**: allowlist URL, запрет `CURLOPT_FOLLOWLOCATION`
+- **node.conf**: allowlist ключей, блокировка `LD_PRELOAD`, `PATH` и др.
 
-**<img src="frontend/icons/lucide/file-text.svg" width="16" height="16" alt="File"> Файлы:**
-- <img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> `monitoring/api/nodes.php` - основной файл с исправлениями
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Auth"> Аутентификация и сессии
+- **CSRF**: токен в сессии + `X-CSRF-Token` header для всех POST-запросов
+- **Brute-force**: 5 попыток / 15 мин lockout (файловый rate-limiter)
+- **Session fixation**: `session_regenerate_id(true)` после логина
+- **Session cookie**: `HttpOnly`, `SameSite=Lax`, `Secure` при HTTPS
+
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Info"> Информационная утечка
+- `$e->getMessage()` заменён на generic ошибки во всех API-файлах
+- Токены не логируются (только length/presence)
+- Экспорт нод автоматически исключает `node_token` и `secret_key`
+
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Agent"> Агент (Python)
+- Все опасные команды (`kill`, `reboot`, `firewall`, `update-agent`) требуют `ALLOW_DANGEROUS_COMMANDS=true`
+- `install-update`: regex-валидация имени пакета `^[a-zA-Z0-9][a-zA-Z0-9+._:-]*$`
+- Health server: биндится на `127.0.0.1` (не `0.0.0.0`)
+- `MASTER_URL`: отказ от запуска без HTTPS (override: `MASTER_URL_INSECURE=1`)
+- TLS_VERIFY=false: предупреждение в логах при отключении проверки
+
+#### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Headers"> HTTP-заголовки
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+### Завершённые задачи
+
+- [x] SMART мониторинг (агент + API + PHP + JS + CSS)
+- [x] Фикс timezones (MySQL ↔ PHP синхронизация)
+- [x] Git permissions fix (sudoers + agent auto-fix)
+- [x] Nodes export/import (JSON, токены исключаются)
+- [x] Оптимизация БД (batch INSERT, 8 индексов, retention 500K/50K)
+- [x] Heartbeat reliability (один запрос вместо retry-цикла)
+- [x] CSRF защита (интеграция во все POST-эндпоинты)
+- [x] XXE защита (LIBXML_NONET)
+- [x] Brute-force защита (rate-limiter)
+- [x] XSS защита (все JS-файлы)
+- [x] Command injection защита (все API-файлы)
+- [x] SSRF защита (allowlist URL)
+- [x] Agent security hardening (node.conf allowlist, HTTPS enforcement)
+- [x] Устранение утечек ошибок ($e->getMessage())
+- [x] Security-заголовки
+- [x] Session cookie Secure flag
 
 ---
 
