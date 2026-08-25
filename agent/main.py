@@ -2,6 +2,8 @@
 import time  # таймеры
 import psutil  # системные метрики
 import requests  # HTTP-запросы
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import json  # JSON
 import subprocess  # внешние команды
 import os  # окружение
@@ -402,6 +404,7 @@ class MonitoringAgent:
             json=data,
             headers=self.headers,
             verify=_get_verify(),
+            timeout=20,
         )
         if not resp or resp.status_code not in (200, 201):
             _log(f"Failed to send metrics: status={resp.status_code if resp else 'no response'}")
@@ -3149,8 +3152,63 @@ class MonitoringAgent:
                 break
 
         logs = self._only_new_logs("ssh_fp", parsed)
+        logs = self._collapse_ssh_duplicates(logs)
         _log(f"collect_ssh_auth_logs: new={len(logs)}")
         return logs
+
+    @staticmethod
+    def _collapse_ssh_duplicates(logs: list) -> list:
+        """Схлопывает повторяющиеся SSH-события от одного IP за один цикл.
+        Например, 50 brute-force попыток от 1.2.3.4 → 1 запись с message "... (×50)".
+        Экономит до 80% строк в ssh_auth_logs при атаках."""
+        if len(logs) <= 1:
+            return logs
+        buckets: dict[tuple, dict] = {}
+        order: list[tuple] = []
+        for entry in logs:
+            if entry.get('type') != 'auth_ssh':
+                continue
+            key = (
+                entry.get('username') or '',
+                entry.get('ip') or '',
+                entry.get('success'),
+            )
+            if key in buckets:
+                buckets[key]['count'] += 1
+                buckets[key]['last'] = entry
+                if entry.get('timestamp', '') > buckets[key]['last_ts']:
+                    buckets[key]['last_ts'] = entry.get('timestamp', '')
+                    buckets[key]['last'] = entry
+            else:
+                buckets[key] = {'count': 1, 'first': entry, 'last': entry, 'last_ts': entry.get('timestamp', '')}
+                order.append(key)
+        result = []
+        for entry in logs:
+            if entry.get('type') != 'auth_ssh':
+                result.append(entry)
+                continue
+            key = (
+                entry.get('username') or '',
+                entry.get('ip') or '',
+                entry.get('success'),
+            )
+            if key not in buckets:
+                continue
+            b = buckets[key]
+            del buckets[key]
+            if b['count'] > 1:
+                e = dict(b['last'])
+                orig_msg = e.get('message', '')
+                e['message'] = f"{orig_msg} (×{b['count']})"
+                if 'raw_message' in e:
+                    e['raw_message'] = e['raw_message'][:500]
+                result.append(e)
+            else:
+                e = dict(b['first'])
+                if 'raw_message' in e:
+                    e['raw_message'] = e['raw_message'][:500]
+                result.append(e)
+        return result
 
     def collect_logs(self):
         logs = []
@@ -3203,6 +3261,7 @@ class MonitoringAgent:
             json=logs,
             headers=self.headers,
             verify=_get_verify(),
+            timeout=20,
         )
         ok = bool(resp and resp.status_code in (200, 201))
         _log(f"send_logs: result status={resp.status_code if resp else 'no response'}, ok={ok}")
@@ -3274,6 +3333,7 @@ class MonitoringAgent:
     
     def send_heartbeat(self):
         # Отправка heartbeat для обновления статуса ноды + версии агента
+        # Один быстрый запрос — без retry: следующий цикл повторит через heartbeat_interval
         try:
             info = self.agent_version_info()
             _log(f"Sending heartbeat to {self.master_url}/api/nodes.php?action=heartbeat")
@@ -3288,21 +3348,27 @@ class MonitoringAgent:
                     payload['uptime_sec'] = max(0, int(time.time()) - boot_ts)
             except Exception:
                 pass
-            resp = _request_with_retry(
-                "POST",
-                f"{self.master_url}/api/nodes.php?action=heartbeat",
-                json=payload,
-                headers=self.headers,
-                verify=_get_verify(),
-                timeout=5  # Короткий таймаут для heartbeat
-            )
-            if resp and resp.status_code in (200, 201):
-                _log(f"Heartbeat sent successfully: status={resp.status_code} version={info.get('agent_version')} commit={info.get('agent_commit')}")
+            try:
+                resp = requests.post(
+                    f"{self.master_url}/api/nodes.php?action=heartbeat",
+                    json=payload,
+                    headers=self.headers,
+                    verify=_get_verify(),
+                    timeout=10,
+                )
+            except requests.exceptions.Timeout:
+                _log("Heartbeat timeout (10s) — will retry next interval")
+                return False
+            except requests.exceptions.ConnectionError as e:
+                _log(f"Heartbeat connection error: {e} — will retry next interval")
+                return False
+            if resp.status_code in (200, 201):
+                _log(f"Heartbeat OK: status={resp.status_code} version={info.get('agent_version')} commit={info.get('agent_commit')}")
                 return True
             else:
-                _log(f"Heartbeat failed: status={resp.status_code if resp else 'no response'}")
+                _log(f"Heartbeat failed: status={resp.status_code}")
         except Exception as e:
-            _log(f"Heartbeat failed: {e}")
+            _log(f"Heartbeat exception: {e}")
         return False
     
     def run(self):

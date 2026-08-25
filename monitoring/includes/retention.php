@@ -21,8 +21,8 @@ function retention_config(): array
         'metrics_days' => retention_int('metrics_retention_days', 14, 2, 90),
         'alerts_days' => retention_int('alerts_retention_days', 30, 7, 365),
         'updates_days' => retention_int('update_history_days', 90, 14, 365),
-        'log_max_rows' => retention_int('log_max_rows', 1000000, 10000, 10000000),
-        'log_max_rows_per_node' => retention_int('log_max_rows_per_node', 100000, 0, 1000000),
+        'log_max_rows' => retention_int('log_max_rows', 500000, 10000, 10000000),
+        'log_max_rows_per_node' => retention_int('log_max_rows_per_node', 50000, 0, 1000000),
         'batch' => 4000,
     ];
 }
@@ -43,6 +43,14 @@ function retention_ensure_indexes(PDO $pdo): void
         ['metrics', 'idx_node_ts', 'ALTER TABLE metrics ADD INDEX idx_node_ts (node_id, timestamp)'],
         ['gpu_metrics', 'idx_gpu_node_ts', 'ALTER TABLE gpu_metrics ADD INDEX idx_gpu_node_ts (node_id, timestamp)'],
         ['alerts', 'idx_alerts_resolved_created', 'ALTER TABLE alerts ADD INDEX idx_alerts_resolved_created (resolved, created_at)'],
+        ['logs', 'idx_logs_ts', 'ALTER TABLE logs ADD INDEX idx_logs_ts (timestamp)'],
+        ['logs', 'idx_logs_node_ts', 'ALTER TABLE logs ADD INDEX idx_logs_node_ts (node_id, timestamp)'],
+        ['ssh_auth_logs', 'idx_ssh_ts', 'ALTER TABLE ssh_auth_logs ADD INDEX idx_ssh_ts (timestamp)'],
+        ['ssh_auth_logs', 'idx_ssh_node_ts', 'ALTER TABLE ssh_auth_logs ADD INDEX idx_ssh_node_ts (node_id, timestamp)'],
+        ['ssh_auth_logs', 'idx_ssh_ip', 'ALTER TABLE ssh_auth_logs ADD INDEX idx_ssh_ip (ip_address)'],
+        ['process_logs', 'idx_proc_ts', 'ALTER TABLE process_logs ADD INDEX idx_proc_ts (timestamp)'],
+        ['container_logs', 'idx_cont_ts', 'ALTER TABLE container_logs ADD INDEX idx_cont_ts (timestamp)'],
+        ['smart_metrics', 'idx_smart_ts', 'ALTER TABLE smart_metrics ADD INDEX idx_smart_ts (timestamp)'],
     ];
     foreach ($indexes as [$table, $name, $sql]) {
         try {

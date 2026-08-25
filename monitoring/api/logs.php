@@ -39,6 +39,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
 
+function logs_flush_batch(PDO $pdo, string $prefix, array $rows, int $batchSize = 50): int
+{
+    $total = 0;
+    $chunks = array_chunk($rows, $batchSize);
+    foreach ($chunks as $chunk) {
+        $placeholders = [];
+        $flat = [];
+        foreach ($chunk as $row) {
+            $rowPlaceholders = [];
+            foreach ($row as $val) {
+                $rowPlaceholders[] = '?';
+                $flat[] = $val;
+            }
+            $placeholders[] = '(' . implode(',', $rowPlaceholders) . ')';
+        }
+        $sql = $prefix . implode(', ', $placeholders);
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($flat);
+        $total += count($chunk);
+    }
+    return $total;
+}
+
 function logs_per_page(PDO $pdo): int
 {
     $default = 100;
@@ -219,11 +242,14 @@ try {
             exit;
         }
 
-        $stmtSystem = $pdo->prepare("INSERT INTO logs (node_id, level, message, timestamp, type) VALUES (?, ?, ?, ?, ?)");
-        $stmtProcess = $pdo->prepare("INSERT INTO process_logs (node_id, pid, process, level, message, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmtContainer = $pdo->prepare("INSERT INTO container_logs (node_id, container_id, level, message, timestamp) VALUES (?, ?, ?, ?, ?)");
-        $stmtSshAuth = $pdo->prepare("INSERT INTO ssh_auth_logs (node_id, level, process, username, ip_address, port, success, message, raw_message, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $inserted = 0;
+        $BATCH_SIZE = 50;
+
+        // ── Системные логи — batch INSERT ──
+        $systemBatch = [];
+        $processBatch = [];
+        $containerBatch = [];
+        $sshBatch = [];
 
         foreach ($logs as $log) {
             $level = $log['level'] ?? 'info';
@@ -235,16 +261,16 @@ try {
             }
 
             if ($type === 'process') {
-                $pid = isset($log['pid']) ? (int)$log['pid'] : null;
-                $stmtProcess->bindValue(1, $nodeId, PDO::PARAM_INT);
-                $stmtProcess->bindValue(2, $pid, $pid !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-                $stmtProcess->bindValue(3, $log['process'] ?? 'system', PDO::PARAM_STR);
-                $stmtProcess->bindValue(4, $level, PDO::PARAM_STR);
-                $stmtProcess->bindValue(5, $message, PDO::PARAM_STR);
-                $stmtProcess->bindValue(6, $timestamp, PDO::PARAM_STR);
-                $stmtProcess->execute();
+                $processBatch[] = [
+                    $nodeId,
+                    isset($log['pid']) ? (int)$log['pid'] : null,
+                    $log['process'] ?? 'system',
+                    $level,
+                    mb_substr($message, 0, 2000),
+                    $timestamp,
+                ];
             } elseif ($type === 'container' && !empty($log['container_id'])) {
-                $stmtContainer->execute([$nodeId, $log['container_id'], $level, $message, $timestamp]);
+                $containerBatch[] = [$nodeId, $log['container_id'], $level, mb_substr($message, 0, 2000), $timestamp];
             } elseif ($type === 'auth_ssh') {
                 $successForDb = null;
                 if (array_key_exists('success', $log) && $log['success'] !== null && $log['success'] !== '') {
@@ -257,26 +283,36 @@ try {
                     }
                 }
                 $port = isset($log['port']) ? (int)$log['port'] : null;
-                $stmtSshAuth->bindValue(1, $nodeId, PDO::PARAM_INT);
-                $stmtSshAuth->bindValue(2, $level, PDO::PARAM_STR);
-                $stmtSshAuth->bindValue(3, $log['process'] ?? 'sshd', PDO::PARAM_STR);
-                $stmtSshAuth->bindValue(4, $log['username'] ?? null, $log['username'] ? PDO::PARAM_STR : PDO::PARAM_NULL);
-                $stmtSshAuth->bindValue(5, $log['ip'] ?? ($log['ip_address'] ?? null), PDO::PARAM_STR);
-                $stmtSshAuth->bindValue(6, $port, $port !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-                $stmtSshAuth->bindValue(7, $successForDb, $successForDb === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-                $stmtSshAuth->bindValue(8, $message, PDO::PARAM_STR);
-                $stmtSshAuth->bindValue(9, $log['raw_message'] ?? $message, PDO::PARAM_STR);
-                $stmtSshAuth->bindValue(10, $timestamp, PDO::PARAM_STR);
-                try {
-                    $stmtSshAuth->execute();
-                } catch (Exception $e) {
-                    error_log("Error inserting SSH log: " . $e->getMessage());
-                    continue;
-                }
+                $rawMsg = mb_substr($log['raw_message'] ?? $message, 0, 500);
+                $sshBatch[] = [
+                    $nodeId,
+                    $level,
+                    $log['process'] ?? 'sshd',
+                    $log['username'] ?? null,
+                    $log['ip'] ?? ($log['ip_address'] ?? null),
+                    $port,
+                    $successForDb,
+                    mb_substr($message, 0, 2000),
+                    $rawMsg,
+                    $timestamp,
+                ];
             } else {
-                $stmtSystem->execute([$nodeId, $level, $message, $timestamp, $type]);
+                $systemBatch[] = [$nodeId, $level, mb_substr($message, 0, 2000), $timestamp, $type];
             }
-            $inserted++;
+        }
+
+        // Flush batches
+        if ($systemBatch) {
+            $inserted += logs_flush_batch($pdo, "INSERT INTO logs (node_id, level, message, timestamp, type) VALUES ", $systemBatch, $BATCH_SIZE);
+        }
+        if ($processBatch) {
+            $inserted += logs_flush_batch($pdo, "INSERT INTO process_logs (node_id, pid, process, level, message, timestamp) VALUES ", $processBatch, $BATCH_SIZE);
+        }
+        if ($containerBatch) {
+            $inserted += logs_flush_batch($pdo, "INSERT INTO container_logs (node_id, container_id, level, message, timestamp) VALUES ", $containerBatch, $BATCH_SIZE);
+        }
+        if ($sshBatch) {
+            $inserted += logs_flush_batch($pdo, "INSERT INTO ssh_auth_logs (node_id, level, process, username, ip_address, port, success, message, raw_message, timestamp) VALUES ", $sshBatch, $BATCH_SIZE);
         }
 
         retention_maybe_tick($pdo);
