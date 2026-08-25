@@ -2547,3 +2547,76 @@ select optgroup {
     }
 }
 
+/* SMART monitoring */
+.smart-row-critical {
+    background: rgba(239, 68, 68, 0.08) !important;
+    border-left: 3px solid #dc2626;
+}
+
+.smart-row-critical:hover {
+    background: rgba(239, 68, 68, 0.14) !important;
+}
+
+.smart-row-warning {
+    background: rgba(245, 158, 11, 0.08) !important;
+    border-left: 3px solid #d97706;
+}
+
+.smart-row-warning:hover {
+    background: rgba(245, 158, 11, 0.14) !important;
+}
+
+.smart-row-selected {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
+.smart-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    border: 1px solid var(--border-color);
+}
+
+.smart-detail-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#smart-tbody tr {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+#smart-tbody tr:hover {
+    background: var(--bg-card-hover);
+}
+
+.btn-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-sm:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text-primary);
+}
+
+#key-attrs .stat-card {
+    padding: 14px 16px;
+}
+

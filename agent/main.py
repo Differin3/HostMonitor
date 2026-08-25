@@ -1823,7 +1823,224 @@ class MonitoringAgent:
         except Exception as e:
             print(f"Error collecting ports: {e}")
         return ports
-    
+
+    def collect_smart(self):
+        """Сбор S.M.A.R.T. данных со всех дисков через smartctl."""
+        drives = []
+        try:
+            # Проверяем наличие smartctl
+            result = subprocess.run(['which', 'smartctl'], capture_output=True, text=True, timeout=3)
+            if result.returncode != 0:
+                return drives
+
+            # Сканируем устройства
+            scan = subprocess.run(
+                ['smartctl', '--scan', '-j'],
+                capture_output=True, text=True, timeout=10
+            )
+            if scan.returncode != 0:
+                return drives
+
+            scan_data = json.loads(scan.stdout) if scan.stdout.strip() else {}
+            devices = scan_data.get('smartctl', {}).get('devices', [])
+
+            if not devices:
+                # Fallback: пробуем lsblk
+                lsblk = subprocess.run(
+                    ['lsblk', '-Jdnpo', 'NAME,TYPE,SIZE,MODEL,SERIAL'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if lsblk.returncode == 0:
+                    blk = json.loads(lsblk.stdout) if lsblk.stdout.strip() else {}
+                    for dev in blk.get('blockdevices', []):
+                        name = dev.get('name', '')
+                        if name and dev.get('type') == 'disk':
+                            devices.append({'name': name, 'info_name': name})
+
+            for dev in devices:
+                device_name = dev.get('name') or dev.get('info_name') or ''
+                if not device_name:
+                    continue
+
+                try:
+                    drive_info = self._collect_smart_drive(device_name)
+                    if drive_info:
+                        drives.append(drive_info)
+                except Exception as e:
+                    _log(f"SMART error for {device_name}: {e}")
+
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            _log(f"SMART collection error: {e}")
+
+        return drives
+
+    def _collect_smart_drive(self, device_name):
+        """Сбор S.M.A.R.T. данных для одного диска."""
+        # Получаем информацию о диске
+        info_result = subprocess.run(
+            ['smartctl', '-i', '-j', device_name],
+            capture_output=True, text=True, timeout=10
+        )
+        if info_result.returncode != 0 and info_result.returncode != 64:
+            return None
+
+        info = json.loads(info_result.stdout) if info_result.stdout.strip() else {}
+        disk_info = info.get('smart_status', {})
+        model_info = info.get('model_name', '') or info.get('model_family', '')
+        serial = info.get('serial_number', '')
+        firmware = info.get('firmware_version', '')
+        capacity = info.get('user_capacity', {})
+        if isinstance(capacity, dict):
+            capacity = capacity.get('bytes', 0)
+        rotation = info.get('rotation_rate')
+        interface = info.get('interface_type', '')
+        sata_ver = info.get('sata_version', '')
+
+        # Определяем статус здоровья
+        health = 'unknown'
+        if disk_info:
+            if disk_info.get('passed', False):
+                health = 'ok'
+            else:
+                health = 'failed'
+
+        # Получаем все SMART атрибуты
+        attr_result = subprocess.run(
+            ['smartctl', '-A', '-j', device_name],
+            capture_output=True, text=True, timeout=10
+        )
+
+        attributes = []
+        temperature = None
+        power_on_hours = None
+
+        if attr_result.returncode == 0 or attr_result.returncode == 64:
+            attr_data = json.loads(attr_result.stdout) if attr_result.stdout.strip() else {}
+            smart_table = attr_data.get('ata_smart_attributes', {}).get('table', [])
+
+            for attr in smart_table:
+                attr_id = attr.get('id', 0)
+                name = attr.get('name', '')
+                value = attr.get('value', 0)
+                worst = attr.get('worst', 0)
+                thresh = attr.get('thresh', 0)
+                flags_raw = attr.get('flags', {})
+                flags = flags_raw.get('string', '') if isinstance(flags_raw, dict) else str(flags_raw)
+                raw = attr.get('raw', {})
+                raw_value = raw.get('value', 0) if isinstance(raw, dict) else raw
+
+                attributes.append({
+                    'id': attr_id,
+                    'name': name,
+                    'value': value,
+                    'worst': worst,
+                    'threshold': thresh,
+                    'raw': raw_value,
+                    'flags': flags,
+                })
+
+                if name == 'Temperature_Celsius' or attr_id == 194:
+                    temperature = int(raw_value) if raw_value else None
+                if name == 'Power_On_Hours' or attr_id == 9:
+                    power_on_hours = int(raw_value) if raw_value else None
+
+        # Если smartctl не дал атрибутов — проверяем NVRM
+        if not attributes and health == 'unknown':
+            health = 'unsupported'
+
+        # Пытаемся определить корзину (bay) из /sys
+        bay = self._detect_drive_bay(device_name)
+
+        # Обновляем статус по атрибутам
+        if health == 'ok':
+            health = self._evaluate_smart_health(attributes)
+
+        return {
+            'device': device_name,
+            'model': model_info,
+            'serial': serial,
+            'firmware': firmware,
+            'capacity': capacity,
+            'rotation_rate': rotation,
+            'interface': interface,
+            'sata_version': sata_ver,
+            'temperature': temperature,
+            'power_on_hours': power_on_hours,
+            'health': health,
+            'bay': bay,
+            'attributes': attributes,
+        }
+
+    def _evaluate_smart_health(self, attributes):
+        """Оценка состояния здоровья по критическим атрибутам SMART."""
+        critical_attrs = {
+            5: ('Reallocated_Sector_Ct', 10, 50),
+            197: ('Current_Pending_Sector', 1, 10),
+            198: ('Offline_Uncorrectable', 1, 10),
+        }
+        for attr in attributes:
+            aid = attr.get('id', 0)
+            if aid in critical_attrs:
+                raw = int(attr.get('raw', 0) or 0)
+                _, warn, crit = critical_attrs[aid]
+                if raw >= crit:
+                    return 'failed'
+                if raw >= warn:
+                    return 'warning'
+        return 'ok'
+
+    def _detect_drive_bay(self, device_name):
+        """Попытка определить номер корзины (bay) для данного диска."""
+        # Пробуем прочитать bay из /sys/block/*/enclosure_device/
+        base = os.path.basename(device_name)
+        sys_paths = [
+            f'/sys/block/{base}/device/enclosure_device',
+            f'/sys/class/block/{base}/device/enclosure_device',
+        ]
+        for path in sys_paths:
+            try:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        bay_str = f.read().strip()
+                        if bay_str.isdigit():
+                            return int(bay_str)
+            except (OSError, ValueError):
+                pass
+
+        # Пробуем lsblk для enclosure info
+        try:
+            result = subprocess.run(
+                ['lsblk', '-Jdno', 'NAME,SERIAL', device_name],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                data = json.loads(result.stdout)
+                for dev in data.get('blockdevices', []):
+                    # Если устройство в enclosur'е — попробуем определить по位置у
+                    pass
+        except Exception:
+            pass
+
+        return None
+
+    def send_smart(self, drives):
+        """Отправка S.M.A.R.T. данных на мастер-сервер."""
+        if not drives:
+            return True
+        resp = _request_with_retry(
+            "POST",
+            f"{self.master_url}/api/smart.php",
+            json={'drives': drives},
+            headers=self.headers,
+            verify=_get_verify(),
+        )
+        if resp and resp.status_code in (200, 201):
+            return True
+        _log(f"Failed to send SMART data: status={resp.status_code if resp else 'no response'}")
+        return False
+
     @staticmethod
     def _skip_virtual_iface(name: str) -> bool:
         return bool(re.match(
@@ -3133,6 +3350,14 @@ class MonitoringAgent:
             if ports:
                 _log(f"Sending {len(ports)} ports")
                 self.send_ports(ports)
+            
+            # S.M.A.R.T. данные дисков (раз в 5 циклов = ~5 минут)
+            if cycle % 5 == 0:
+                smart_drives = self.collect_smart()
+                if smart_drives:
+                    _log(f"Sending SMART data for {len(smart_drives)} drive(s)")
+                    if not self.send_smart(smart_drives):
+                        _log("Error: failed to send SMART data")
             
             # Собираем и отправляем сетевые интерфейсы (реже, раз в несколько циклов)
             if cycle % 5 == 0:

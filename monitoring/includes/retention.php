@@ -172,6 +172,7 @@ function retention_run(PDO $pdo, bool $applyRowCaps = true): array
     $result['deleted']['metrics'] = retention_delete_before($pdo, 'metrics', 'timestamp', $metricsCutoff, $batch);
     $result['deleted']['gpu_metrics'] = retention_delete_before($pdo, 'gpu_metrics', 'timestamp', $metricsCutoff, $batch);
     $result['deleted']['database_metrics'] = retention_delete_before($pdo, 'database_metrics', 'timestamp', $metricsCutoff, $batch);
+    $result['deleted']['smart_metrics'] = retention_delete_before($pdo, 'smart_metrics', 'timestamp', $metricsCutoff, $batch);
     $result['deleted']['update_history'] = retention_delete_before($pdo, 'update_history', 'timestamp', $updatesCutoff, $batch);
 
     $result['deleted']['alerts'] = 0;

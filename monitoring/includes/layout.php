@@ -30,6 +30,7 @@ $menuItems = [
             ['slug' => 'containers-network', 'label' => 'Сеть', 'href' => 'containers.php?tab=network', 'icon' => 'network'],
         ]
     ],
+    ['slug' => 'smart', 'label' => 'SMART', 'href' => 'smart.php', 'icon' => 'hard-drive'],
     ['slug' => 'logs', 'label' => 'Логи', 'href' => 'logs.php', 'icon' => 'file-text'],
     ['slug' => 'updates', 'label' => 'Обновления', 'href' => 'updates.php', 'icon' => 'package'],
 ];
@@ -107,6 +108,9 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                             </a>
                             <a class="hm-menu-item <?= $activeSlug === 'nodes' ? 'active' : '' ?>" href="nodes.php">
                                 <i data-lucide="server"></i><span>Сервера</span>
+                            </a>
+                            <a class="hm-menu-item <?= $activeSlug === 'smart' ? 'active' : '' ?>" href="smart.php">
+                                <i data-lucide="hard-drive"></i><span>SMART</span>
                             </a>
                             <a class="hm-menu-item <?= $activeSlug === 'logs' ? 'active' : '' ?>" href="logs.php">
                                 <i data-lucide="file-text"></i><span>Логи</span>
