@@ -918,10 +918,30 @@ class MonitoringAgent:
             if last.returncode == 0:
                 return last
             err = (last.stderr or last.stdout or '').lower()
-            if 'permission' in err or 'dubious' in err:
+            if 'permission' in err or 'insufficient' in err:
+                if self._try_fix_git_permissions(root):
+                    continue
+                break
+            if 'dubious' in err:
                 break
             time.sleep(1.5 * (attempt + 1))
         return last
+
+    def _try_fix_git_permissions(self, root: pathlib.Path) -> bool:
+        """Попытка починить права на .git через sudo chown (без пароля)."""
+        import getpass
+        user = getpass.getuser()
+        git_dir = str(root / '.git')
+        try:
+            proc = subprocess.run(
+                ['sudo', '-n', 'chown', '-R', f'{user}:{user}', git_dir],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+        return False
 
     def agent_version_info(self) -> dict:
         root = self.install_root()

@@ -104,8 +104,13 @@ if id "monitoring" &>/dev/null; then
     getent group systemd-journal >/dev/null && sudo usermod -aG systemd-journal monitoring || true
     SUDOERS_FILE="/etc/sudoers.d/monitoring-agent"
     if [[ ! -f "${SUDOERS_FILE}" ]]; then
-        echo "monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save" | sudo tee "${SUDOERS_FILE}" >/dev/null
+        printf 'monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/bin/chown -R monitoring:monitoring %s/.git\n' "${INSTALL_DIR}" | sudo tee "${SUDOERS_FILE}" >/dev/null
         sudo chmod 0440 "${SUDOERS_FILE}"
+    else
+        if ! grep -qF 'chown' "${SUDOERS_FILE}" 2>/dev/null; then
+            printf 'monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/bin/chown -R monitoring:monitoring %s/.git\n' "${INSTALL_DIR}" | sudo tee -a "${SUDOERS_FILE}" >/dev/null
+            sudo chmod 0440 "${SUDOERS_FILE}"
+        fi
     fi
     SERVICE_USER="monitoring"
 else

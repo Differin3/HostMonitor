@@ -23,6 +23,20 @@ fi
 
 echo "[fix_git_safe] root=${ROOT}"
 
+# Чиним владельца .git (insufficient permission for adding an object)
+# Агент通常 запускается от monitoring, а root может был запущен git pull вручную.
+if [[ "$(id -u)" -eq 0 ]]; then
+  SVC_USER="${SVC_USER:-}"
+  if [[ -z "$SVC_USER" ]] && systemctl is-enabled monitoring-agent &>/dev/null; then
+    SVC_USER=$(systemctl show monitoring-agent -p User --value 2>/dev/null || true)
+  fi
+  SVC_USER="${SVC_USER:-monitoring}"
+  if id "$SVC_USER" &>/dev/null; then
+    chown -R "${SVC_USER}:${SVC_USER}" "${ROOT}/.git"
+    echo "[fix_git_safe] .git owner → ${SVC_USER}"
+  fi
+fi
+
 run_git() {
   $SUDO git -c 'safe.directory=*' -c "safe.directory=${ROOT}" -C "${ROOT}" "$@"
 }

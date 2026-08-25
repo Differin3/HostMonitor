@@ -10,6 +10,11 @@ function getDbConnection(bool $reset = false) {
     }
 
     if ($pdo !== null) {
+        // Пере-синхронизация таймзоны: PHP-FPM переиспользует PDO между запросами,
+        // но render_layout_start() (страницы) и php.ini (API/AJAX) задают разные
+        // timezones. Без этого MySQL NOW() и PHP strtotime()/time() считают
+        // в разных поясах → age завышен → ноды уходят offline.
+        try { db_sync_timezone($pdo); } catch (Throwable $e) { /* ignore */ }
         return $pdo;
     }
 
