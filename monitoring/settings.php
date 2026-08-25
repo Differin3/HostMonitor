@@ -21,6 +21,7 @@ render_layout_start('Настройки', 'settings');
             <button class="tab-btn" type="button" data-tab="security">Безопасность</button>
             <button class="tab-btn" type="button" data-tab="api">API</button>
             <button class="tab-btn" type="button" data-tab="database">База данных</button>
+            <button class="tab-btn" type="button" data-tab="manage">Управление</button>
         </div>
 
         <div class="settings-content">
@@ -431,6 +432,60 @@ render_layout_start('Настройки', 'settings');
                     <pre class="ha-log hidden" id="db-ha-log"></pre>
                 </div>
             </div>
+
+            <div class="tab-content" id="manage-tab">
+                <div class="settings-section">
+                    <h3>Экспорт / импорт нод</h3>
+                    <p class="form-hint-text">
+                        Перенос списка нод между серверами. Экспорт сохраняет имя, адрес, токен и биллинг —
+                        при импорте на новом сервере агенты подхватят новый <code>MASTER_URL</code> без переустановки.
+                    </p>
+
+                    <div class="ha-actions ha-actions-primary" style="margin-bottom:24px">
+                        <button type="button" class="primary" id="nodes-export-btn">
+                            <i data-lucide="download"></i> Экспорт списка нод
+                        </button>
+                        <label class="btn-outline" style="cursor:pointer">
+                            <i data-lucide="upload"></i> Импорт нод
+                            <input type="file" id="nodes-import-file" accept=".json" style="display:none">
+                        </label>
+                    </div>
+
+                    <div id="nodes-import-preview" class="hidden">
+                        <h3>Предпросмотр импорта</h3>
+                        <div class="import-nodes-table-wrap">
+                            <table class="ha-table" id="nodes-import-table">
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" id="nodes-import-check-all" checked></th>
+                                        <th>Имя</th>
+                                        <th>Хост</th>
+                                        <th>Порт</th>
+                                        <th>Страна</th>
+                                        <th>Провайдер</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nodes-import-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div class="form-field" style="margin-top:16px">
+                            <label>
+                                <input type="radio" name="import-mode" value="skip" checked> Пропустить существующие (по имени)
+                            </label>
+                            <label style="margin-left:16px">
+                                <input type="radio" name="import-mode" value="overwrite"> Перезаписать существующие
+                            </label>
+                        </div>
+                        <div class="ha-actions" style="margin-top:16px">
+                            <button type="button" class="primary" id="nodes-import-apply" disabled>
+                                <i data-lucide="check"></i> Импортировать
+                            </button>
+                            <button type="button" class="btn-outline" id="nodes-import-cancel">Отмена</button>
+                        </div>
+                        <div id="nodes-import-result" class="hidden" style="margin-top:16px"></div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="settings-actions" id="settings-footer">
@@ -438,5 +493,151 @@ render_layout_start('Настройки', 'settings');
             <button type="button" class="primary" id="settings-save">Сохранить</button>
         </div>
     </div>
+<script>
+(function() {
+    const esc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+    let importData = null;
+    let importChecked = new Set();
+
+    /* ── Export ── */
+    document.getElementById('nodes-export-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('nodes-export-btn');
+        btn.disabled = true;
+        btn.textContent = 'Экспорт…';
+        try {
+            const resp = await fetch(MONITORING_API_BASE + '/nodes_export.php?download=1', {
+                credentials: 'same-origin'
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'nodes-export-' + new Date().toISOString().slice(0,10) + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('Ошибка экспорта: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="download"></i> Экспорт списка нод';
+            if (window.lucide) lucide.createIcons();
+        }
+    });
+
+    /* ── Import: file select ── */
+    document.getElementById('nodes-import-file')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            importData = JSON.parse(text);
+            if (!importData.nodes || !Array.isArray(importData.nodes) || importData.nodes.length === 0) {
+                alert('Файл не содержит нод для импорта');
+                importData = null;
+                return;
+            }
+            renderImportPreview(importData.nodes);
+        } catch (err) {
+            alert('Ошибка чтения файла: ' + err.message);
+            importData = null;
+        }
+        e.target.value = '';
+    });
+
+    /* ── Import: render preview ── */
+    function renderImportPreview(nodes) {
+        const preview = document.getElementById('nodes-import-preview');
+        const tbody = document.getElementById('nodes-import-tbody');
+        preview.classList.remove('hidden');
+        tbody.innerHTML = '';
+        importChecked = new Set();
+
+        nodes.forEach((n, i) => {
+            importChecked.add(i);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
+                <td>${esc(n.name || '')}</td>
+                <td>${esc(n.host || '')}</td>
+                <td>${esc(String(n.port || 22))}</td>
+                <td>${esc(n.country || '—')}</td>
+                <td>${esc(n.provider_name || '—')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('.import-check').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const idx = parseInt(cb.dataset.idx);
+                cb.checked ? importChecked.add(idx) : importChecked.delete(idx);
+                updateImportBtn();
+            });
+        });
+
+        document.getElementById('nodes-import-check-all')?.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            importChecked = checked ? new Set(nodes.map((_, i) => i)) : new Set();
+            tbody.querySelectorAll('.import-check').forEach(cb => cb.checked = checked);
+            updateImportBtn();
+        });
+
+        document.getElementById('nodes-import-result')?.classList.add('hidden');
+        updateImportBtn();
+    }
+
+    function updateImportBtn() {
+        const btn = document.getElementById('nodes-import-apply');
+        if (btn) btn.disabled = importChecked.size === 0;
+    }
+
+    /* ── Import: apply ── */
+    document.getElementById('nodes-import-apply')?.addEventListener('click', async () => {
+        if (!importData || importChecked.size === 0) return;
+        const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'skip';
+        const selected = importData.nodes.filter((_, i) => importChecked.has(i));
+
+        const btn = document.getElementById('nodes-import-apply');
+        btn.disabled = true;
+        btn.textContent = 'Импорт…';
+
+        try {
+            const resp = await fetch(MONITORING_API_BASE + '/nodes_export.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nodes: selected, mode })
+            });
+            const result = await resp.json();
+            const el = document.getElementById('nodes-import-result');
+            el.classList.remove('hidden');
+            if (resp.ok) {
+                el.innerHTML = '<div class="ha-result ha-result-ok">' + esc(result.message || 'OK') + '</div>';
+                if (result.errors && result.errors.length) {
+                    el.innerHTML += '<ul style="margin-top:8px;color:#f87171;font-size:13px">' +
+                        result.errors.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul>';
+                }
+            } else {
+                el.innerHTML = '<div class="ha-result ha-result-error">' + esc(result.error || 'Ошибка') + '</div>';
+            }
+        } catch (e) {
+            const el = document.getElementById('nodes-import-result');
+            el.classList.remove('hidden');
+            el.innerHTML = '<div class="ha-result ha-result-error">' + esc(e.message) + '</div>';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="check"></i> Импортировать';
+            if (window.lucide) lucide.createIcons();
+        }
+    });
+
+    /* ── Import: cancel ── */
+    document.getElementById('nodes-import-cancel')?.addEventListener('click', () => {
+        document.getElementById('nodes-import-preview')?.classList.add('hidden');
+        importData = null;
+        importChecked = new Set();
+    });
+})();
+</script>
 <?php
 render_layout_end(['/frontend/js/settings.js']);
