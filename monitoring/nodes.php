@@ -1,7 +1,10 @@
 <?php
 require_once __DIR__ . '/includes/layout.php';
 
-$actions = '<button class="primary" type="button" onclick="addNode()"><i data-lucide="plus"></i> Создать ноду</button>';
+$actions = '<button class="primary" type="button" onclick="addNode()"><i data-lucide="plus"></i> Создать ноду</button>'
+    . ' <button class="btn-outline" type="button" onclick="exportNodes()" title="Экспорт списка нод"><i data-lucide="download"></i> Экспорт</button>'
+    . ' <label class="btn-outline" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px" title="Импорт нод из JSON"><i data-lucide="upload"></i> Импорт'
+    . '<input type="file" id="nodes-import-file" accept=".json" style="display:none" onchange="importNodesFile(this)"></label>';
 render_layout_start('Ноды', 'nodes', $actions);
 ?>
     <div class="page-controls">
@@ -260,6 +263,43 @@ render_layout_start('Ноды', 'nodes', $actions);
     </div>
 
     <div class="toast hidden" id="toast"></div>
+
+    <!-- Модальное окно предпросмотра импорта -->
+    <div class="modal hidden" id="nodes-import-modal">
+        <div class="modal-dialog" style="max-width:700px">
+            <div class="modal-header">
+                <h2>Импорт нод</h2>
+                <button class="icon" onclick="closeImportModal()" type="button">&times;</button>
+            </div>
+            <div style="padding:0 24px 16px">
+                <p id="import-summary" style="margin:0 0 12px;color:var(--text-secondary);font-size:13px"></p>
+                <div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                    <table class="table" style="width:100%">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"><input type="checkbox" id="import-check-all" checked onchange="importToggleAll(this)"></th>
+                                <th>Имя</th>
+                                <th>Хост</th>
+                                <th>Порт</th>
+                                <th>Страна</th>
+                                <th>Провайдер</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-tbody"></tbody>
+                    </table>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:16px;align-items:center">
+                    <label style="font-size:13px"><input type="radio" name="import-mode" value="skip" checked> Пропустить существующие</label>
+                    <label style="font-size:13px"><input type="radio" name="import-mode" value="overwrite"> Перезаписать</label>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-outline" onclick="closeImportModal()">Отмена</button>
+                <button type="button" class="primary" id="import-apply-btn" onclick="applyImport()"><i data-lucide="upload"></i> Импортировать</button>
+            </div>
+            <div id="import-result" style="padding:0 24px 16px;display:none"></div>
+        </div>
+    </div>
 <?php
 render_layout_end(['/frontend/js/nodes.js']);
 

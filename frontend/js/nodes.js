@@ -1,6 +1,7 @@
 // JavaScript для управления нодами
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
+const esc = (value) => String(value ?? '');
 
 // Глобальные переменные
 let nodesState = [];
@@ -1086,3 +1087,137 @@ const initNodesPage = () => {
 };
 
 document.addEventListener('DOMContentLoaded', initNodesPage);
+
+/* ═══ ЭКСПОРТ / ИМПОРТ НОД ═══════════════════════════════════════ */
+
+let _importNodesData = null;
+
+function exportNodes() {
+    const btn = document.querySelector('[onclick="exportNodes()"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Экспорт…'; }
+    fetch(`${MONITORING_API_BASE}/nodes_export.php?download=1`, { credentials: 'same-origin' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+        .then(blob => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'nodes-export-' + new Date().toISOString().slice(0,10) + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Экспорт завершён', 'success');
+        })
+        .catch(e => showToast('Ошибка экспорта: ' + e.message, 'error'))
+        .finally(() => {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="download"></i> Экспорт'; if (window.lucide) lucide.createIcons(); }
+        });
+}
+
+function importNodesFile(input) {
+    const file = input && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (!data.nodes || !Array.isArray(data.nodes) || data.nodes.length === 0) {
+                showToast('Файл не содержит нод для импорта', 'error');
+                return;
+            }
+            _importNodesData = data;
+            renderImportPreview(data.nodes);
+        } catch (err) {
+            showToast('Ошибка чтения файла: ' + err.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    input.value = '';
+}
+
+function renderImportPreview(nodes) {
+    const modal = document.getElementById('nodes-import-modal');
+    const tbody = document.getElementById('import-tbody');
+    const summary = document.getElementById('import-summary');
+    const result = document.getElementById('import-result');
+
+    if (!modal || !tbody) return;
+
+    const existingNames = new Set((nodesState || []).map(n => n.name));
+    let newCount = 0, dupCount = 0;
+
+    tbody.innerHTML = '';
+    result.style.display = 'none';
+    result.innerHTML = '';
+
+    nodes.forEach((n, i) => {
+        const isDup = existingNames.has(n.name);
+        if (isDup) dupCount++; else newCount++;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="checkbox" class="import-row-check" data-idx="${i}" ${isDup ? '' : 'checked'}></td>
+            <td>${esc(n.name || '')}${isDup ? ' <span style="color:var(--text-muted);font-size:11px">(есть)</span>' : ''}</td>
+            <td>${esc(n.host || '')}</td>
+            <td>${esc(String(n.port || 22))}</td>
+            <td>${esc(n.country || '—')}</td>
+            <td>${esc(n.provider_name || '—')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    summary.textContent = `Найдено: ${nodes.length} нод (${newCount} новых, ${dupCount} существующих)`;
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function importToggleAll(cb) {
+    const checks = document.querySelectorAll('.import-row-check');
+    checks.forEach(c => c.checked = cb.checked);
+}
+
+function closeImportModal() {
+    const modal = document.getElementById('nodes-import-modal');
+    if (modal) modal.classList.add('hidden');
+    _importNodesData = null;
+}
+
+function applyImport() {
+    if (!_importNodesData) return;
+    const checks = document.querySelectorAll('.import-row-check:checked');
+    const selected = Array.from(checks).map(cb => _importNodesData.nodes[parseInt(cb.dataset.idx)]);
+    if (selected.length === 0) {
+        showToast('Выберите хотя бы одну ноду', 'error');
+        return;
+    }
+    const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'skip';
+    const btn = document.getElementById('import-apply-btn');
+    const result = document.getElementById('import-result');
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Импорт…'; }
+
+    fetch(`${MONITORING_API_BASE}/nodes_export.php`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes: selected, mode }),
+    })
+    .then(r => r.json().then(j => ({ ok: r.ok, data: j })))
+    .then(({ ok, data }) => {
+        result.style.display = 'block';
+        if (ok) {
+            result.innerHTML = `<div style="padding:8px 12px;background:rgba(34,197,94,.1);border-radius:6px;color:#22c55e;font-size:13px">${esc(data.message || 'OK')}</div>`;
+            if (data.errors && data.errors.length) {
+                result.innerHTML += '<ul style="margin-top:8px;color:#f87171;font-size:12px">' +
+                    data.errors.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul>';
+            }
+            loadNodes();
+        } else {
+            result.innerHTML = `<div style="padding:8px 12px;background:rgba(248,113,113,.1);border-radius:6px;color:#f87171;font-size:13px">${esc(data.error || 'Ошибка')}</div>`;
+        }
+    })
+    .catch(e => {
+        result.style.display = 'block';
+        result.innerHTML = `<div style="padding:8px 12px;background:rgba(248,113,113,.1);border-radius:6px;color:#f87171;font-size:13px">${esc(e.message)}</div>`;
+    })
+    .finally(() => {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="upload"></i> Импортировать'; if (window.lucide) lucide.createIcons(); }
+    });
+}
