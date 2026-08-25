@@ -160,6 +160,7 @@
             const bay = d.bay_number != null ? '#' + d.bay_number : '—';
             const isSelected = selectedDrive && selectedDrive.node_id === d.node_id && selectedDrive.device_name === d.device_name;
             const safeDevName = esc(d.device_name);
+            const jsDevName = JSON.stringify(d.device_name || '');
 
             return `<tr class="${isSelected ? 'smart-row-selected' : ''} ${(d.health_status || '').toLowerCase() === 'failed' ? 'smart-row-critical' : ''} ${(d.health_status || '').toLowerCase() === 'warning' ? 'smart-row-warning' : ''}"
                         data-node-id="${d.node_id}" data-device="${safeDevName}" onclick="window._smartSelectFromRow(this)">
@@ -173,7 +174,7 @@
                 <td>${hours}</td>
                 <td>${bay}</td>
                 <td>
-                    <button onclick="event.stopPropagation(); window._smartSelectDrive(${parseInt(d.node_id)||0}, '${safeDevName.replace(/'/g, "\\'")}')" class="btn-sm" title="Подробнее">
+                    <button onclick="event.stopPropagation(); window._smartSelectDrive(${parseInt(d.node_id)||0}, ${jsDevName})" class="btn-sm" title="Подробнее">
                         <i data-lucide="eye"></i>
                     </button>
                 </td>

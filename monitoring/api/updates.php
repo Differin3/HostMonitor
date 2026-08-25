@@ -316,10 +316,10 @@ try {
                             $errors[] = "Failed to insert package {$package}";
                         }
                     } catch (PDOException $e) {
-                        $errors[] = "Package {$package}: " . $e->getMessage();
+                        $errors[] = "Failed to save package {$package}";
                         error_log("Error saving update for node {$nodeId}, package {$package}: " . $e->getMessage());
                     } catch (Exception $e) {
-                        $errors[] = "Package {$package}: " . $e->getMessage();
+                        $errors[] = "Failed to save package {$package}";
                         error_log("Error saving update for node {$nodeId}, package {$package}: " . $e->getMessage());
                     }
                 }

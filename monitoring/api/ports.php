@@ -171,6 +171,19 @@ try {
                 exit;
             }
             
+            $port = (int)$port;
+            $proto = strtolower((string)$proto);
+            if ($port < 1 || $port > 65535) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid port. Must be 1-65535']);
+                exit;
+            }
+            if (!in_array($proto, ['tcp', 'udp'], true)) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid protocol. Use tcp or udp']);
+                exit;
+            }
+            
             // Получаем информацию о ноде
             $nodeStmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
             $nodeStmt->execute([$nodeId]);

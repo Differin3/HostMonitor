@@ -42,5 +42,6 @@ try {
     }
     json_error('Invalid action', 400);
 } catch (Throwable $e) {
-    json_exception($e, true);
+    error_log('panel_update.php error: ' . $e->getMessage());
+    json_error('Internal server error', 500);
 }

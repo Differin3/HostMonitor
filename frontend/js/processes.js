@@ -117,11 +117,12 @@ function renderProcesses(processes) {
     processes.sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0));
     
     tbody.innerHTML = processes.map(p => {
-        const escapedName = escapeHtml(p.name || '');
+        const displayName = escapeHtml(p.name || '');
+        const jsName = JSON.stringify(p.name || '');
         return `
         <tr>
             <td>${p.pid}</td>
-            <td><strong>${escapedName}</strong></td>
+            <td><strong>${displayName}</strong></td>
             <td>
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: ${Math.min(p.cpu_percent || 0, 100)}%; background: ${getCpuColor(p.cpu_percent || 0)};"></div>
@@ -136,7 +137,7 @@ function renderProcesses(processes) {
             </td>
             <td><span class="status ${p.status}">${p.status}</span></td>
             <td>
-                <button onclick="loadProcessLogsModal(${p.pid}, '${escapedName}', ${selectedNodeId})" class="btn-outline" title="Загрузить логи процесса">
+                <button onclick="loadProcessLogsModal(${p.pid}, ${jsName}, ${selectedNodeId})" class="btn-outline" title="Загрузить логи процесса">
                     <i data-lucide="file-text"></i>
                 </button>
                 <button onclick="killProcess(${p.pid}, ${selectedNodeId})" class="btn-danger" title="Завершить">

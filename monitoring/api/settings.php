@@ -73,5 +73,6 @@ try {
     error_log('settings.php error: ' . $e->getMessage());
     json_error('Invalid request', 400);
 } catch (Throwable $e) {
-    json_exception($e, true);
+    error_log('settings.php error: ' . $e->getMessage());
+    json_error('Internal server error', 500);
 }

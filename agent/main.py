@@ -7,6 +7,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import json  # JSON
 import subprocess  # внешние команды
 import os  # окружение
+import sys  # sys.exit
 import pathlib  # пути
 import shutil  # утилиты для проверки бинарей
 import re  # разбор SSH-логов
@@ -62,6 +63,7 @@ def load_node_conf(path: str = "node.conf") -> None:
             'NODE_TOKEN', 'MASTER_URL', 'NODE_NAME', 'COLLECT_INTERVAL',
             'HEALTH_PORT', 'TLS_VERIFY', 'TLS_CERT_PATH',
             'ALLOW_DANGEROUS_COMMANDS', 'SNMP_COMMUNITY', 'SMART_INTERVAL',
+            'MASTER_URL_INSECURE',
         }
         _BLOCKED_CONF_KEYS = {
             'LD_PRELOAD', 'LD_LIBRARY_PATH', 'PYTHONPATH', 'PYTHONSTARTUP',
@@ -159,10 +161,10 @@ def start_health_server(port: Optional[int] = None) -> None:
         port = int(os.getenv("HEALTH_PORT", "0"))
     if port <= 0:
         return
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    server = HTTPServer(("127.0.0.1", port), _HealthHandler)
 
     def _run():
-        _log(f"health-check server started on 0.0.0.0:{port}")
+        _log(f"health-check server started on 127.0.0.1:{port}")
         try:
             server.serve_forever()
         except Exception as e:
@@ -3582,8 +3584,13 @@ if __name__ == "__main__":
     health_port = int(os.getenv("HEALTH_PORT", "0"))
     
     if not master_url.startswith("https://"):
-        print(f"[agent] WARNING: MASTER_URL does not use HTTPS: {master_url}")
-        print("[agent] Agent tokens and data will be transmitted in cleartext. Use https:// for production.")
+        print(f"[agent] ERROR: MASTER_URL does not use HTTPS: {master_url}")
+        print("[agent] Agent tokens and data would be transmitted in cleartext.")
+        print("[agent] Set MASTER_URL to an https:// address, or add MASTER_URL_INSECURE=1 to node.conf to override.")
+        if os.getenv("MASTER_URL_INSECURE", "0") != "1":
+            print("[agent] Refusing to start without HTTPS. Add MASTER_URL_INSECURE=1 to node.conf to force start.")
+            sys.exit(1)
+        print("[agent] Continuing with insecure connection (MASTER_URL_INSECURE=1).")
     
     print(f"[agent] Configuration loaded:")
     print(f"  MASTER_URL: {master_url}")

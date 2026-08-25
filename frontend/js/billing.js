@@ -4,6 +4,7 @@ const API_URL = API_BASE;
 const API_NODES = `${API_BASE}/nodes.php`;
 const API_PROVIDERS = `${API_BASE}/providers.php`;
 const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const escHtmlAttr = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const API_PAYMENTS = `${API_BASE}/payments.php`;
 let selectedBillingNodes = new Set();
 let providersList = [];
@@ -123,11 +124,11 @@ function buildFaviconUrl(faviconUrl, providerUrl) {
 
 function getProviderIcon(faviconUrl, providerName, providerUrl) {
     const iconSrc = buildFaviconUrl(faviconUrl, providerUrl);
-    const fallbackLetter = providerName ? providerName.charAt(0).toUpperCase() : '?';
-    const safeProviderName = (providerName || '').replace(/"/g, '&quot;');
+    const fallbackLetter = providerName ? escHtmlAttr(providerName.charAt(0).toUpperCase()) : '?';
+    const safeProviderName = escHtmlAttr(providerName || '');
     
     if (iconSrc) {
-        return `<span class="provider-icon-wrapper"><img src="${iconSrc}" alt="${safeProviderName}" class="provider-favicon" loading="lazy" onerror="this.onerror=null; const wrapper=this.closest('.provider-icon-wrapper'); if(wrapper && !wrapper.querySelector('.provider-icon')){ wrapper.innerHTML='<div class=&quot;provider-icon&quot;>${fallbackLetter}</div>'; }"></span>`;
+        return `<span class="provider-icon-wrapper"><img src="${escHtmlAttr(iconSrc)}" alt="${safeProviderName}" class="provider-favicon" loading="lazy" onerror="this.onerror=null; const wrapper=this.closest('.provider-icon-wrapper'); if(wrapper && !wrapper.querySelector('.provider-icon')){ wrapper.innerHTML='<div class=&quot;provider-icon&quot;>${fallbackLetter}</div>'; }"></span>`;
     }
     if (providerName) {
         return `<div class="provider-icon">${fallbackLetter}</div>`;
@@ -765,7 +766,7 @@ function renderProviders(providers) {
         const servers = provider.servers && provider.servers.length > 0 
             ? provider.servers.map(n => {
                 const flag = getCountryFlag(n.country);
-                return `<span class="node-tag">${flag} ${n.name}</span>`;
+                return `<span class="node-tag">${flag} ${esc(n.name)}</span>`;
             }).join('')
             : '<span class="text-muted">Нет серверов</span>';
         
@@ -774,13 +775,13 @@ function renderProviders(providers) {
                 <td>
                     <div class="table-cell-with-icon">
                         ${getProviderIcon(provider.favicon_url, provider.name, provider.url)}
-                        <span>${provider.name}</span>
+                        <span>${esc(provider.name)}</span>
                     </div>
                 </td>
                 <td>
                     <div class="table-cell-with-icon">
                         <i data-lucide="link"></i>
-                        ${provider.url ? `<a href="${provider.url}" target="_blank" onclick="event.stopPropagation();">${provider.url}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '<span>-</span>'}
+                        ${provider.url ? `<a href="${escHtmlAttr(provider.url)}" target="_blank" onclick="event.stopPropagation();">${esc(provider.url)}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '<span>-</span>'}
                     </div>
                 </td>
                 <td>

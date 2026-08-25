@@ -129,7 +129,7 @@ const renderNodes = (nodesToRender = null) => {
         
         const safeUrl = (node.provider_url && /^https?:\/\//i.test(node.provider_url)) ? node.provider_url : '#';
         tr.innerHTML = `
-            <td><input type="checkbox" class="node-checkbox" value="${node.id}" onchange="updateSelection()"></td>
+            <td><input type="checkbox" class="node-checkbox" value="${parseInt(node.id)||0}" onchange="updateSelection()"></td>
             <td>${node.id ?? '-'}</td>
             <td>${esc(node.name ?? '-')}</td>
             <td>${esc(node.host ?? '-')}</td>
@@ -144,7 +144,7 @@ const renderNodes = (nodesToRender = null) => {
             </td>
             <td>${agentHtml}</td>
             <td>
-                <button class="icon-btn" type="button" onclick="editNodeById(${node.id})" title="Редактировать ноду">
+                <button class="icon-btn" type="button" onclick="editNodeById(${parseInt(node.id)||0})" title="Редактировать ноду">
                         <i data-lucide="edit"></i>
                     </button>
             </td>
