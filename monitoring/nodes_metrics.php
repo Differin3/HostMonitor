@@ -68,6 +68,7 @@ render_layout_start('Метрики нод', 'nodes-metrics');
                         <h3>Статус</h3>
                         <div class="stat-value" id="node-status">—</div>
                         <p class="stat-subtitle" id="node-net">сеть —</p>
+                        <p class="stat-subtitle" id="metrics-staleness" style="display:none; font-size:0.75rem; color:#94a3b8;"></p>
                     </div>
                 </div>
                 <div class="stat-card" id="metric-gpu" style="display:none;">

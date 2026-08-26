@@ -118,7 +118,7 @@ const nodeIsOnline = (node) => {
 const nodeHasTraffic = (node) => {
     if (!node || !nodeIsOnline(node)) return false;
     if (node.kind === 'wan' || node.kind === 'subnet' || node.id === 'wan') return false;
-    return (Number(node.network_in) || 0) + (Number(node.network_out) || 0) >= 8192;
+    return (Number(node.network_in) || 0) + (Number(node.network_out) || 0) >= 256;
 };
 
 const linkIsBusy = (link, a, b) => {
@@ -349,7 +349,7 @@ const renderSelected = (node) => {
             ${kvRow('Порты up', node.ports_up)}
             ${kvRow('Интерфейсы up', node.ifaces_up)}
             ${(Number(node.network_in) || Number(node.network_out))
-                ? kvRow('Трафик', `${formatBytes(node.network_in)} ↓ · ${formatBytes(node.network_out)} ↑`)
+                ? kvRow('Трафик', `${formatBytes(node.network_in)}/с ↓ · ${formatBytes(node.network_out)}/с ↑`)
                 : ''}
             ${(Number(node.bytes_received) || Number(node.bytes_sent))
                 ? kvRow('Счётчики', `${formatBytes(node.bytes_received)} RX · ${formatBytes(node.bytes_sent)} TX`)

@@ -101,7 +101,7 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
             <td class="meter-cell">${meter(cpu, 'cpu')}</td>
             <td class="meter-cell">${meter(ram, 'ram')}</td>
             <td class="meter-cell">${meter(disk, 'disk')}</td>
-            <td>${formatBytes(node.network_in || 0)} / ${formatBytes(node.network_out || 0)}</td>
+            <td>${formatBytes(node.network_in || 0)}/с / ${formatBytes(node.network_out || 0)}/с</td>
         `;
     });
     

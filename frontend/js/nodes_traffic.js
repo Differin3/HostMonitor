@@ -26,8 +26,8 @@ const loadTraffic = async (silent = false) => {
             totalUpload += parseFloat(node.network_out || 0);
         });
 
-        document.getElementById('total-download').textContent = formatBytes(totalDownload);
-        document.getElementById('total-upload').textContent = formatBytes(totalUpload);
+        document.getElementById('total-download').textContent = formatBytes(totalDownload) + '/с';
+        document.getElementById('total-upload').textContent = formatBytes(totalUpload) + '/с';
         document.getElementById('total-traffic').textContent = formatBytes(totalDownload + totalUpload);
         document.getElementById('active-nodes').textContent = nodes.filter((n) => n.status === 'online').length;
         renderTrafficTable(nodes, totalDownload + totalUpload);
@@ -58,8 +58,8 @@ const renderTrafficTable = (nodes, grandTotal) => {
         const share = Math.round((total / max) * 100);
         return `<tr>
             <td>${escapeHtml(node.name || '-')}</td>
-            <td>${formatBytes(download)}</td>
-            <td>${formatBytes(upload)}</td>
+            <td>${formatBytes(download)}/с</td>
+            <td>${formatBytes(upload)}/с</td>
             <td class="meter-cell">
                 <div class="traffic-split">
                     <span style="width:${max ? (download / max) * 100 : 0}%"></span>

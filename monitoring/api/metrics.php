@@ -183,6 +183,7 @@ function handlePost($pdo) {
     if (isset($data['metrics'])) {
         $metrics = $data['metrics'];
         $nodeName = $metrics['node_name'] ?? null;
+        $cycleId = $metrics['cycle_id'] ?? null;
         if (!$nodeId && $nodeName) {
             $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name = ?");
             $stmt->execute([$nodeName]);
@@ -198,6 +199,7 @@ function handlePost($pdo) {
     } else {
         $row = $data;
         $gpuInfo = $data['gpu'] ?? null;
+        $cycleId = $data['cycle_id'] ?? null;
     }
 
     if (!$nodeId) {
@@ -205,6 +207,20 @@ function handlePost($pdo) {
         http_response_code(400);
         echo json_encode(['error' => 'node_id is required. Check node_token or provide node_name in metrics.']);
         return;
+    }
+
+    // Idempotency: если cycle_id уже есть для этой ноды — пропускаем INSERT
+    if ($cycleId !== null) {
+        // Проверяем, есть ли уже свежая запись для этой ноды за последние 30 сек
+        // (агент отправляет раз в ~60 сек, поэтому 30 сек — безопасное окно для дубликатов)
+        $dupCheck = $pdo->prepare("SELECT 1 FROM metrics WHERE node_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 30 SECOND) LIMIT 1");
+        $dupCheck->execute([$nodeId]);
+        if ($dupCheck->fetch()) {
+            $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?")->execute([$nodeId]);
+            http_response_code(200);
+            echo json_encode(['message' => 'Duplicate skipped', 'cycle_id' => $cycleId]);
+            return;
+        }
     }
 
     $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");

@@ -29,6 +29,7 @@ except ImportError:
 def load_node_conf(path: str = "node.conf") -> None:
     # Загрузка node.conf (KEY=\"VAL\") в переменные окружения для Debian/Ubuntu
     # Пробуем несколько путей: рядом с main.py, в /opt/monitoring/, в /opt/monitoring/agent/, в текущей директории
+    # TrueNAS: также проверяем /mnt/pool/monitoring/ и другие ZFS dataset пути
     script_dir = pathlib.Path(__file__).parent.absolute()
     possible_paths = [
         script_dir / path,  # /opt/monitoring/agent/node.conf
@@ -36,6 +37,13 @@ def load_node_conf(path: str = "node.conf") -> None:
         pathlib.Path.cwd() / path,
         pathlib.Path("/opt/monitoring") / path,
         pathlib.Path(path),
+        # TrueNAS Core: ZFS dataset
+        pathlib.Path("/mnt/pool/monitoring/agent") / path,
+        pathlib.Path("/mnt/tank/monitoring/agent") / path,
+        # TrueNAS Scale: standard path (but also check /mnt)
+        pathlib.Path("/mnt/data/monitoring/agent") / path,
+        # FreeBSD common
+        pathlib.Path("/usr/local/etc/monitoring/agent") / path,
     ]
     
     cfg_path = None
@@ -182,14 +190,151 @@ class MonitoringAgent:
         # Храним предыдущие значения для расчета расхода трафика
         self.last_network_in = 0
         self.last_network_out = 0
+        self.last_collect_time = time.time()
         self.first_network_read = True
         self.upnp_devices = []
         self._upnp_lock = Lock()
         self._upnp_alive_at = 0.0
         self.lldp_cache = {}  # key -> neighbor info (passive + active)
+        # Буфер метрик для retry при transient ошибках
+        self._pending_metrics = None
+        self._pending_processes = None
+        self._cycle_counter = 0
+        # Pre-prime CPU: первый вызов cpu_percent() всегда возвращает 0.0
+        try:
+            psutil.cpu_percent(interval=None)
+        except Exception:
+            pass
         self._lldp_lock = Lock()
+        # Async GPU: кэш + фоновый поток
+        self._gpu_cache = []
+        self._gpu_lock = Lock()
+        self._gpu_thread = None
         self._log_cursors = self._load_log_cursors()
+        # Детекция платформы (TrueNAS, Proxmox, Synology, FreeBSD и т.д.)
+        self._platform = self._detect_platform()
+        _log(f"Platform: {self._platform['os_name']} ({self._platform['os_family']}) "
+             f"on {self._platform['arch']}, ZFS={'yes' if self._platform['has_zfs'] else 'no'} "
+             f"Docker={'yes' if self._platform['has_docker'] else 'no'}")
     
+    def _detect_platform(self) -> dict:
+        """Детекция ОС/платформы: TrueNAS, Proxmox, Synology, FreeBSD и т.д."""
+        import platform as _platform_mod
+
+        info = {
+            'os_name': 'unknown',
+            'os_family': 'unknown',
+            'os_version': '',
+            'arch': _platform_mod.machine() or 'unknown',
+            'kernel': _platform_mod.release() or '',
+            'has_zfs': False,
+            'has_docker': False,
+            'has_smartctl': False,
+            'is_truenas': False,
+            'is_proxmox': False,
+            'is_synology': False,
+            'is_freebsd': False,
+            'is_vm': False,
+        }
+
+        # Определяем ОС
+        try:
+            import distro as _distro_mod
+            info['os_name'] = _distro_mod.id() or 'unknown'
+            info['os_family'] = _distro_mod.like() or info['os_name']
+            info['os_version'] = _distro_mod.version() or ''
+        except ImportError:
+            # Fallback: читаем /etc/os-release
+            try:
+                with open('/etc/os-release') as f:
+                    for line in f:
+                        if line.startswith('ID='):
+                            info['os_name'] = line.split('=', 1)[1].strip().strip('"')
+                        elif line.startswith('ID_LIKE='):
+                            info['os_family'] = line.split('=', 1)[1].strip().strip('"')
+                        elif line.startswith('VERSION_ID='):
+                            info['os_version'] = line.split('=', 1)[1].strip().strip('"')
+            except OSError:
+                pass
+
+        # FreeBSD
+        if sys.platform.startswith('freebsd') or info['os_name'] == 'freebsd':
+            info['is_freebsd'] = True
+            info['os_family'] = 'freebsd'
+
+        # TrueNAS detection
+        if os.path.exists('/etc/truenas') or os.path.exists('/data/truenas-version'):
+            info['is_truenas'] = True
+        # TrueNAS Scale uses midclt, TrueNAS Core uses freenas-api
+        if os.path.exists('/usr/local/bin/midclt') or os.path.exists('/usr/sbin/midclt'):
+            info['is_truenas'] = True
+        # Check for TrueNAS via /etc/platform
+        try:
+            with open('/etc/platform', 'r') as f:
+                platform_str = f.read().strip().lower()
+                if 'truenas' in platform_str or 'freenas' in platform_str:
+                    info['is_truenas'] = True
+        except OSError:
+            pass
+
+        # Proxmox detection
+        if os.path.exists('/usr/bin/pveversion') or os.path.exists('/etc/pve'):
+            info['is_proxmox'] = True
+        try:
+            result = subprocess.run(['pveversion'], capture_output=True, text=True, timeout=3)
+            if result.returncode == 0 and 'pve-manager' in result.stdout:
+                info['is_proxmox'] = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Synology detection
+        if os.path.exists('/etc/synoinfo.conf'):
+            info['is_synology'] = True
+        if os.path.exists('/usr/syno/sbin/synouser'):
+            info['is_synology'] = True
+
+        # ZFS detection
+        try:
+            result = subprocess.run(['zpool', 'list', '-H', '-o', 'name'],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                info['has_zfs'] = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Docker detection
+        try:
+            result = subprocess.run(['docker', 'info', '--format', '{{.ServerVersion}}'],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                info['has_docker'] = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # smartctl detection
+        info['has_smartctl'] = shutil.which('smartctl') is not None
+
+        # VM detection (если гипервизор — это тоже "специализированная" система)
+        try:
+            with open('/sys/class/dmi/id/product_name', 'r') as f:
+                product = f.read().strip().lower()
+                if any(vm in product for vm in ('virtualbox', 'vmware', 'kvm', 'qemu', 'hyper-v', 'xen')):
+                    info['is_vm'] = True
+        except OSError:
+            pass
+        # Fallback: dmesg с VM
+        if not info['is_vm']:
+            try:
+                result = subprocess.run(['dmesg'], capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    dmesg = result.stdout.lower()
+                    if any(vm in dmesg for vm in ('vmware', 'virtualbox', 'kvm', 'hyperv', 'xen')):
+                        info['is_vm'] = True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        return info
+
     @staticmethod
     def _gpu_num(value, as_int=False):
         text = str(value).strip().replace('%', '')
@@ -257,6 +402,23 @@ class MonitoringAgent:
             _log(f"Error collecting AMD GPU info: {e}")
         return gpu_info
 
+    def _gpu_collector_loop(self):
+        """Фоновый поток: собирает GPU данные каждые 30с, не блокируя основной цикл."""
+        while True:
+            try:
+                gpu = self.collect_gpu_info()
+                with self._gpu_lock:
+                    self._gpu_cache = gpu
+            except Exception as e:
+                _log(f"GPU collector error: {e}")
+            time.sleep(30)
+
+    def _start_gpu_collector(self):
+        """Запуск фонового потока сбора GPU данных."""
+        self._gpu_thread = Thread(target=self._gpu_collector_loop, daemon=True)
+        self._gpu_thread.start()
+        _log("Async GPU collector started (30s interval)")
+
     def _physical_net_bytes(self):
         # Хостовой трафик: физические NIC. Если их счётчики нулевые (только bridge) — берём bridge без veth/lo.
         try:
@@ -285,10 +447,13 @@ class MonitoringAgent:
         skip_fs = {'tmpfs', 'devtmpfs', 'overlay', 'squashfs', 'aufs', 'ramfs', 'proc', 'sysfs', 'cgroup', 'cgroup2', 'iso9660'}
         skip_mp = ('/boot', '/dev', '/run', '/sys', '/proc', '/snap', '/var/lib/docker', '/var/lib/containers')
         best = None
+
+        # TrueNAS/FreeBSD: ZFS datasets — psutil уже видит их через statvfs
         try:
             parts = psutil.disk_partitions(all=False) or []
         except Exception:
             parts = []
+
         for part in parts:
             fstype = (part.fstype or '').lower()
             mount = part.mountpoint or ''
@@ -309,6 +474,46 @@ class MonitoringAgent:
                     'used': usage.used,
                     'mount': mount,
                 }
+
+        # TrueNAS/FreeBSD: если не нашли через psutil, пробуем zpool list
+        if not best and self._platform.get('has_zfs'):
+            try:
+                result = subprocess.run(
+                    ['zpool', 'list', '-Hp', '-o', 'name,alloc,capacity,size'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            pool_name = parts[0]
+                            # Пропускаем boot pool — он маленький
+                            if pool_name == 'boot-pool':
+                                continue
+                            try:
+                                alloc = int(parts[1])
+                                capacity_pct = int(parts[2])
+                                total = int(parts[3])
+                                # Находим mountpoint для pool
+                                mp_result = subprocess.run(
+                                    ['zpool', 'list', '-Hp', '-o', 'mountpoint', pool_name],
+                                    capture_output=True, text=True, timeout=3
+                                )
+                                mount = mp_result.stdout.strip() if mp_result.returncode == 0 else f'/{pool_name}'
+                                used = alloc
+                                percent = capacity_pct
+                                if total > 0 and (best is None or total > best['total']):
+                                    best = {
+                                        'percent': percent,
+                                        'total': total,
+                                        'used': used,
+                                        'mount': mount,
+                                    }
+                            except (ValueError, IndexError):
+                                continue
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
         if best:
             return best
         try:
@@ -318,27 +523,34 @@ class MonitoringAgent:
             return {'percent': 0, 'total': 0, 'used': 0, 'mount': '/'}
 
     def collect_metrics(self):
-        cpu_percent = psutil.cpu_percent(interval=1)
+        # Non-blocking: возвращает CPU% с момента последнего вызова (~60с средняя)
+        cpu_percent = psutil.cpu_percent(interval=None)
         memory = psutil.virtual_memory()
         swap = psutil.swap_memory()
         disk = self._disk_usage_main()
         bytes_recv, bytes_sent = self._physical_net_bytes()
-        gpu_info = self.collect_gpu_info()
+        # GPU: читаем из кэша (собирается в фоновом потоке, не блокирует цикл)
+        with self._gpu_lock:
+            gpu_info = list(self._gpu_cache) if self._gpu_cache else []
         load1 = 0.0
         try:
             load1 = float(psutil.getloadavg()[0])
         except (AttributeError, OSError, ValueError):
             pass
 
-        network_in_diff = 0
-        network_out_diff = 0
+        now = time.time()
+        elapsed = max(0.1, now - self.last_collect_time)
+        self.last_collect_time = now
+
+        network_in_sec = 0.0
+        network_out_sec = 0.0
         if self.first_network_read:
             self.last_network_in = bytes_recv
             self.last_network_out = bytes_sent
             self.first_network_read = False
         else:
-            network_in_diff = max(0, bytes_recv - self.last_network_in)
-            network_out_diff = max(0, bytes_sent - self.last_network_out)
+            network_in_sec = max(0, (bytes_recv - self.last_network_in)) / elapsed
+            network_out_sec = max(0, (bytes_sent - self.last_network_out)) / elapsed
             self.last_network_in = bytes_recv
             self.last_network_out = bytes_sent
 
@@ -356,10 +568,21 @@ class MonitoringAgent:
             "disk_total": disk['total'],
             "disk_used": disk['used'],
             "disk_mount": disk['mount'],
-            "network_in": network_in_diff,
-            "network_out": network_out_diff,
+            "network_in": round(network_in_sec, 2),
+            "network_out": round(network_out_sec, 2),
             "network_in_total": bytes_recv,
             "network_out_total": bytes_sent,
+            # Платформа
+            "os_name": self._platform.get('os_name', ''),
+            "os_family": self._platform.get('os_family', ''),
+            "os_version": self._platform.get('os_version', ''),
+            "arch": self._platform.get('arch', ''),
+            "kernel": self._platform.get('kernel', ''),
+            "is_truenas": self._platform.get('is_truenas', False),
+            "is_proxmox": self._platform.get('is_proxmox', False),
+            "is_synology": self._platform.get('is_synology', False),
+            "is_freebsd": self._platform.get('is_freebsd', False),
+            "has_zfs": self._platform.get('has_zfs', False),
         }
         try:
             if hasattr(psutil, "boot_time"):
@@ -403,10 +626,11 @@ class MonitoringAgent:
         return rows[: max(1, int(limit))]
     
     def send_data(self, metrics, processes):
-        # Отправка данных на главный сервер
+        # Отправка данных на главный сервер с буферизацией при ошибках
+        self._cycle_counter += 1
+        metrics["cycle_id"] = self._cycle_counter
         data = {"metrics": metrics, "processes": processes}
         _log(f"Sending metrics to {self.master_url}/api/metrics.php")
-        _log(f"Token present: {bool(self.node_token)}")
         resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/metrics.php",
@@ -417,6 +641,9 @@ class MonitoringAgent:
         )
         if not resp or resp.status_code not in (200, 201):
             _log(f"Failed to send metrics: status={resp.status_code if resp else 'no response'}")
+            # Буферизуем для повторной попытки в следующем цикле
+            self._pending_metrics = metrics
+            self._pending_processes = processes
             return False
         # Проверяем содержимое ответа на наличие ошибки
         try:
@@ -425,7 +652,9 @@ class MonitoringAgent:
                 error_msg = resp_data.get('error', 'Unknown error')
                 _log(f"Failed to send metrics: {error_msg} (status={resp.status_code})")
                 if 'Unauthorized' in error_msg:
-                    _log(f"Authorization failed. Check NODE_TOKEN in node.conf. Token length: {len(self.node_token) if self.node_token else 0}")
+                    _log("Authorization failed. Check NODE_TOKEN in node.conf.")
+                self._pending_metrics = metrics
+                self._pending_processes = processes
                 return False
         except Exception as e:
             _log(f"Error parsing response: {e}")
@@ -449,6 +678,9 @@ class MonitoringAgent:
         except Exception:
             pass
         _log(f"Processes sent successfully: status={proc_resp.status_code}")
+        # Успешно отправили — очищаем буфер
+        self._pending_metrics = None
+        self._pending_processes = None
         return True
     
     def check_commands(self, quiet=False):
@@ -1896,38 +2128,112 @@ class MonitoringAgent:
             print(f"Error collecting ports: {e}")
         return ports
 
+    def _smartctl_device_flags(self, device_name: str) -> list:
+        """Определяем флаги для smartctl в зависимости от типа контроллера/хоста.
+        ZFS-системы (TrueNAS, Proxmox) и RAID-контроллеры требуют специальных флагов."""
+        flags = []
+        dev = device_name.lower()
+
+        # TrueNAS/FreeBSD: SCSI/SAS диски
+        if self._platform.get('is_truenas') or self._platform.get('is_freebsd'):
+            if dev.startswith('/dev/da') or dev.startswith('/dev/ada'):
+                flags = ['-d', 'scsi']
+            elif dev.startswith('/dev/nvd') or dev.startswith('/dev/nvme'):
+                flags = ['-d', 'nvme']
+
+        # Proxmox: ZFS pool диски
+        if self._platform.get('is_proxmox') and self._platform.get('has_zfs'):
+            if dev.startswith('/dev/sd') or dev.startswith('/dev/scsi'):
+                flags = ['-d', 'scsi']
+            elif dev.startswith('/dev/nvme') or dev.startswith('/dev/nvd'):
+                flags = ['-d', 'nvme']
+
+        # Areca RAID controller (TrueNAS /.large storage)
+        if dev.startswith('/dev/areca') or 'areca' in dev:
+            flags = ['-d', 'areca,1']  # enclosure 1
+
+        # 3ware / tw_cli
+        if dev.startswith('/dev/tw') or dev.startswith('/dev/sd') and 'twa' in dev:
+            flags = ['-d', '3ware,0']
+
+        # MegaRAID / megaraid
+        if 'megaraid' in dev or dev.startswith('/dev/bus/mega'):
+            flags = ['-d', 'megaraid,0']
+
+        return flags
+
     def collect_smart(self):
-        """Сбор S.M.A.R.T. данных со всех дисков через smartctl."""
+        """Сбор S.M.A.R.T. данных со всех дисков через smartctl.
+        Поддерживает ZFS-системы (TrueNAS, Proxmox), RAID-контроллеры и FreeBSD."""
         drives = []
         try:
-            # Проверяем наличие smartctl
-            result = subprocess.run(['which', 'smartctl'], capture_output=True, text=True, timeout=3)
-            if result.returncode != 0:
+            if not self._platform.get('has_smartctl'):
                 return drives
 
-            # Сканируем устройства
+            # Сканируем устройства с fallback для разных контроллеров
+            devices = []
+
+            # 1. Стандартное сканирование (works for most Linux systems)
             scan = subprocess.run(
                 ['smartctl', '--scan', '-j'],
                 capture_output=True, text=True, timeout=10
             )
-            if scan.returncode != 0:
-                return drives
+            if scan.returncode == 0 and scan.stdout.strip():
+                scan_data = json.loads(scan.stdout)
+                devices = scan_data.get('smartctl', {}).get('devices', [])
 
-            scan_data = json.loads(scan.stdout) if scan.stdout.strip() else {}
-            devices = scan_data.get('smartctl', {}).get('devices', [])
+            # 2. Fallback: lsblk (Linux)
+            if not devices and not self._platform.get('is_freebsd'):
+                try:
+                    lsblk = subprocess.run(
+                        ['lsblk', '-Jdnpo', 'NAME,TYPE,SIZE,MODEL,SERIAL'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if lsblk.returncode == 0 and lsblk.stdout.strip():
+                        blk = json.loads(lsblk.stdout)
+                        for dev in blk.get('blockdevices', []):
+                            name = dev.get('name', '')
+                            if name and dev.get('type') == 'disk':
+                                devices.append({'name': name, 'info_name': name})
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
 
-            if not devices:
-                # Fallback: пробуем lsblk
-                lsblk = subprocess.run(
-                    ['lsblk', '-Jdnpo', 'NAME,TYPE,SIZE,MODEL,SERIAL'],
-                    capture_output=True, text=True, timeout=5
-                )
-                if lsblk.returncode == 0:
-                    blk = json.loads(lsblk.stdout) if lsblk.stdout.strip() else {}
-                    for dev in blk.get('blockdevices', []):
-                        name = dev.get('name', '')
-                        if name and dev.get('type') == 'disk':
-                            devices.append({'name': name, 'info_name': name})
+            # 3. FreeBSD: camcontrol + geom
+            if self._platform.get('is_freebsd') and not devices:
+                try:
+                    cam = subprocess.run(
+                        ['camcontrol', 'devlist', '-v'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if cam.returncode == 0:
+                        for line in cam.stdout.splitlines():
+                            # Format: <SEAGATE ST4000NM0023 0006>  at scbus0 target 0 lun 0 (pass0,da0)
+                            if '/dev/' in line:
+                                import re as _re
+                                m = _re.search(r'(/dev/\w+)', line)
+                                if m:
+                                    dev_path = m.group(1)
+                                    devices.append({'name': dev_path, 'info_name': dev_path})
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+
+            # 4. ZFS: пробуем устройства из zpool status
+            if not devices and self._platform.get('has_zfs'):
+                try:
+                    zpool = subprocess.run(
+                        ['zpool', 'status', '-P'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if zpool.returncode == 0:
+                        import re as _re
+                        for line in zpool.stdout.splitlines():
+                            m = _re.match(r'\s+(/dev/\S+)', line)
+                            if m:
+                                dev_path = m.group(1)
+                                if dev_path not in [d.get('name') for d in devices]:
+                                    devices.append({'name': dev_path, 'info_name': dev_path})
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
 
             for dev in devices:
                 device_name = dev.get('name') or dev.get('info_name') or ''
@@ -1949,14 +2255,30 @@ class MonitoringAgent:
         return drives
 
     def _collect_smart_drive(self, device_name):
-        """Сбор S.M.A.R.T. данных для одного диска."""
+        """Сбор S.M.A.R.T. данных для одного диска (с поддержкой разных контроллеров)."""
+        extra_flags = self._smartctl_device_flags(device_name)
+
         # Получаем информацию о диске
+        cmd_info = ['smartctl', '-i', '-j'] + extra_flags + [device_name]
         info_result = subprocess.run(
-            ['smartctl', '-i', '-j', device_name],
+            cmd_info,
             capture_output=True, text=True, timeout=10
         )
         if info_result.returncode != 0 and info_result.returncode != 64:
-            return None
+            # Fallback: пробуем другие флаги если первый не сработал
+            if not extra_flags:
+                return None
+            for fallback_flags in [['-d', 'scsi'], ['-d', 'nvme'], []]:
+                cmd_info = ['smartctl', '-i', '-j'] + fallback_flags + [device_name]
+                info_result = subprocess.run(
+                    cmd_info,
+                    capture_output=True, text=True, timeout=10
+                )
+                if info_result.returncode in (0, 64):
+                    extra_flags = fallback_flags
+                    break
+            else:
+                return None
 
         info = json.loads(info_result.stdout) if info_result.stdout.strip() else {}
         disk_info = info.get('smart_status', {})
@@ -1979,8 +2301,9 @@ class MonitoringAgent:
                 health = 'failed'
 
         # Получаем все SMART атрибуты
+        cmd_attr = ['smartctl', '-A', '-j'] + extra_flags + [device_name]
         attr_result = subprocess.run(
-            ['smartctl', '-A', '-j', device_name],
+            cmd_attr,
             capture_output=True, text=True, timeout=10
         )
 
@@ -2116,7 +2439,8 @@ class MonitoringAgent:
     @staticmethod
     def _skip_virtual_iface(name: str) -> bool:
         return bool(re.match(
-            r'^(lo(\d+)?$|docker|veth|br-|virbr|cni|flannel|calico|kube)',
+            r'^(lo(\d+)?$|docker|veth|br-|virbr|cni|flannel|calico|kube|'
+            r'epair|tun|tap|pflog|pfsync|lagg|bridge|fair-share|vtnet)',
             name or '',
             re.I,
         ))
@@ -2137,37 +2461,81 @@ class MonitoringAgent:
     def collect_default_gateways(self):
         gateways4 = {}
         gateways6 = {}
-        try:
-            with open('/proc/net/route', encoding='utf-8') as fh:
-                next(fh, None)
-                for line in fh:
-                    fields = line.split()
-                    if len(fields) < 3:
-                        continue
-                    iface, dest, gw_hex = fields[0], fields[1], fields[2]
-                    if dest != '00000000' or gw_hex == '00000000':
-                        continue
-                    try:
-                        gateways4[iface] = socket.inet_ntoa(struct.pack('<L', int(gw_hex, 16)))
-                    except (OSError, ValueError, struct.error):
-                        continue
-        except OSError:
-            pass
-        try:
-            with open('/proc/net/ipv6_route', encoding='utf-8') as fh:
-                for line in fh:
-                    fields = line.split()
-                    if len(fields) < 10:
-                        continue
-                    dest, dest_prefix, _src, _src_pfx, gw_hex, _metric, _ref, _use, _flags, iface = fields[:10]
-                    if dest != '0' * 32 or dest_prefix != '00' or gw_hex == '0' * 32:
-                        continue
-                    try:
-                        gateways6[iface] = socket.inet_ntop(socket.AF_INET6, bytes.fromhex(gw_hex))
-                    except (OSError, ValueError):
-                        continue
-        except OSError:
-            pass
+
+        # Linux: /proc/net/route
+        if not self._platform.get('is_freebsd'):
+            try:
+                with open('/proc/net/route', encoding='utf-8') as fh:
+                    next(fh, None)
+                    for line in fh:
+                        fields = line.split()
+                        if len(fields) < 3:
+                            continue
+                        iface, dest, gw_hex = fields[0], fields[1], fields[2]
+                        if dest != '00000000' or gw_hex == '00000000':
+                            continue
+                        try:
+                            gateways4[iface] = socket.inet_ntoa(struct.pack('<L', int(gw_hex, 16)))
+                        except (OSError, ValueError, struct.error):
+                            continue
+            except OSError:
+                pass
+            try:
+                with open('/proc/net/ipv6_route', encoding='utf-8') as fh:
+                    for line in fh:
+                        fields = line.split()
+                        if len(fields) < 10:
+                            continue
+                        dest, dest_prefix, _src, _src_pfx, gw_hex, _metric, _ref, _use, _flags, iface = fields[:10]
+                        if dest != '0' * 32 or dest_prefix != '00' or gw_hex == '0' * 32:
+                            continue
+                        try:
+                            gateways6[iface] = socket.inet_ntop(socket.AF_INET6, bytes.fromhex(gw_hex))
+                        except (OSError, ValueError):
+                            continue
+            except OSError:
+                pass
+
+        # FreeBSD: route get default
+        if self._platform.get('is_freebsd'):
+            try:
+                result = subprocess.run(
+                    ['route', '-n', 'get', 'default'],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if line.startswith('gateway:'):
+                            gw = line.split(':', 1)[1].strip()
+                            if gw and gw != 'link#0':
+                                gateways4['default'] = gw
+                        elif line.startswith('interface:'):
+                            iface = line.split(':', 1)[1].strip()
+                            if iface and 'default' in gateways4:
+                                gateways4[iface] = gateways4.pop('default')
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+            try:
+                result = subprocess.run(
+                    ['route', '-n', 'get', '-inet6', 'default'],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if line.startswith('gateway:'):
+                            gw = line.split(':', 1)[1].strip()
+                            if gw and gw != 'link#0':
+                                gateways6['default'] = gw
+                        elif line.startswith('interface:'):
+                            iface = line.split(':', 1)[1].strip()
+                            if iface and 'default' in gateways6:
+                                gateways6[iface] = gateways6.pop('default')
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
         return gateways4, gateways6
 
     def collect_neighbors(self):
@@ -2188,6 +2556,7 @@ class MonitoringAgent:
             seen.add(key)
             rows.append({'ip': ip, 'mac': mac, 'iface': iface, 'family': family})
 
+        # Linux: ip neigh
         try:
             result = subprocess.run(
                 ['ip', '-o', 'neigh', 'show'],
@@ -2210,6 +2579,7 @@ class MonitoringAgent:
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
+        # Linux fallback: /proc/net/arp
         if not rows:
             try:
                 with open('/proc/net/arp', encoding='utf-8') as fh:
@@ -2224,6 +2594,44 @@ class MonitoringAgent:
                         add_row(ip, mac, iface, 4)
             except OSError:
                 pass
+
+        # FreeBSD: arp -a
+        if self._platform.get('is_freebsd') and not rows:
+            try:
+                result = subprocess.run(
+                    ['arp', '-a', '-n'],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        # Format: ? (192.168.1.1) at 00:11:22:33:44:55 on em0 expires in 120 seconds [ethernet]
+                        import re as _re
+                        m = _re.search(r'\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([0-9a-f:]+)\s+on\s+(\S+)', line, _re.I)
+                        if m:
+                            ip, mac, iface = m.group(1), m.group(2), m.group(3)
+                            if mac not in ('(incomplete)', 'ff:ff:ff:ff:ff:ff'):
+                                add_row(ip, mac, iface, 4)
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        # FreeBSD: ndp -a (IPv6)
+        if self._platform.get('is_freebsd'):
+            try:
+                result = subprocess.run(
+                    ['ndp', '-a'],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        import re as _re
+                        m = _re.search(r'([0-9a-f:]+)\s+([\w.]+)\s+(\S+)', line, _re.I)
+                        if m:
+                            ipv6, mac, iface = m.group(1), m.group(2), m.group(3)
+                            if ':' in ipv6:
+                                add_row(ipv6, mac, iface, 6)
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
         return rows
 
     def collect_network_interfaces(self):
@@ -3442,6 +3850,9 @@ class MonitoringAgent:
         except Exception as e:
             _log(f"LLDP passive start failed: {e}")
         
+        # Запускаем фоновый сбор GPU данных (не блокирует основной цикл)
+        self._start_gpu_collector()
+        
         cycle = 0
         last_heartbeat = 0
         
@@ -3462,6 +3873,12 @@ class MonitoringAgent:
             if not self.run_pending_command(quiet=False):
                 if cycle % 10 == 0:
                     _log(f"No pending commands found (cycle {cycle})")
+            
+            # Повторная отправка буферизованных метрик при transient ошибках
+            if self._pending_metrics is not None:
+                _log("Retrying buffered metrics from previous failed cycle...")
+                if self.send_data(self._pending_metrics, self._pending_processes):
+                    _log("Buffered metrics sent successfully")
             
             # Собираем и отправляем метрики
             metrics = self.collect_metrics()
@@ -3542,7 +3959,8 @@ class MonitoringAgent:
             # Не sleep(60) целиком: иначе last_seen устаревает и панель мигает offline.
             # Будим каждые heartbeat_interval: heartbeat + проверка pending-команд
             # (иначе docker-logs / get-process-logs ждут до конца COLLECT_INTERVAL).
-            deadline = time.time() + collect_interval
+            # Overrun compensation: deadline считается от начала цикла, а не от его конца.
+            deadline = current_time + collect_interval
             while True:
                 now = time.time()
                 if now - last_heartbeat >= heartbeat_interval:

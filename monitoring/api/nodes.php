@@ -306,6 +306,7 @@ function handleGet($pdo) {
             $node['swap_percent'] = (float)($metrics['swap_percent'] ?? 0);
             $node['load_avg'] = (float)($metrics['load_avg'] ?? 0);
             $node['cpu_count'] = (int)($metrics['cpu_count'] ?? 0);
+            $node['metrics_timestamp'] = $metrics['timestamp'] ?? null;
         } else {
             $node['cpu_usage'] = 0;
             $node['memory_usage'] = 0;

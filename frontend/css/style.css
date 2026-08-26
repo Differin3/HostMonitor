@@ -595,6 +595,20 @@ body.light .user-menu:hover {
     color: var(--text-muted);
 }
 
+#metrics-staleness.fresh {
+    color: #22c55e;
+}
+
+#metrics-staleness.stale {
+    color: #f59e0b;
+    animation: pulse-stale 2s ease-in-out infinite;
+}
+
+@keyframes pulse-stale {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
 .stat-value {
     font-size: 20px;
     font-weight: 600;

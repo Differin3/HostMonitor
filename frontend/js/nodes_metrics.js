@@ -18,6 +18,39 @@ const toneForPct = (value) => {
     return 'ok';
 };
 
+function formatRelativeTime(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diffSec < 0) return null;
+    if (diffSec < 60) return `${diffSec}с назад`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}м назад`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}ч ${Math.floor((diffSec % 3600) / 60)}м назад`;
+    return `${Math.floor(diffSec / 86400)}д назад`;
+}
+
+function updateStalenessIndicator(metricsTimestamp, lastSeen) {
+    const el = document.getElementById('metrics-staleness');
+    if (!el) return;
+    const relTime = formatRelativeTime(metricsTimestamp || lastSeen);
+    if (!relTime) {
+        el.textContent = '';
+        el.style.display = 'none';
+        return;
+    }
+    const ageSec = metricsTimestamp ? Math.floor((Date.now() - new Date(metricsTimestamp).getTime()) / 1000) : 999;
+    el.textContent = `Обновлено: ${relTime}`;
+    el.style.display = '';
+    if (ageSec > 300) {
+        el.classList.add('stale');
+        el.classList.remove('fresh');
+    } else {
+        el.classList.add('fresh');
+        el.classList.remove('stale');
+    }
+}
+
 const setMeter = (id, value) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -306,7 +339,7 @@ const loadMetrics = async (nodeId) => {
         document.getElementById('avg-disk').textContent = disk.toFixed(1) + '%';
         document.getElementById('node-status').textContent = node.status || 'offline';
         document.getElementById('node-net').textContent =
-            `${formatBytes(node.network_in || 0)} ↓  ${formatBytes(node.network_out || 0)} ↑`;
+            `${formatBytes(node.network_in || 0)}/с ↓  ${formatBytes(node.network_out || 0)}/с ↑`;
         const cpuSub = document.getElementById('cpu-sub');
         if (cpuSub) {
             const load = Number(node.load_avg) || 0;
@@ -354,6 +387,7 @@ const loadMetrics = async (nodeId) => {
             gpuCard.style.display = 'none';
         }
         showMetricsData();
+        updateStalenessIndicator(node.metrics_timestamp, node.last_seen);
         if (typeof lucide !== 'undefined') lucide.createIcons();
         await loadChartHistory(nodeId);
     } catch (error) {
