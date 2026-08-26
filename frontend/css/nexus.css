@@ -2737,3 +2737,189 @@ select optgroup {
     color: #f87171;
 }
 
+/* ——— Widget configurator ——— */
+.gauge-body,
+.pie-body {
+    position: relative;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.gauge-body canvas,
+.pie-body canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+.gauge-value,
+.pie-center {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    pointer-events: none;
+}
+
+.bar-body {
+    height: 180px;
+}
+.bar-body canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.dash-config-btn {
+    display: none;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #9aa3b2;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+}
+.dash-config-btn i,
+.dash-config-btn svg {
+    width: 14px;
+    height: 14px;
+}
+.dash-config-btn:hover {
+    color: #fff;
+    background: rgba(59, 130, 246, 0.28);
+}
+.dashboard.is-editing .dash-config-btn {
+    display: inline-flex;
+}
+
+.dash-config-panel {
+    position: absolute;
+    top: 44px;
+    left: 8px;
+    right: 8px;
+    z-index: 20;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    background: rgba(10, 10, 12, 0.95);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dash-config-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.dash-config-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.dash-config-types {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.dash-config-type-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: all 0.15s;
+}
+.dash-config-type-btn i,
+.dash-config-type-btn svg {
+    width: 16px;
+    height: 16px;
+}
+.dash-config-type-btn.active,
+.dash-config-type-btn:hover {
+    background: rgba(59, 130, 246, 0.22);
+    border-color: rgba(96, 165, 250, 0.55);
+    color: #fff;
+}
+
+.dash-config-select,
+.dash-config-input {
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text-primary);
+    font: 500 12px Inter, sans-serif;
+}
+.dash-config-select:focus,
+.dash-config-input:focus {
+    border-color: rgba(96, 165, 250, 0.55);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.dash-config-colors {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.dash-config-color-btn {
+    width: 24px;
+    height: 24px;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.dash-config-color-btn.active,
+.dash-config-color-btn:hover {
+    border-color: #fff;
+    transform: scale(1.15);
+}
+
+.dash-config-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: 2px;
+}
+.dash-config-actions button {
+    height: 30px;
+    padding: 0 12px;
+    font-size: 12px;
+}
+.dash-config-reset {
+    margin-left: auto;
+    color: #f87171 !important;
+    border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.dash-config-reset:hover {
+    background: rgba(239, 68, 68, 0.18) !important;
+}
+
+.has-generic-config .chart-header {
+    margin-bottom: 8px;
+}
+.has-generic-config .chart-header h3 {
+    margin: 0;
+}
+

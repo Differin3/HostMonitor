@@ -1,7 +1,36 @@
 const API_BASE = window.MONITORING_API_BASE || '/api';
 const STORAGE_KEY = 'hm-dashboard-v2';
+const WIDGET_CONFIG_KEY = 'hm-widget-configs';
 const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400 };
 const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'сутки' };
+
+const WIDGET_TYPES = {
+    stat: { label: 'Число', icon: 'hash' },
+    'line-chart': { label: 'Линия', icon: 'trending-up' },
+    'bar-chart': { label: 'Столбцы', icon: 'bar-chart-2' },
+    'pie-chart': { label: 'Круг', icon: 'pie-chart' },
+    gauge: { label: 'Шкала', icon: 'gauge' },
+    table: { label: 'Таблица', icon: 'table-2' },
+};
+
+const METRIC_OPTIONS = {
+    cpu: { label: 'CPU %', icon: 'cpu', unit: '%', max: 100, color: '#60a5fa', summaryKey: 'cpu_avg' },
+    ram: { label: 'RAM %', icon: 'memory-stick', unit: '%', max: 100, color: '#34d399', summaryKey: 'ram_avg' },
+    disk: { label: 'Диск %', icon: 'hard-drive', unit: '%', max: 100, color: '#fbbf24', summaryKey: 'disk_avg' },
+    load: { label: 'Load Avg', icon: 'activity', unit: '', max: null, color: '#f472b6', summaryKey: 'load_avg' },
+    swap: { label: 'Swap %', icon: 'arrow-right-left', unit: '%', max: 100, color: '#fb923c', summaryKey: 'swap_avg' },
+    gpu: { label: 'GPU %', icon: 'monitor', unit: '%', max: 100, color: '#c084fc', summaryKey: 'gpu_avg' },
+    net_in: { label: 'Сеть ↓', icon: 'download', unit: '/s', max: null, color: '#38bdf8', summaryKey: 'network_in_avg', format: 'bytes' },
+    net_out: { label: 'Сеть ↑', icon: 'upload', unit: '/s', max: null, color: '#818cf8', summaryKey: 'network_out_avg', format: 'bytes' },
+    nodes: { label: 'Ноды', icon: 'server', unit: '', max: null, color: '#34d399', summaryKey: 'nodes_online' },
+    alerts: { label: 'Алерты', icon: 'bell', unit: '', max: null, color: '#fbbf24', summaryKey: 'alerts_count' },
+    containers: { label: 'Контейнеры', icon: 'box', unit: '', max: null, color: '#38bdf8', summaryKey: 'containers_running' },
+    databases: { label: 'Базы данных', icon: 'database', unit: '', max: null, color: '#a78bfa', summaryKey: 'databases_online' },
+    processes: { label: 'Процессы', icon: 'cpu', unit: '', max: null, color: '#818cf8', summaryKey: 'processes_active' },
+};
+
+const WIDGET_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#c084fc', '#38bdf8', '#818cf8', '#ef4444', '#22c55e'];
+
 const DEFAULT_LAYOUT = {
     order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'stat-load', 'stat-swap', 'stat-gpu', 'stat-net', 'chart-res', 'chart-net', 'chart-net-nodes', 'top-nodes', 'list-nodes', 'list-alerts'],
     hidden: ['stat-proc', 'stat-ct', 'stat-db'],
@@ -119,6 +148,34 @@ function saveLayout() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
 }
 
+let widgetConfigs = loadWidgetConfigs();
+let openConfigWidget = null;
+
+function loadWidgetConfigs() {
+    try {
+        const raw = localStorage.getItem(WIDGET_CONFIG_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+}
+
+function saveWidgetConfigs() {
+    localStorage.setItem(WIDGET_CONFIG_KEY, JSON.stringify(widgetConfigs));
+}
+
+function getMetricValue(metric, summary) {
+    if (!summary) return 0;
+    const m = METRIC_OPTIONS[metric];
+    if (!m) return 0;
+    return Number(summary[m.summaryKey]) || 0;
+}
+
+function formatMetricValue(metric, value) {
+    const m = METRIC_OPTIONS[metric];
+    if (!m) return String(value);
+    if (m.format === 'bytes') return formatBytes(value);
+    return `${Number(value).toFixed(1)}${m.unit}`;
+}
+
 function widgets() {
     return [...(elements.board?.querySelectorAll('[data-widget]') || [])];
 }
@@ -177,11 +234,315 @@ function resizeCharts() {
         resChart?.resize();
         netChart?.resize();
         netNodesChart?.resize();
+        Object.values(gaugeCharts).forEach((c) => c?.resize());
+        Object.values(pieCharts).forEach((c) => c?.resize());
+        Object.values(barCharts).forEach((c) => c?.resize());
+        Object.values(lineCharts).forEach((c) => c?.resize());
     });
+}
+
+const gaugeCharts = {};
+const pieCharts = {};
+const barCharts = {};
+const lineCharts = {};
+
+function renderGenericStat(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    const value = getMetricValue(config.metric, summary);
+    const pct = m.max ? Math.min(100, (value / m.max) * 100) : 0;
+    const tone = m.max ? toneForPct(pct) : (value > 0 ? 'ok' : 'warn');
+    el.innerHTML = `
+        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${config.color}cc, ${config.color}88);">
+            <i data-lucide="${m.icon || 'activity'}"></i>
+        </div>
+        <div class="stat-card-content">
+            <h3>${esc(config.title || m.label || config.metric)}</h3>
+            <div class="stat-value">${formatMetricValue(config.metric, value)}</div>
+            ${m.max ? `<div class="hm-meter" data-tone="${tone}"><span style="width:${pct}%"></span></div>` : ''}
+        </div>`;
+    el.dataset.tone = tone;
+    if (window.lucide) lucide.createIcons();
+}
+
+function renderGenericGauge(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    const value = getMetricValue(config.metric, summary);
+    const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
+    const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
+    el.innerHTML = `
+        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="gauge-body"><canvas id="gauge-${esc(el.dataset.widget)}"></canvas>
+            <div class="gauge-value">${formatMetricValue(config.metric, value)}</div>
+        </div>`;
+    const canvas = document.getElementById(`gauge-${el.dataset.widget}`);
+    if (!canvas || !window.Chart) return;
+    if (gaugeCharts[el.dataset.widget]) gaugeCharts[el.dataset.widget].destroy();
+    const remaining = Math.max(0, 100 - displayPct);
+    gaugeCharts[el.dataset.widget] = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [displayPct, remaining],
+                backgroundColor: [config.color, 'rgba(255,255,255,0.06)'],
+                borderWidth: 0,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '78%',
+            rotation: -90,
+            circumference: 180,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            animation: false,
+        },
+    });
+}
+
+function renderGenericPie(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    const value = getMetricValue(config.metric, summary);
+    const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
+    const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
+    el.innerHTML = `
+        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="pie-body"><canvas id="pie-${esc(el.dataset.widget)}"></canvas>
+            <div class="pie-center">${formatMetricValue(config.metric, value)}</div>
+        </div>`;
+    const canvas = document.getElementById(`pie-${el.dataset.widget}`);
+    if (!canvas || !window.Chart) return;
+    if (pieCharts[el.dataset.widget]) pieCharts[el.dataset.widget].destroy();
+    const remaining = Math.max(0, 100 - displayPct);
+    pieCharts[el.dataset.widget] = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [displayPct, remaining],
+                backgroundColor: [config.color, 'rgba(255,255,255,0.06)'],
+                borderWidth: 0,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            animation: false,
+        },
+    });
+}
+
+function renderGenericBar(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    const value = getMetricValue(config.metric, summary);
+    el.innerHTML = `
+        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="bar-body"><canvas id="bar-${esc(el.dataset.widget)}"></canvas></div>`;
+    const canvas = document.getElementById(`bar-${el.dataset.widget}`);
+    if (!canvas || !window.Chart) return;
+    if (barCharts[el.dataset.widget]) barCharts[el.dataset.widget].destroy();
+    barCharts[el.dataset.widget] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: [config.title || m.label || config.metric],
+            datasets: [{
+                data: [value],
+                backgroundColor: colorFill(config.color, 0.7),
+                borderColor: config.color,
+                borderWidth: 1,
+                borderRadius: 6,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, max: m.max || undefined, grid: { color: 'rgba(255,255,255,0.05)' } },
+                x: { grid: { display: false } },
+            },
+        },
+    });
+}
+
+function renderGenericLine(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    el.innerHTML = `
+        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="chart-body"><canvas id="line-${esc(el.dataset.widget)}"></canvas></div>`;
+    const canvas = document.getElementById(`line-${el.dataset.widget}`);
+    if (!canvas || !window.Chart) return;
+    if (lineCharts[el.dataset.widget]) lineCharts[el.dataset.widget].destroy();
+    lineCharts[el.dataset.widget] = new Chart(canvas, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: config.title || m.label, borderColor: config.color, backgroundColor: colorFill(config.color), fill: true, data: [], tension: 0.25 }] },
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { maxTicksLimit: 6 } },
+                y: { beginAtZero: true, max: m.max || undefined, ticks: { callback: m.format === 'bytes' ? (v) => formatBytes(v) : undefined } },
+            },
+        },
+    });
+}
+
+function renderGenericTable(el, config, summary) {
+    const m = METRIC_OPTIONS[config.metric] || {};
+    const nodes = lastAllNodes.length ? lastAllNodes : lastNodes;
+    const sorted = nodes.slice().sort((a, b) => {
+        const key = config.metric === 'cpu' ? 'cpu_usage' : (config.metric === 'ram' ? 'memory_usage' : 'disk_usage');
+        return (Number(b[key]) || 0) - (Number(a[key]) || 0);
+    });
+    el.innerHTML = `
+        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="table-container"><table><thead><tr><th>Нода</th><th>${esc(m.label || config.metric)}</th><th>Статус</th></tr></thead><tbody>${
+        sorted.length ? sorted.slice(0, 8).map((n) => {
+            const val = config.metric === 'cpu' ? n.cpu_usage : (config.metric === 'ram' ? n.memory_usage : n.disk_usage);
+            const pct = Number(val) || 0;
+            return `<tr><td>${esc(n.name || n.host || '—')}</td><td><span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(pct))}"><span style="width:${pct}%"></span></span> ${pct.toFixed(1)}%</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
+        }).join('') : '<tr><td colspan="3" class="text-center">Нет данных</td></tr>'
+    }</tbody></table></div>`;
+}
+
+const GENERIC_RENDERERS = {
+    stat: renderGenericStat,
+    gauge: renderGenericGauge,
+    'pie-chart': renderGenericPie,
+    'bar-chart': renderGenericBar,
+    'line-chart': renderGenericLine,
+    table: renderGenericTable,
+};
+
+function renderGenericWidget(el, config, summary) {
+    const renderer = GENERIC_RENDERERS[config.type];
+    if (!renderer) return;
+    el.classList.add('has-generic-config');
+    renderer(el, config, summary);
+}
+
+function updateGenericWidgets(summary) {
+    if (!summary) return;
+    Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
+        const el = document.querySelector(`[data-widget="${widgetId}"]`);
+        if (!el || el.classList.contains('is-hidden')) return;
+        renderGenericWidget(el, config, summary);
+    });
+}
+
+function updateGenericLineCharts(metrics) {
+    const points = asPoints(metrics);
+    if (!points.length) return;
+    const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
+    const labels = dates.map((d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+    Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
+        if (config.type !== 'line-chart' || !lineCharts[widgetId]) return;
+        const m = METRIC_OPTIONS[config.metric] || {};
+        const data = points.map((p) => {
+            if (config.metric === 'cpu') return p.cpu ?? 0;
+            if (config.metric === 'ram') return p.ram ?? p.memory ?? 0;
+            if (config.metric === 'disk') return p.disk ?? 0;
+            if (config.metric === 'net_in') return p.network_in ?? 0;
+            if (config.metric === 'net_out') return p.network_out ?? 0;
+            if (config.metric === 'load') return p.load_avg ?? p.load ?? 0;
+            if (config.metric === 'swap') return p.swap ?? 0;
+            if (config.metric === 'gpu') return p.gpu ?? 0;
+            return p[config.metric] ?? p[METRIC_OPTIONS[config.metric]?.summaryKey] ?? 0;
+        });
+        lineCharts[widgetId].data.labels = labels;
+        lineCharts[widgetId].data.datasets[0].data = data;
+        lineCharts[widgetId].update('none');
+    });
+}
+
+function openConfigPanel(widgetId) {
+    closeConfigPanel();
+    const el = document.querySelector(`[data-widget="${widgetId}"]`);
+    if (!el) return;
+    openConfigWidget = widgetId;
+    const existing = widgetConfigs[widgetId] || {};
+    const config = { type: existing.type || 'stat', metric: existing.metric || 'cpu', color: existing.color || '#60a5fa', title: existing.title || '' };
+    const panel = document.createElement('div');
+    panel.className = 'dash-config-panel';
+    panel.id = 'dash-config-panel';
+    panel.innerHTML = `
+        <div class="dash-config-section">
+            <label class="dash-config-label">Тип</label>
+            <div class="dash-config-types">${Object.entries(WIDGET_TYPES).map(([k, v]) =>
+                `<button type="button" class="dash-config-type-btn${config.type === k ? ' active' : ''}" data-type="${esc(k)}" title="${esc(v.label)}"><i data-lucide="${esc(v.icon)}"></i></button>`
+            ).join('')}</div>
+        </div>
+        <div class="dash-config-section">
+            <label class="dash-config-label">Метрика</label>
+            <select class="dash-config-select" id="dash-config-metric">${Object.entries(METRIC_OPTIONS).map(([k, v]) =>
+                `<option value="${esc(k)}"${config.metric === k ? ' selected' : ''}>${esc(v.label)}</option>`
+            ).join('')}</select>
+        </div>
+        <div class="dash-config-section">
+            <label class="dash-config-label">Цвет</label>
+            <div class="dash-config-colors">${WIDGET_COLORS.map((c) =>
+                `<button type="button" class="dash-config-color-btn${config.color === c ? ' active' : ''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`
+            ).join('')}</div>
+        </div>
+        <div class="dash-config-section">
+            <label class="dash-config-label">Заголовок</label>
+            <input type="text" class="dash-config-input" id="dash-config-title" value="${esc(config.title)}" placeholder="${esc((METRIC_OPTIONS[config.metric] || {}).label || config.metric)}">
+        </div>
+        <div class="dash-config-actions">
+            <button type="button" class="dash-config-apply primary" id="dash-config-apply">Применить</button>
+            <button type="button" class="btn-outline" id="dash-config-cancel">Отмена</button>
+            ${existing.type ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">Сбросить</button>' : ''}
+        </div>`;
+    el.appendChild(panel);
+    if (window.lucide) lucide.createIcons();
+    panel.addEventListener('click', (e) => {
+        const typeBtn = e.target.closest('.dash-config-type-btn');
+        if (typeBtn) {
+            panel.querySelectorAll('.dash-config-type-btn').forEach((b) => b.classList.remove('active'));
+            typeBtn.classList.add('active');
+            return;
+        }
+        const colorBtn = e.target.closest('.dash-config-color-btn');
+        if (colorBtn) {
+            panel.querySelectorAll('.dash-config-color-btn').forEach((b) => b.classList.remove('active'));
+            colorBtn.classList.add('active');
+            return;
+        }
+    });
+    document.getElementById('dash-config-apply')?.addEventListener('click', () => {
+        const type = panel.querySelector('.dash-config-type-btn.active')?.dataset.type || 'stat';
+        const metric = document.getElementById('dash-config-metric')?.value || 'cpu';
+        const color = panel.querySelector('.dash-config-color-btn.active')?.dataset.color || '#60a5fa';
+        const title = document.getElementById('dash-config-title')?.value || '';
+        widgetConfigs[widgetId] = { type, metric, color, title };
+        saveWidgetConfigs();
+        closeConfigPanel();
+        const summary = lastSummary;
+        const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
+        if (el2 && summary) renderGenericWidget(el2, widgetConfigs[widgetId], summary);
+        if (window.lucide) lucide.createIcons();
+    });
+    document.getElementById('dash-config-cancel')?.addEventListener('click', closeConfigPanel);
+    document.getElementById('dash-config-reset')?.addEventListener('click', () => {
+        delete widgetConfigs[widgetId];
+        saveWidgetConfigs();
+        closeConfigPanel();
+        applyLayout();
+        refreshAll();
+    });
+}
+
+function closeConfigPanel() {
+    const panel = document.getElementById('dash-config-panel');
+    if (panel) panel.remove();
+    openConfigWidget = null;
 }
 
 function setEditing(on) {
     editing = on;
+    if (!on) closeConfigPanel();
     elements.dashboard?.classList.toggle('is-editing', on);
     const editBtn = document.getElementById('dash-edit');
     const resetBtn = document.getElementById('dash-reset');
@@ -590,6 +951,7 @@ const applyOverviewPayload = (payload) => {
     const alertsData = payload.alerts ?? payload.alerts_list ?? [];
     lastAlerts = Array.isArray(alertsData) ? alertsData : [];
     renderList(elements.alertsList, lastAlerts.slice(0, 6), renderAlertItem, 'Алертов нет');
+    updateGenericWidgets(summary);
 };
 
 const refreshOverview = async () => {
@@ -611,6 +973,7 @@ const refreshCharts = async () => {
     const limit = layout.range === '24h' ? 160 : (layout.range === '6h' ? 120 : 80);
     const metrics = await fetchJson(`/metrics?from=${from}&limit=${limit}`).catch(() => null);
     if (metrics) updateCharts(metrics);
+    if (metrics) updateGenericLineCharts(metrics);
 };
 
 const refreshAll = async () => {
@@ -656,6 +1019,7 @@ function connectSse() {
             const payload = JSON.parse(e.data);
             if (payload?.range && payload.range !== layout.range) return;
             updateCharts(payload);
+            updateGenericLineCharts(payload);
         } catch (err) {
             console.warn('SSE charts parse error', err);
         }
@@ -715,6 +1079,10 @@ function bindBoard() {
     });
 
     elements.dashboard.addEventListener('click', (e) => {
+        const configPanel = e.target.closest('.dash-config-panel');
+        if (!configPanel && openConfigWidget && editing) {
+            closeConfigPanel();
+        }
         const topTab = e.target.closest('.top-tab');
         if (topTab) {
             e.preventDefault();
@@ -741,6 +1109,14 @@ function bindBoard() {
             if (!layout.hidden.includes(widget.dataset.widget)) layout.hidden.push(widget.dataset.widget);
             saveLayout();
             applyLayout();
+            return;
+        }
+        const configBtn = e.target.closest('[data-config]');
+        if (configBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const widget = configBtn.closest('[data-widget]');
+            if (widget) openConfigPanel(widget.dataset.widget);
             return;
         }
         const spanBtn = e.target.closest('.dash-span-btns button');
@@ -968,6 +1344,8 @@ function bindToolbar() {
     });
     document.getElementById('dash-reset')?.addEventListener('click', () => {
         layout = structuredClone(DEFAULT_LAYOUT);
+        widgetConfigs = {};
+        saveWidgetConfigs();
         saveLayout();
         applyLayout();
         refreshCharts();
@@ -979,9 +1357,18 @@ function bindToolbar() {
     });
 }
 
+function applyExistingWidgetConfigs() {
+    Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
+        const el = document.querySelector(`[data-widget="${widgetId}"]`);
+        if (!el) return;
+        if (lastSummary) renderGenericWidget(el, config, lastSummary);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (!elements.board) return;
     applyLayout();
+    applyExistingWidgetConfigs();
     bindBoard();
     bindToolbar();
     bindDetailModal();

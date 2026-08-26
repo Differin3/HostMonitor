@@ -18,6 +18,7 @@ $chrome = static function (): string {
                 <button type="button" data-span="6" title="Средний">M</button>
                 <button type="button" data-span="12" title="На всю ширину">L</button>
             </div>
+            <button type="button" class="dash-config-btn" data-config title="Настроить виджет"><i data-lucide="settings"></i></button>
             <button type="button" class="dash-hide" data-hide title="Скрыть"><i data-lucide="eye-off"></i></button>
         </div>
 HTML;
