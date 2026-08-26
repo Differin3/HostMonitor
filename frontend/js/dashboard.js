@@ -162,6 +162,21 @@ function saveWidgetConfigs() {
     localStorage.setItem(WIDGET_CONFIG_KEY, JSON.stringify(widgetConfigs));
 }
 
+const originalWidgetHtml = {};
+
+function widgetBarHtml() {
+    return `<div class="dash-widget-bar">
+        <span class="dash-grip" title="Перетащить"><i data-lucide="grip-vertical"></i></span>
+        <div class="dash-span-btns" role="group" aria-label="Ширина">
+            <button type="button" data-span="3" title="Узкий">S</button>
+            <button type="button" data-span="6" title="Средний">M</button>
+            <button type="button" data-span="12" title="На всю ширину">L</button>
+        </div>
+        <button type="button" class="dash-config-btn" data-config title="Настроить виджет"><i data-lucide="settings"></i></button>
+        <button type="button" class="dash-hide" data-hide title="Скрыть"><i data-lucide="eye-off"></i></button>
+    </div>`;
+}
+
 function getMetricValue(metric, summary) {
     if (!summary) return 0;
     const m = METRIC_OPTIONS[metric];
@@ -173,6 +188,7 @@ function formatMetricValue(metric, value) {
     const m = METRIC_OPTIONS[metric];
     if (!m) return String(value);
     if (m.format === 'bytes') return formatBytes(value);
+    if (m.max === null) return String(Math.round(Number(value) || 0));
     return `${Number(value).toFixed(1)}${m.unit}`;
 }
 
@@ -251,7 +267,7 @@ function renderGenericStat(el, config, summary) {
     const value = getMetricValue(config.metric, summary);
     const pct = m.max ? Math.min(100, (value / m.max) * 100) : 0;
     const tone = m.max ? toneForPct(pct) : (value > 0 ? 'ok' : 'warn');
-    el.innerHTML = `
+    el.innerHTML = widgetBarHtml() + `
         <div class="stat-card-icon" style="background: linear-gradient(180deg, ${config.color}cc, ${config.color}88);">
             <i data-lucide="${m.icon || 'activity'}"></i>
         </div>
@@ -269,7 +285,7 @@ function renderGenericGauge(el, config, summary) {
     const value = getMetricValue(config.metric, summary);
     const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
     const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
-    el.innerHTML = `
+    el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="gauge-body"><canvas id="gauge-${esc(el.dataset.widget)}"></canvas>
             <div class="gauge-value">${formatMetricValue(config.metric, value)}</div>
@@ -304,7 +320,7 @@ function renderGenericPie(el, config, summary) {
     const value = getMetricValue(config.metric, summary);
     const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
     const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
-    el.innerHTML = `
+    el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="pie-body"><canvas id="pie-${esc(el.dataset.widget)}"></canvas>
             <div class="pie-center">${formatMetricValue(config.metric, value)}</div>
@@ -335,7 +351,7 @@ function renderGenericPie(el, config, summary) {
 function renderGenericBar(el, config, summary) {
     const m = METRIC_OPTIONS[config.metric] || {};
     const value = getMetricValue(config.metric, summary);
-    el.innerHTML = `
+    el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="bar-body"><canvas id="bar-${esc(el.dataset.widget)}"></canvas></div>`;
     const canvas = document.getElementById(`bar-${el.dataset.widget}`);
@@ -368,7 +384,7 @@ function renderGenericBar(el, config, summary) {
 
 function renderGenericLine(el, config, summary) {
     const m = METRIC_OPTIONS[config.metric] || {};
-    el.innerHTML = `
+    el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="chart-body"><canvas id="line-${esc(el.dataset.widget)}"></canvas></div>`;
     const canvas = document.getElementById(`line-${el.dataset.widget}`);
@@ -392,17 +408,23 @@ function renderGenericLine(el, config, summary) {
 function renderGenericTable(el, config, summary) {
     const m = METRIC_OPTIONS[config.metric] || {};
     const nodes = lastAllNodes.length ? lastAllNodes : lastNodes;
-    const sorted = nodes.slice().sort((a, b) => {
-        const key = config.metric === 'cpu' ? 'cpu_usage' : (config.metric === 'ram' ? 'memory_usage' : 'disk_usage');
-        return (Number(b[key]) || 0) - (Number(a[key]) || 0);
-    });
-    el.innerHTML = `
+    const valKey = config.metric === 'cpu' ? 'cpu_usage'
+        : config.metric === 'ram' ? 'memory_usage'
+        : config.metric === 'disk' ? 'disk_usage'
+        : config.metric === 'net_in' ? 'network_in'
+        : config.metric === 'net_out' ? 'network_out'
+        : config.metric === 'swap' ? 'swap_percent'
+        : config.metric === 'load' ? 'load_avg'
+        : config.metric === 'gpu' ? 'gpu_usage'
+        : 'cpu_usage';
+    const sorted = nodes.slice().sort((a, b) => (Number(b[valKey]) || 0) - (Number(a[valKey]) || 0));
+    el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="table-container"><table><thead><tr><th>Нода</th><th>${esc(m.label || config.metric)}</th><th>Статус</th></tr></thead><tbody>${
         sorted.length ? sorted.slice(0, 8).map((n) => {
-            const val = config.metric === 'cpu' ? n.cpu_usage : (config.metric === 'ram' ? n.memory_usage : n.disk_usage);
-            const pct = Number(val) || 0;
-            return `<tr><td>${esc(n.name || n.host || '—')}</td><td><span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(pct))}"><span style="width:${pct}%"></span></span> ${pct.toFixed(1)}%</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
+            const val = Number(n[valKey]) || 0;
+            const isPercent = m.max === 100;
+            return `<tr><td>${esc(n.name || n.host || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${val}%"></span></span> ` : ''}${isPercent ? val.toFixed(1) + '%' : formatMetricValue(config.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
         }).join('') : '<tr><td colspan="3" class="text-center">Нет данных</td></tr>'
     }</tbody></table></div>`;
 }
@@ -419,6 +441,10 @@ const GENERIC_RENDERERS = {
 function renderGenericWidget(el, config, summary) {
     const renderer = GENERIC_RENDERERS[config.type];
     if (!renderer) return;
+    const id = el.dataset.widget;
+    if (!originalWidgetHtml[id] && !el.classList.contains('has-generic-config')) {
+        originalWidgetHtml[id] = el.innerHTML;
+    }
     el.classList.add('has-generic-config');
     renderer(el, config, summary);
 }
@@ -526,11 +552,16 @@ function openConfigPanel(widgetId) {
     });
     document.getElementById('dash-config-cancel')?.addEventListener('click', closeConfigPanel);
     document.getElementById('dash-config-reset')?.addEventListener('click', () => {
+        const el = document.querySelector(`[data-widget="${widgetId}"]`);
+        if (el && originalWidgetHtml[widgetId]) {
+            el.innerHTML = originalWidgetHtml[widgetId];
+            el.classList.remove('has-generic-config');
+            delete originalWidgetHtml[widgetId];
+            if (window.lucide) lucide.createIcons();
+        }
         delete widgetConfigs[widgetId];
         saveWidgetConfigs();
         closeConfigPanel();
-        applyLayout();
-        refreshAll();
     });
 }
 
@@ -1343,9 +1374,18 @@ function bindToolbar() {
         if (!editing) window.showToast?.('Раскладка сохранена', 'success');
     });
     document.getElementById('dash-reset')?.addEventListener('click', () => {
-        layout = structuredClone(DEFAULT_LAYOUT);
+        Object.keys(widgetConfigs).forEach((widgetId) => {
+            const el = document.querySelector(`[data-widget="${widgetId}"]`);
+            if (el && originalWidgetHtml[widgetId]) {
+                el.innerHTML = originalWidgetHtml[widgetId];
+                el.classList.remove('has-generic-config');
+                if (window.lucide) lucide.createIcons();
+            }
+        });
         widgetConfigs = {};
+        Object.keys(originalWidgetHtml).forEach((k) => delete originalWidgetHtml[k]);
         saveWidgetConfigs();
+        layout = structuredClone(DEFAULT_LAYOUT);
         saveLayout();
         applyLayout();
         refreshCharts();
