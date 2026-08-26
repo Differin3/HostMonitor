@@ -20,7 +20,13 @@ require_once __DIR__ . '/../includes/dashboard_snapshot.php';
 $pdo = getDbConnection();
 
 try {
-    echo json_encode(dashboard_summary($pdo));
+    $action = $_GET['action'] ?? '';
+    if ($action === 'network_per_node') {
+        $range = $_GET['range'] ?? '1h';
+        echo json_encode(dashboard_network_per_node($pdo, $range));
+    } else {
+        echo json_encode(dashboard_summary($pdo));
+    }
 } catch (Exception $e) {
     error_log('summary.php error: ' . $e->getMessage());
     http_response_code(500);

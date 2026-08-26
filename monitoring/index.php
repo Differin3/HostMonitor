@@ -126,6 +126,52 @@ HTML;
                     <p class="stat-subtitle" id="ct-sub">running</p>
                 </div>
             </article>
+            <article class="dash-widget stat-card" id="stat-load" data-widget="stat-load" data-span="3" data-title="Load Average">
+                <?= $chrome() ?>
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #f472b6, #db2777);">
+                    <i data-lucide="activity"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Load Avg</h3>
+                    <div class="stat-value" id="load-avg">0.00</div>
+                    <p class="stat-subtitle" id="load-sub">среднее</p>
+                </div>
+            </article>
+            <article class="dash-widget stat-card" id="stat-swap" data-widget="stat-swap" data-span="3" data-title="Swap">
+                <?= $chrome() ?>
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #fb923c, #ea580c);">
+                    <i data-lucide="arrow-right-left"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Swap</h3>
+                    <div class="stat-value" id="swap-avg">0%</div>
+                    <div class="hm-meter" id="swap-meter"><span></span></div>
+                    <p class="stat-subtitle" id="swap-sub">среднее</p>
+                </div>
+            </article>
+            <article class="dash-widget stat-card" id="stat-gpu" data-widget="stat-gpu" data-span="3" data-title="GPU">
+                <?= $chrome() ?>
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #c084fc, #9333ea);">
+                    <i data-lucide="monitor"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>GPU</h3>
+                    <div class="stat-value" id="gpu-avg">0%</div>
+                    <div class="hm-meter" id="gpu-meter"><span></span></div>
+                    <p class="stat-subtitle" id="gpu-sub">нет данных</p>
+                </div>
+            </article>
+            <article class="dash-widget stat-card" id="stat-net" data-widget="stat-net" data-span="3" data-title="Сеть">
+                <?= $chrome() ?>
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);">
+                    <i data-lucide="wifi"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Сеть</h3>
+                    <div class="stat-value" id="net-total">0</div>
+                    <p class="stat-subtitle" id="net-sub">вход · выход</p>
+                </div>
+            </article>
 
             <article class="dash-widget chart-card" data-widget="chart-res" data-span="6" data-title="Ресурсы">
                 <?= $chrome() ?>
@@ -145,6 +191,30 @@ HTML;
                 </div>
                 <div class="chart-body">
                     <canvas id="net-chart"></canvas>
+                </div>
+            </article>
+            <article class="dash-widget chart-card" data-widget="chart-net-nodes" data-span="6" data-title="Сеть по нодам">
+                <?= $chrome() ?>
+                <div class="chart-header">
+                    <h3>Сеть по нодам</h3>
+                    <span class="chart-range" data-range-label data-base="вход по нодам">вход по нодам</span>
+                </div>
+                <div class="chart-body">
+                    <canvas id="net-nodes-chart"></canvas>
+                </div>
+            </article>
+            <article class="dash-widget card" data-widget="top-nodes" data-span="6" data-title="Топ нод">
+                <?= $chrome() ?>
+                <div class="card-header">
+                    <h3>Топ ноды</h3>
+                    <div class="top-nodes-tabs" id="top-nodes-tabs">
+                        <button type="button" class="top-tab active" data-sort="cpu">CPU</button>
+                        <button type="button" class="top-tab" data-sort="ram">RAM</button>
+                        <button type="button" class="top-tab" data-sort="disk">Диск</button>
+                    </div>
+                </div>
+                <div class="top-nodes-body" id="top-nodes-body">
+                    <div class="list-empty">Нет данных</div>
                 </div>
             </article>
 

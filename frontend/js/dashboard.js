@@ -3,12 +3,14 @@ const STORAGE_KEY = 'hm-dashboard-v2';
 const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400 };
 const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'сутки' };
 const DEFAULT_LAYOUT = {
-    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'chart-res', 'chart-net', 'list-nodes', 'list-alerts'],
+    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'stat-load', 'stat-swap', 'stat-gpu', 'stat-net', 'chart-res', 'chart-net', 'chart-net-nodes', 'top-nodes', 'list-nodes', 'list-alerts'],
     hidden: ['stat-proc', 'stat-ct', 'stat-db'],
     spans: {
         'stat-nodes': 3, 'stat-alerts': 3, 'stat-cpu': 3, 'stat-ram': 3,
-        'stat-disk': 3, 'stat-proc': 3, 'stat-ct': 3, 'stat-db': 3,
-        'chart-res': 6, 'chart-net': 6, 'list-nodes': 6, 'list-alerts': 6,
+        'stat-disk': 3, 'stat-load': 3, 'stat-swap': 3, 'stat-gpu': 3, 'stat-net': 3,
+        'stat-proc': 3, 'stat-ct': 3, 'stat-db': 3,
+        'chart-res': 6, 'chart-net': 6, 'chart-net-nodes': 6, 'top-nodes': 6,
+        'list-nodes': 6, 'list-alerts': 6,
     },
     range: '1h',
 };
@@ -29,12 +31,20 @@ const elements = {
     ctCount: document.getElementById('ct-count'),
     dbCount: document.getElementById('db-count'),
     dbTotal: document.getElementById('db-total'),
+    loadAvg: document.getElementById('load-avg'),
+    swapAvg: document.getElementById('swap-avg'),
+    swapMeter: document.getElementById('swap-meter'),
+    gpuAvg: document.getElementById('gpu-avg'),
+    gpuMeter: document.getElementById('gpu-meter'),
+    netTotal: document.getElementById('net-total'),
     nodesList: document.getElementById('nodes-list'),
     alertsList: document.getElementById('alerts-list'),
+    topNodesBody: document.getElementById('top-nodes-body'),
 };
 
 let resChart = null;
 let netChart = null;
+let netNodesChart = null;
 let detailChart = null;
 let layout = loadLayout();
 let editing = false;
@@ -166,6 +176,7 @@ function resizeCharts() {
     requestAnimationFrame(() => {
         resChart?.resize();
         netChart?.resize();
+        netNodesChart?.resize();
     });
 }
 
@@ -231,6 +242,14 @@ const updateStats = (summary) => {
     const ct = summary.containers_running ?? 0;
     const dbOnline = summary.databases_online ?? 0;
     const dbTotal = summary.databases_total ?? 0;
+    const loadAvg = summary.load_avg ?? 0;
+    const swapAvg = summary.swap_avg ?? 0;
+    const swapMax = summary.swap_max ?? swapAvg;
+    const gpuAvg = summary.gpu_avg ?? 0;
+    const gpuMax = summary.gpu_max ?? gpuAvg;
+    const gpuCount = summary.gpu_count ?? 0;
+    const netIn = summary.network_in_avg ?? 0;
+    const netOut = summary.network_out_avg ?? 0;
 
     setText(elements.nodesCount, online);
     setText(elements.nodesTotal, total);
@@ -242,9 +261,15 @@ const updateStats = (summary) => {
     setText(elements.ctCount, ct);
     setText(elements.dbCount, dbOnline);
     setText(elements.dbTotal, dbTotal);
+    setText(elements.loadAvg, loadAvg.toFixed(2));
+    setText(elements.swapAvg, `${swapAvg}%`);
+    setText(elements.gpuAvg, gpuCount > 0 ? `${gpuAvg}%` : '—');
+    if (elements.netTotal) elements.netTotal.textContent = `${formatBytes(netIn)}/s ↓ ${formatBytes(netOut)}/s ↑`;
     setMeter(elements.cpuMeter, cpu);
     setMeter(elements.ramMeter, ram);
     setMeter(elements.diskMeter, disk);
+    setMeter(elements.swapMeter, swapMax);
+    setMeter(elements.gpuMeter, gpuCount > 0 ? gpuMax : 0);
 
     const nodesSub = document.getElementById('nodes-sub');
     const alertsSub = document.getElementById('alerts-sub');
@@ -254,6 +279,10 @@ const updateStats = (summary) => {
     const procSub = document.getElementById('proc-sub');
     const ctSub = document.getElementById('ct-sub');
     const dbSub = document.getElementById('db-sub');
+    const loadSub = document.getElementById('load-sub');
+    const swapSub = document.getElementById('swap-sub');
+    const gpuSub = document.getElementById('gpu-sub');
+    const netSub = document.getElementById('net-sub');
 
     if (nodesSub) {
         nodesSub.innerHTML = offline > 0
@@ -284,6 +313,10 @@ const updateStats = (summary) => {
             ? 'не настроены'
             : `онлайн из <span id="db-total">${esc(dbTotal)}</span>`;
     }
+    if (loadSub) loadSub.textContent = `макс ${(summary.cpu_max_load ?? loadAvg).toFixed(2)}`;
+    if (swapSub) swapSub.textContent = swapMax > 0 ? `макс ${swapMax}%` : 'не используется';
+    if (gpuSub) gpuSub.textContent = gpuCount > 0 ? `${gpuCount} GPU · макс ${gpuMax}%` : 'не обнаружены';
+    if (netSub) netSub.textContent = `↓${formatBytes(netIn)}/s ↑${formatBytes(netOut)}/s`;
 
     setTone('stat-nodes', online === 0 && total > 0 ? 'bad' : (online < total ? 'warn' : 'ok'));
     setTone('stat-alerts', alerts === 0 ? 'ok' : (alerts >= 5 || alertsCrit > 0 ? 'bad' : 'warn'));
@@ -293,6 +326,10 @@ const updateStats = (summary) => {
     setTone('stat-proc', proc > 0 ? 'ok' : 'warn');
     setTone('stat-ct', 'ok');
     setTone('stat-db', dbTotal === 0 ? 'warn' : (dbOnline < dbTotal ? 'bad' : 'ok'));
+    setTone('stat-load', toneForPct(loadAvg * 25));
+    setTone('stat-swap', toneForPct(swapMax));
+    setTone('stat-gpu', gpuCount > 0 ? toneForPct(gpuMax) : 'ok');
+    setTone('stat-net', 'ok');
 };
 
 const meterHtml = (value, kind) => {
@@ -347,6 +384,83 @@ const renderList = (container, items, renderer, emptyText) => {
     items.forEach((item) => container.appendChild(renderer(item)));
 };
 
+let topNodesSort = 'cpu';
+const renderTopNodes = (nodes) => {
+    if (!elements.topNodesBody || !nodes || !nodes.length) return;
+    const sorted = nodes.slice().filter((n) => n.status === 'online');
+    if (!sorted.length) {
+        elements.topNodesBody.innerHTML = '<div class="list-empty">Нет онлайн нод</div>';
+        return;
+    }
+    const key = topNodesSort === 'cpu' ? 'cpu_usage' : (topNodesSort === 'ram' ? 'memory_usage' : 'disk_usage');
+    sorted.sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0));
+    const top5 = sorted.slice(0, 5);
+    elements.topNodesBody.innerHTML = top5.map((n) => {
+        const val = Number(n[key]) || 0;
+        const tone = toneForPct(val);
+        return `<div class="top-node-row" data-href="nodes.php">
+            <div class="top-node-info">
+                <span class="top-node-name">${esc(n.name || n.host || '—')}</span>
+                <span class="top-node-val">${val.toFixed(1)}%</span>
+            </div>
+            <div class="hm-meter hm-meter-${esc(topNodesSort)}" data-tone="${esc(tone)}"><span style="width:${val}%"></span></div>
+        </div>`;
+    }).join('');
+};
+
+let lastAllNodes = [];
+const initNetNodesChart = () => {
+    if (!window.Chart) return;
+    const ctx = document.getElementById('net-nodes-chart');
+    if (!ctx) return;
+    netNodesChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: true, position: 'bottom' } },
+            scales: {
+                x: { ticks: { maxTicksLimit: 6 } },
+                y: { beginAtZero: true, ticks: { callback: (v) => formatBytes(v) } },
+            },
+        },
+    });
+};
+
+const refreshNetNodesChart = async () => {
+    if (!netNodesChart) return;
+    const seconds = RANGE_SECONDS[layout.range] || 3600;
+    const from = Math.floor(Date.now() / 1000) - seconds;
+    const limit = layout.range === '24h' ? 160 : (layout.range === '6h' ? 120 : 80);
+    const data = await fetchJson(`/api/summary.php?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
+    if (!data || !data.labels || !data.nodes) return;
+
+    const nodeIds = Object.keys(data.nodes);
+    const nodeColors = ['#38bdf8', '#818cf8', '#f472b6', '#34d399', '#fbbf24', '#fb923c', '#a78bfa', '#38bdf8'];
+    const labels = data.labels.map((ts) => {
+        const d = new Date(ts);
+        if (!d || Number.isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    });
+    const datasets = nodeIds.map((nid, i) => {
+        const name = data.nodes[nid] || `Node ${nid}`;
+        const series = data.series[nid] || {};
+        return {
+            label: name,
+            borderColor: nodeColors[i % nodeColors.length],
+            backgroundColor: colorFill(nodeColors[i % nodeColors.length]),
+            fill: true,
+            data: data.labels.map((ts) => (series[ts]?.net_in ?? 0)),
+        };
+    });
+    netNodesChart.data.labels = labels;
+    netNodesChart.data.datasets = datasets;
+    netNodesChart.update('none');
+};
+
 const colorFill = (hex, a = 0.14) => {
     const n = hex.replace('#', '');
     const r = parseInt(n.slice(0, 2), 16);
@@ -359,6 +473,7 @@ const initCharts = () => {
     if (!window.Chart) return;
     const resCtx = document.getElementById('res-chart');
     const netCtx = document.getElementById('net-chart');
+    initNetNodesChart();
     const common = {
         responsive: true,
         maintainAspectRatio: false,
@@ -469,6 +584,8 @@ const applyOverviewPayload = (payload) => {
     });
     lastNodes = list;
     renderList(elements.nodesList, list.slice(0, 6), renderNodeItem, 'Нет данных о нодах');
+    renderTopNodes(list);
+    lastAllNodes = list;
 
     const alertsData = payload.alerts ?? payload.alerts_list ?? [];
     lastAlerts = Array.isArray(alertsData) ? alertsData : [];
@@ -497,7 +614,7 @@ const refreshCharts = async () => {
 };
 
 const refreshAll = async () => {
-    await Promise.all([refreshOverview(), refreshCharts()]);
+    await Promise.all([refreshOverview(), refreshCharts(), refreshNetNodesChart()]);
 };
 
 function stopPolling() {
@@ -598,6 +715,15 @@ function bindBoard() {
     });
 
     elements.dashboard.addEventListener('click', (e) => {
+        const topTab = e.target.closest('.top-tab');
+        if (topTab) {
+            e.preventDefault();
+            topTab.closest('.top-nodes-tabs')?.querySelectorAll('.top-tab').forEach((t) => t.classList.remove('active'));
+            topTab.classList.add('active');
+            topNodesSort = topTab.dataset.sort || 'cpu';
+            renderTopNodes(lastAllNodes);
+            return;
+        }
         const restore = e.target.closest('[data-restore]');
         if (restore) {
             e.preventDefault();
