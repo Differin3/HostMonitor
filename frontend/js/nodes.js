@@ -61,7 +61,10 @@ const filterNodes = (query) => {
         filteredNodes = nodesState.filter(node => 
             (node.name || '').toLowerCase().includes(query) ||
             (node.host || '').toLowerCase().includes(query) ||
-            (node.provider_name || '').toLowerCase().includes(query)
+            (node.provider_name || '').toLowerCase().includes(query) ||
+            (node.os_name || '').toLowerCase().includes(query) ||
+            (node.arch || '').toLowerCase().includes(query) ||
+            (node.kernel || '').toLowerCase().includes(query)
         );
     }
     sortNodes(currentSort);
@@ -169,7 +172,20 @@ function formatAgentCell(node) {
     const badge = outdated
         ? ' <span class="status pill" style="background:#f59e0b;color:#111;">update</span>'
         : '';
-    return `<span title="${esc(commit)}">${esc(label)}${commitShort}${badge}</span>`;
+
+    // Платформа
+    const platformBadges = [];
+    if (node.is_truenas) platformBadges.push('<span class="status pill" style="background:#1e40af;color:#fff;" title="TrueNAS">NAS</span>');
+    else if (node.is_proxmox) platformBadges.push('<span class="status pill" style="background:#059669;color:#fff;" title="Proxmox">PVE</span>');
+    else if (node.is_synology) platformBadges.push('<span class="status pill" style="background:#7c3aed;color:#fff;" title="Synology">DSM</span>');
+    if (node.is_freebsd) platformBadges.push('<span class="status pill" style="background:#dc2626;color:#fff;" title="FreeBSD">BSD</span>');
+    if (node.has_zfs) platformBadges.push('<span class="status pill" style="background:#0891b2;color:#fff;" title="ZFS">ZFS</span>');
+    const platformHtml = platformBadges.length ? ' ' + platformBadges.join(' ') : '';
+
+    // OS info (отображаем в title)
+    const osInfo = [node.os_name, node.arch, node.kernel].filter(Boolean).join(' · ');
+
+    return `<span title="${esc(osInfo)}">${esc(label)}${commitShort}${badge}${platformHtml}</span>`;
 }
 
 const loadNodes = async (silent = false) => {

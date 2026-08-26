@@ -95,8 +95,17 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
         const disk = parseFloat(node.disk_usage) || 0;
         const tone = (v) => v >= 90 ? 'bad' : (v >= 75 ? 'warn' : 'ok');
         const meter = (v, kind) => `<div class="hm-meter hm-meter-${kind}" data-tone="${tone(v)}"><span style="width:${Math.min(100, v)}%"></span></div><small class="meter-label">${v.toFixed(0)}%</small>`;
+        // Платформа
+        const platformBadges = [];
+        if (node.is_truenas) platformBadges.push('<span class="status pill" style="background:#1e40af;color:#fff;font-size:10px;">NAS</span>');
+        else if (node.is_proxmox) platformBadges.push('<span class="status pill" style="background:#059669;color:#fff;font-size:10px;">PVE</span>');
+        else if (node.is_synology) platformBadges.push('<span class="status pill" style="background:#7c3aed;color:#fff;font-size:10px;">DSM</span>');
+        if (node.is_freebsd) platformBadges.push('<span class="status pill" style="background:#dc2626;color:#fff;font-size:10px;">BSD</span>');
+        if (node.has_zfs) platformBadges.push('<span class="status pill" style="background:#0891b2;color:#fff;font-size:10px;">ZFS</span>');
+        const platformHtml = platformBadges.length ? ' ' + platformBadges.join(' ') : '';
+        const osInfo = [node.os_name, node.arch, node.kernel].filter(Boolean).join(' · ');
         tr.innerHTML = `
-            <td>${esc(node.name || '-')}</td>
+            <td><span title="${esc(osInfo)}">${esc(node.name || '-')}${platformHtml}</span></td>
             <td><span class="status pill ${esc(node.status || 'offline')}">${esc(node.status || 'unknown')}</span></td>
             <td class="meter-cell">${meter(cpu, 'cpu')}</td>
             <td class="meter-cell">${meter(ram, 'ram')}</td>

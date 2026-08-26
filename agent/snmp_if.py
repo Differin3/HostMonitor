@@ -5,11 +5,11 @@ import os
 import socket
 from typing import Any, Dict, List, Optional, Tuple
 
-IF_DESCR = "10.20.0.3.192.168.1.2.1.2"
-IF_TYPE = "10.20.0.3.192.168.1.2.1.3"
-IF_SPEED = "10.20.0.3.192.168.1.2.1.5"
-IF_OPER = "10.20.0.3.192.168.1.2.1.8"
-IF_HIGH_SPEED = "10.20.0.3.10.20.0.1.1.15"
+IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
+IF_TYPE = "1.3.6.1.2.1.2.2.1.3"
+IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
+IF_OPER = "1.3.6.1.2.1.2.2.1.8"
+IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
 
 ETHER_TYPES = {6, 7, 26, 62, 69, 117}
 SKIP_TYPES = {1, 24, 23, 53, 131, 135, 136, 161}
@@ -242,10 +242,10 @@ def snmp_sysinfo(host: str) -> Dict[str, str]:
     """sysDescr / sysObjectID / sysName / sysLocation."""
     out: Dict[str, str] = {}
     mapping = {
-        "sysDescr": "10.20.0.3.10.20.0.5.0",
-        "sysObjectID": "10.20.0.3.10.0.1.1.0",
-        "sysName": "10.20.0.3.10.0.1.5.0",
-        "sysLocation": "10.20.0.3.172.16.0.2.0",
+        "sysDescr": "1.3.6.1.2.1.1.1.0",
+        "sysObjectID": "1.3.6.1.2.1.1.2.0",
+        "sysName": "1.3.6.1.2.1.1.5.0",
+        "sysLocation": "1.3.6.1.2.1.1.6.0",
     }
     for key, oid in mapping.items():
         try:

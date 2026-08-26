@@ -1372,7 +1372,7 @@ class MonitoringAgent:
                     _log("BLOCKED: reboot command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
                     return False
                 _log("WARNING: Executing reboot command (dangerous operation)")
-                subprocess.run(['sudo', 'reboot'], check=False)
+                subprocess.run(['sudo', 'reboot'], check=False, timeout=10)
                 return True
             elif command.startswith('shutdown'):
                 # Выключение системы - ОПАСНАЯ КОМАНДА
@@ -1380,7 +1380,7 @@ class MonitoringAgent:
                     _log("BLOCKED: shutdown command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
                     return False
                 _log("WARNING: Executing shutdown command (dangerous operation)")
-                subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=False)
+                subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=False, timeout=10)
                 return True
             elif command.startswith('kill'):
                 # Убить процесс — ОПАСНАЯ КОМАНДА
@@ -1466,7 +1466,7 @@ class MonitoringAgent:
                     if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$', container_id):
                         _log(f"ERROR: invalid container id: {container_id}")
                         return False
-                    subprocess.run(['docker', action, container_id], check=False)
+                    subprocess.run(['docker', action, container_id], check=False, timeout=30)
                     return True
             elif command.startswith('check-updates'):
                 # Проверка обновлений
@@ -1756,7 +1756,8 @@ class MonitoringAgent:
                     ufw_cmd = None
                     if shutil.which("ufw"):
                         # Проверяем, запущен ли от root или нужен sudo
-                        if os.geteuid() == 0:
+                        _is_root = hasattr(os, 'geteuid') and os.geteuid() == 0
+                        if _is_root:
                             # Запущен от root, sudo не нужен
                             if action == "allow":
                                 ufw_cmd = ["ufw", "allow", f"{port}/{proto}"]
@@ -1769,7 +1770,7 @@ class MonitoringAgent:
                             elif action == "deny":
                                 ufw_cmd = ["sudo", "ufw", "deny", f"{port}/{proto}"]
                         if ufw_cmd:
-                            result = subprocess.run(ufw_cmd, capture_output=True, text=True, check=False)
+                            result = subprocess.run(ufw_cmd, capture_output=True, text=True, check=False, timeout=30)
                             if result.returncode == 0:
                                 _log(f"ufw command succeeded: {action} {port}/{proto}")
                                 return True
@@ -1779,19 +1780,20 @@ class MonitoringAgent:
                     # Fallback на iptables (только для tcp/udp)
                     if proto in ("tcp", "udp") and shutil.which("iptables"):
                         # Определяем, нужен ли sudo
-                        sudo_prefix = [] if os.geteuid() == 0 else ["sudo"]
+                        _is_root = hasattr(os, 'geteuid') and os.geteuid() == 0
+                        sudo_prefix = [] if _is_root else ["sudo"]
                         
                         if action == "allow":
                             # Добавляем правило ACCEPT (idempotent - проверяем существование)
                             result1 = subprocess.run(
                                 sudo_prefix + ["iptables", "-C", "INPUT", "-p", proto, "--dport", str(port), "-j", "ACCEPT"],
-                                check=False,
+                                check=False, timeout=15,
                             )
                             if result1.returncode != 0:
                                 # Правило не существует, добавляем
                                 result2 = subprocess.run(
                                     sudo_prefix + ["iptables", "-A", "INPUT", "-p", proto, "--dport", str(port), "-j", "ACCEPT"],
-                                    capture_output=True, text=True, check=False,
+                                    capture_output=True, text=True, check=False, timeout=15,
                                 )
                                 if result2.returncode == 0:
                                     _log(f"iptables allow rule added: {port}/{proto}")
@@ -1805,11 +1807,11 @@ class MonitoringAgent:
                             # Удаляем правило ACCEPT, если есть, и добавляем DROP
                             subprocess.run(
                                 sudo_prefix + ["iptables", "-D", "INPUT", "-p", proto, "--dport", str(port), "-j", "ACCEPT"],
-                                check=False,
+                                check=False, timeout=15,
                             )
                             result = subprocess.run(
                                 sudo_prefix + ["iptables", "-A", "INPUT", "-p", proto, "--dport", str(port), "-j", "DROP"],
-                                capture_output=True, text=True, check=False,
+                                capture_output=True, text=True, check=False, timeout=15,
                             )
                             if result.returncode == 0:
                                 _log(f"iptables deny rule added: {port}/{proto}")
@@ -2080,7 +2082,7 @@ class MonitoringAgent:
     def collect_containers(self):
         snap = self.collect_docker_snapshot()
         if snap is None:
-            return None
+            return []
         return snap.get('containers') or []
     
     def collect_ports(self):
@@ -2099,7 +2101,7 @@ class MonitoringAgent:
                         if len(parts) >= 4:
                             addr = parts[3]
                             if ':' in addr:
-                                port = addr.split(':')[-1]
+                                port = addr.split(':')[-1].rstrip(']')
                                 # Пытаемся извлечь PID и имя процесса
                                 pid = None
                                 process_name = None
@@ -2117,8 +2119,12 @@ class MonitoringAgent:
                                         except (ValueError, TypeError):
                                             pass
                                 
+                                try:
+                                    port_num = int(port)
+                                except ValueError:
+                                    continue
                                 ports.append({
-                                    'port': int(port),
+                                    'port': port_num,
                                     'type': 'tcp',
                                     'status': 'open',
                                     'pid': pid,
@@ -2153,7 +2159,7 @@ class MonitoringAgent:
             flags = ['-d', 'areca,1']  # enclosure 1
 
         # 3ware / tw_cli
-        if dev.startswith('/dev/tw') or dev.startswith('/dev/sd') and 'twa' in dev:
+        if dev.startswith('/dev/tw'):
             flags = ['-d', '3ware,0']
 
         # MegaRAID / megaraid
@@ -2918,12 +2924,13 @@ class MonitoringAgent:
             if timeout <= mx:
                 timeout = float(mx) + 5.0
             devices = upnp_mod.discover(mx=mx, timeout=timeout)
-            self.upnp_devices = devices
+            with self._upnp_lock:
+                self.upnp_devices = devices
             _log(f"UPnP discovery found {len(devices)} device(s)")
             return devices
         except Exception as e:
             _log(f"UPnP discovery error: {e}")
-            return None
+            return []
 
     def send_upnp(self, devices):
         try:
@@ -3548,7 +3555,7 @@ class MonitoringAgent:
         try:
             since = self._log_cursors.get("ssh_since")
             cmd = [
-                "journalctl", "-t", "sshd", "-u", "ssh", "-u", "sshd",
+                "journalctl", "-t", "sshd", "-t", "ssh",
                 "--no-pager", "-n", str(limit), "--output=short-iso",
             ]
             if since:

@@ -1262,9 +1262,10 @@ function switchBillingTab(tab) {
 
 async function loadBillingStats() {
     try {
-        const [paymentsRes, providersRes] = await Promise.all([
+        const [paymentsRes, providersRes, nodesRes] = await Promise.all([
             fetch(API_PAYMENTS, { credentials: 'include' }),
-            fetch(API_PROVIDERS, { credentials: 'include' })
+            fetch(API_PROVIDERS, { credentials: 'include' }),
+            fetch(API_NODES, { credentials: 'include' })
         ]);
         
         if (!paymentsRes.ok || !providersRes.ok) throw new Error('HTTP error');
@@ -1277,10 +1278,18 @@ async function loadBillingStats() {
         const payments = paymentsData.payments || [];
         const providers = providersData.providers || [];
         
+        // Загружаем ноды для графика предстоящих платежей
+        let nodes = [];
+        if (nodesRes && nodesRes.ok) {
+            const nodesText = await nodesRes.text();
+            const nodesData = nodesText ? JSON.parse(nodesText) : {};
+            nodes = nodesData?.nodes ?? nodesData?.data ?? [];
+        }
+        
         renderMonthlyChart(payments);
         renderProviderChart(payments, providers);
         renderDailyChart(payments);
-        renderUpcomingChart(nodes || [], payments);
+        renderUpcomingChart(nodes, payments);
         renderPaymentsTimelineChart(payments);
     } catch (error) {
         console.error('Ошибка загрузки статистики:', error);

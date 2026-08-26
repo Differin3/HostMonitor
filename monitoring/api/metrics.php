@@ -53,6 +53,10 @@ function metrics_ensure_schema(PDO $pdo): void
             // column exists
         }
     }
+    // Платформенные колонки в nodes ( TrueNAS, Proxmox, FreeBSD и т.д.)
+    if (function_exists('nodes_ensure_agent_columns')) {
+        nodes_ensure_agent_columns($pdo);
+    }
     if (function_exists('schema_marker_touch')) {
         schema_marker_touch('metrics');
     }
@@ -225,6 +229,30 @@ function handlePost($pdo) {
 
     $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
     $updateStmt->execute([$nodeId]);
+
+    // Обновляем платформу (os_name, arch, is_truenas и т.д.) — приходит с каждой метрикой
+    $platformFields = ['os_name', 'os_family', 'os_version', 'arch', 'kernel',
+                       'is_truenas', 'is_proxmox', 'is_synology', 'is_freebsd', 'has_zfs'];
+    $platformUpdate = [];
+    $platformValues = [];
+    foreach ($platformFields as $field) {
+        if (array_key_exists($field, $row)) {
+            $platformUpdate[] = "{$field} = ?";
+            $platformValues[] = $field === 'arch' || $field === 'kernel' || $field === 'os_name'
+                || $field === 'os_family' || $field === 'os_version'
+                ? ($row[$field] ?? null)
+                : (int)($row[$field] ?? 0);
+        }
+    }
+    if ($platformUpdate) {
+        $platformValues[] = $nodeId;
+        $platformSql = "UPDATE nodes SET " . implode(', ', $platformUpdate) . " WHERE id = ?";
+        try {
+            $pdo->prepare($platformSql)->execute($platformValues);
+        } catch (Exception $e) {
+            error_log("[metrics.php] Platform update error: " . $e->getMessage());
+        }
+    }
 
     if (isset($row['boot_time']) || isset($row['uptime_sec'])) {
         $boot = $row['boot_time'] ?? null;

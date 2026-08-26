@@ -327,6 +327,17 @@ if (!function_exists('nodes_ensure_agent_columns')) {
             'command_result' => 'TEXT NULL',
             // Unix timestamp загрузки ОС (для реального uptime ноды)
             'boot_time' => 'INT UNSIGNED NULL',
+            // Платформа (TrueNAS, Proxmox, FreeBSD и т.д.)
+            'os_name' => 'VARCHAR(64) NULL',
+            'os_family' => 'VARCHAR(64) NULL',
+            'os_version' => 'VARCHAR(64) NULL',
+            'arch' => 'VARCHAR(32) NULL',
+            'kernel' => 'VARCHAR(64) NULL',
+            'is_truenas' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_proxmox' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_synology' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_freebsd' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'has_zfs' => 'TINYINT(1) NOT NULL DEFAULT 0',
         ];
 
         $markerDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';

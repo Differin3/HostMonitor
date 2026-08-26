@@ -113,10 +113,10 @@ try {
         foreach ($insertCols as $col) {
             $val = $node[$col] ?? null;
             if ($col === 'node_token' && (empty($val) || $val === null)) {
-                $val = generateNodeToken();
+                $val = bin2hex(random_bytes(32));
             }
             if ($col === 'secret_key' && (empty($val) || $val === null)) {
-                $val = generateSecretKey();
+                $val = bin2hex(random_bytes(32));
             }
             if ($col === 'port' && ($val === null || $val === '')) {
                 $val = 22;

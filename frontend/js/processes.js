@@ -74,13 +74,17 @@ function populateNodeFilter(nodes) {
 }
 
 function showEmptyState() {
-    document.getElementById('processes-empty').style.display = 'flex';
-    document.getElementById('processes-table').style.display = 'none';
+    const el1 = document.getElementById('processes-empty');
+    const el2 = document.getElementById('processes-table');
+    if (el1) el1.style.display = 'flex';
+    if (el2) el2.style.display = 'none';
 }
 
 function showProcessesTable() {
-    document.getElementById('processes-empty').style.display = 'none';
-    document.getElementById('processes-table').style.display = 'block';
+    const el1 = document.getElementById('processes-empty');
+    const el2 = document.getElementById('processes-table');
+    if (el1) el1.style.display = 'none';
+    if (el2) el2.style.display = 'block';
 }
 
 function applyFilters() {
@@ -119,9 +123,11 @@ function renderProcesses(processes) {
     tbody.innerHTML = processes.map(p => {
         const displayName = escapeHtml(p.name || '');
         const jsName = JSON.stringify(p.name || '');
+        const safePid = parseInt(p.pid) || 0;
+        const safeStatus = escapeHtml(p.status || 'unknown');
         return `
         <tr>
-            <td>${p.pid}</td>
+            <td>${safePid}</td>
             <td><strong>${displayName}</strong></td>
             <td>
                 <div class="progress-bar">
@@ -135,12 +141,12 @@ function renderProcesses(processes) {
                     <span class="progress-text">${p.memory_percent?.toFixed(1) || 0}%</span>
                 </div>
             </td>
-            <td><span class="status ${p.status}">${p.status}</span></td>
+            <td><span class="status ${safeStatus}">${safeStatus}</span></td>
             <td>
-                <button onclick="loadProcessLogsModal(${p.pid}, ${jsName}, ${selectedNodeId})" class="btn-outline" title="Загрузить логи процесса">
+                <button onclick="loadProcessLogsModal(${safePid}, ${jsName}, ${selectedNodeId})" class="btn-outline" title="Загрузить логи процесса">
                     <i data-lucide="file-text"></i>
                 </button>
-                <button onclick="killProcess(${p.pid}, ${selectedNodeId})" class="btn-danger" title="Завершить">
+                <button onclick="killProcess(${safePid}, ${selectedNodeId})" class="btn-danger" title="Завершить">
                     <i data-lucide="x"></i>
                 </button>
             </td>

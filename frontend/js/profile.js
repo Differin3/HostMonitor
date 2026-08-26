@@ -22,17 +22,17 @@ function loadSavedSettings() {
     const notifyBilling = localStorage.getItem('notify-billing') === 'true';
     const notifyAlerts = localStorage.getItem('notify-alerts') !== 'false';
     
-    document.getElementById('notify-email').checked = notifyEmail;
-    document.getElementById('notify-nodes').checked = notifyNodes;
-    document.getElementById('notify-billing').checked = notifyBilling;
-    document.getElementById('notify-alerts').checked = notifyAlerts;
+    document.getElementById('notify-email')?.checked = notifyEmail;
+    document.getElementById('notify-nodes')?.checked = notifyNodes;
+    document.getElementById('notify-billing')?.checked = notifyBilling;
+    document.getElementById('notify-alerts')?.checked = notifyAlerts;
     
     // Загрузка других настроек
     const autoRefresh = localStorage.getItem('auto-refresh') !== 'false';
     const refreshInterval = localStorage.getItem('refresh-interval') || '30';
     
-    document.getElementById('auto-refresh').checked = autoRefresh;
-    document.getElementById('refresh-interval').value = refreshInterval;
+    document.getElementById('auto-refresh')?.checked = autoRefresh;
+    document.getElementById('refresh-interval')?.value = refreshInterval;
 }
 
 window.saveProfile = saveProfile;
@@ -54,19 +54,19 @@ function saveProfile() {
     
     // Сохранение всех настроек
     const settings = {
-        'notify-email': document.getElementById('notify-email').checked,
-        'notify-nodes': document.getElementById('notify-nodes').checked,
-        'notify-billing': document.getElementById('notify-billing').checked,
-        'notify-alerts': document.getElementById('notify-alerts').checked,
-        'auto-refresh': document.getElementById('auto-refresh').checked,
-        'refresh-interval': document.getElementById('refresh-interval').value
+        'notify-email': document.getElementById('notify-email')?.checked ?? false,
+        'notify-nodes': document.getElementById('notify-nodes')?.checked ?? false,
+        'notify-billing': document.getElementById('notify-billing')?.checked ?? false,
+        'notify-alerts': document.getElementById('notify-alerts')?.checked ?? false,
+        'auto-refresh': document.getElementById('auto-refresh')?.checked ?? false,
+        'refresh-interval': document.getElementById('refresh-interval')?.value ?? '30'
     };
     
     Object.keys(settings).forEach(key => {
         localStorage.setItem(key, settings[key]);
     });
     
-    const theme = document.getElementById('theme-select').value;
+    const theme = document.getElementById('theme-select')?.value ?? 'light';
     localStorage.setItem('theme', theme);
     
     // Применение темы

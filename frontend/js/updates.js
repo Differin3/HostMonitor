@@ -3,6 +3,7 @@ const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 
 let updatesData = [];
+let checkPollTimer = null;
 let allNodes = [];
 let toast = null;
 let isInstalling = false; // Флаг для блокировки повторных нажатий
@@ -167,11 +168,12 @@ async function checkUpdates(silent = false) {
                 showToast('Команда проверки отправлена. Список обновится по мере ответа агентов.', 'info');
             }
             // После ручной проверки пару минут подтягиваем список без re-queue
+            if (checkPollTimer) clearInterval(checkPollTimer);
             let refreshCount = 0;
-            const poll = setInterval(async () => {
+            checkPollTimer = setInterval(async () => {
                 await refreshUpdatesList(true);
                 refreshCount++;
-                if (refreshCount >= 30) clearInterval(poll);
+                if (refreshCount >= 30) { clearInterval(checkPollTimer); checkPollTimer = null; }
             }, 3000);
         } else {
             showToast(result.error || 'Ошибка проверки обновлений', 'error');
@@ -867,8 +869,8 @@ async function loadHistory() {
         const status = document.getElementById('history-status-filter')?.value || '';
         
         let url = '/updates.php?action=history';
-        if (nodeId) url += `&node_id=${nodeId}`;
-        if (status) url += `&status=${status}`;
+        if (nodeId) url += `&node_id=${encodeURIComponent(nodeId)}`;
+        if (status) url += `&status=${encodeURIComponent(status)}`;
         
         const result = await fetchJson(url);
         renderHistory(result.history || [], result.stats || {});
@@ -896,11 +898,11 @@ function renderHistory(history, stats) {
         return `
             <tr>
                 <td>${item.timestamp ? new Date(item.timestamp).toLocaleString('ru-RU') : '-'}</td>
-                <td><strong>${item.node_name || '-'}</strong></td>
-                <td><strong>${item.package || '-'}</strong></td>
-                <td>${item.version || '-'}</td>
+                <td><strong>${escHtml(item.node_name || '-')}</strong></td>
+                <td><strong>${escHtml(item.package || '-')}</strong></td>
+                <td>${escHtml(item.version || '-')}</td>
                 <td><span class="status ${resultClass}">${resultText}</span></td>
-                <td title="${message}">${messageDisplay || '-'}</td>
+                <td title="${escHtml(message)}">${escHtml(messageDisplay) || '-'}</td>
             </tr>
         `;
     }).join('');
