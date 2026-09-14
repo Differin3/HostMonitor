@@ -1041,14 +1041,16 @@ input[type="checkbox"]:disabled {
 .modal {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.6);
+    background: rgba(6, 9, 16, 0.64);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.22s ease;
     z-index: 1000;
 }
 
@@ -1062,11 +1064,20 @@ input[type="checkbox"]:disabled {
     max-width: 700px;
     max-height: 90vh;
     background: var(--bg-card);
-    border-radius: 16px;
-    border: 1px solid var(--border-color);
-    padding: 28px;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    padding: 26px 28px 24px;
     overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    box-shadow:
+        0 0 0 1px rgba(59, 130, 246, 0.07),
+        0 24px 70px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transform: translateY(12px) scale(0.98);
+    transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.modal.active .modal-dialog {
+    transform: translateY(0) scale(1);
 }
 
 .modal-content {
@@ -1074,9 +1085,12 @@ input[type="checkbox"]:disabled {
     max-width: 90vw;
     max-height: 90vh;
     background: var(--bg-card);
-    border-radius: 16px;
-    border: 1px solid var(--border-color);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    box-shadow:
+        0 0 0 1px rgba(59, 130, 246, 0.07),
+        0 24px 70px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1087,25 +1101,39 @@ input[type="checkbox"]:disabled {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    padding: 4px 2px 0;
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-color);
+    gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .modal-header h2 {
-    font-size: 22px;
-    font-weight: 600;
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
     color: var(--text-primary);
     margin: 0;
     display: flex;
     align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+.modal-header h2::before {
+    content: '';
+    width: 4px;
+    height: 20px;
+    border-radius: 99px;
+    background: linear-gradient(180deg, #60a5fa, #2563eb);
+    box-shadow: var(--glow-blue, 0 0 12px rgba(59, 130, 246, 0.4));
+    flex-shrink: 0;
 }
 
 .modal-header .icon {
@@ -1116,29 +1144,29 @@ input[type="checkbox"]:disabled {
 }
 
 .modal-close {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    border: none;
-    background: transparent;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: rgba(148, 163, 184, 0.08);
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: all 0.18s;
     flex-shrink: 0;
 }
 
 .modal-close:hover {
-    background: var(--bg-card-hover);
-    color: var(--text-primary);
-    transform: rotate(90deg);
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
 }
 
 .modal-close i {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
 }
 
 .form-grid {
@@ -1230,12 +1258,13 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 .modal-actions {
-    margin-top: 32px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border-color);
+    margin-top: 26px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
     display: flex;
-    justify-content: flex-start;
-    gap: 12px;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .modal-footer {
@@ -3658,18 +3687,20 @@ body:not(.light) .db-sync-result.is-error {
 
 .confirm-dialog {
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 18px;
     padding: 24px;
     max-width: 400px;
     width: 90%;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    transform: scale(0.95);
-    transition: transform 0.2s;
+    box-shadow:
+        0 0 0 1px rgba(59, 130, 246, 0.06),
+        0 24px 70px rgba(0, 0, 0, 0.5);
+    transform: scale(0.95) translateY(8px);
+    transition: transform 0.2s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .confirm-modal.active .confirm-dialog {
-    transform: scale(1);
+    transform: scale(1) translateY(0);
 }
 
 .confirm-header {
@@ -3680,12 +3711,17 @@ body:not(.light) .db-sync-result.is-error {
 }
 
 .confirm-header i {
-    width: 24px;
-    height: 24px;
-    color: var(--warning);
+    width: 22px;
+    height: 22px;
+    padding: 10px;
+    box-sizing: content-box;
+    border-radius: 12px;
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--warning, #fbbf24);
 }
 
 .confirm-modal[data-confirm-type="danger"] .confirm-header i {
+    background: rgba(239, 68, 68, 0.12);
     color: var(--danger, #ef4444);
 }
 
