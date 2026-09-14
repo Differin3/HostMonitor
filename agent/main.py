@@ -196,6 +196,7 @@ class MonitoringAgent:
         self._upnp_lock = Lock()
         self._upnp_alive_at = 0.0
         self.lldp_cache = {}  # key -> neighbor info (passive + active)
+        self._lldp_devices = []  # последний снимок LLDP/SNMP-устройств (для merge с UPnP)
         # Буфер метрик для retry при transient ошибках
         self._pending_metrics = None
         self._pending_processes = None
@@ -2830,6 +2831,7 @@ class MonitoringAgent:
             except Exception:
                 pass
 
+        self._lldp_devices = list(devices)
         _log(f"LLDP poll produced {len(devices)} device(s), cache={len(self.lldp_cache)}")
         return devices
 
@@ -2997,12 +2999,25 @@ class MonitoringAgent:
                         device["wan_link"] = props["PhysicalLinkStatus"]
                     break
             if props:
-                self.send_upnp(list(self.upnp_devices))
+                self._send_upnp_with_lldp(list(self.upnp_devices))
+
+    def _send_upnp_with_lldp(self, upnp_devices):
+        """Отправка UPnP-снимка вместе с последними LLDP/SNMP-устройствами.
+
+        Иначе периодические UPnP-обновления затирают LLDP/SNMP-устройства на панели
+        (upnp_prune_missing удаляет их как отсутствующие в снимке).
+        """
+        try:
+            merged = self.merge_devices(upnp_devices or [], list(getattr(self, "_lldp_devices", []) or []))
+        except Exception as e:
+            _log(f"merge UPnP+LLDP failed: {e}")
+            merged = upnp_devices or []
+        return self.send_upnp(merged)
 
     def _upnp_refresh_quiet(self):
         devices = self.collect_upnp()
         if devices is not None:
-            self.send_upnp(devices)
+            self._send_upnp_with_lldp(devices)
 
     def handle_upnp_command(self, command: str) -> bool:
         parts = command.split()
@@ -3012,7 +3027,7 @@ class MonitoringAgent:
         action = parts[1].lower()
         devices = self.upnp_devices or self.collect_upnp() or []
         if action == "scan":
-            self.send_upnp(devices)
+            self._send_upnp_with_lldp(devices)
             return True
         udn = None
         if "--udn" in parts:
@@ -3038,7 +3053,7 @@ class MonitoringAgent:
                 upnp_mod.add_port_mapping(device, ext_port, int_ip, int_port, proto, desc)
                 snap = self.collect_upnp()
                 if snap is not None:
-                    self.send_upnp(snap)
+                    self._send_upnp_with_lldp(snap)
                 return True
             if action in ("delmap", "delete-mapping") and len(parts) >= 4:
                 ext_port = int(parts[2])
@@ -3046,7 +3061,7 @@ class MonitoringAgent:
                 upnp_mod.delete_port_mapping(device, ext_port, proto)
                 snap = self.collect_upnp()
                 if snap is not None:
-                    self.send_upnp(snap)
+                    self._send_upnp_with_lldp(snap)
                 return True
         except Exception as e:
             _log(f"UPnP command failed: {e}")
