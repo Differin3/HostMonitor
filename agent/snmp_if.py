@@ -163,6 +163,52 @@ def _find_varbind(buf: bytes) -> Optional[Tuple[str, Any]]:
     return None
 
 
+def _find_varbind_raw(buf: bytes) -> Optional[Tuple[str, int, bytes]]:
+    """Как _find_varbind, но возвращает сырое значение (tag, body) — нужно для IpAddress/octet."""
+    i = 0
+    while i < len(buf):
+        try:
+            tag, body, nxt = _read_tlv(buf, i)
+        except (ValueError, IndexError):
+            return None
+        if tag & 0x20:
+            inner = _find_varbind_raw(body)
+            if inner:
+                return inner
+            i = nxt
+            continue
+        if tag == 0x06:
+            oid = _decode_oid(body)
+            try:
+                vtag, vbody, _ = _read_tlv(buf, nxt)
+            except (ValueError, IndexError):
+                return None
+            return oid, vtag, vbody
+        i = nxt
+    return None
+
+
+def walk_column_raw(host: str, community: str, column: str, timeout: float, limit: int = 80) -> Dict[str, bytes]:
+    out: Dict[str, bytes] = {}
+    current = column
+    prefix = column + "."
+    for req_id in range(1, limit + 1):
+        raw = _udp(host, _getnext_pdu(community, current, req_id), timeout)
+        if not raw:
+            break
+        parsed = _find_varbind_raw(raw)
+        if not parsed:
+            break
+        oid, _vtag, vbody = parsed
+        if not oid.startswith(prefix):
+            break
+        if oid == current:
+            break
+        out[oid[len(prefix):]] = vbody
+        current = oid
+    return out
+
+
 def _getnext_pdu(community: str, oid: str, req_id: int) -> bytes:
     varbind = _seq(0x30, _ber_oid(oid) + b"\x05\x00")
     pdu = _seq(
@@ -358,6 +404,8 @@ def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
         return []
     dev_port = walk_column(host, community, CDP_CACHE_BASE + ".7", timeout, limit=200)
     platform = walk_column(host, community, CDP_CACHE_BASE + ".8", timeout, limit=200)
+    dev_addr = walk_column_raw(host, community, CDP_CACHE_BASE + ".4", timeout, limit=200)
+    addr_type = walk_column(host, community, CDP_CACHE_BASE + ".3", timeout, limit=200)
     names: Dict[str, Any] = {}
     try:
         names = walk_column(host, community, IF_DESCR, timeout, limit=200)
@@ -370,12 +418,21 @@ def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
             continue
         # индекс cdpCacheTable = "<ifIndex>.<deviceIndex>"; локальный порт берём из ifIndex
         iface_idx = str(idx).split(".")[0]
+        ip = ""
+        try:
+            if int(addr_type.get(idx, 0) or 0) == 1:
+                raw = dev_addr.get(idx)
+                if isinstance(raw, (bytes, bytearray)) and len(raw) == 4:
+                    ip = ".".join(str(x) for x in raw)
+        except Exception:
+            ip = ""
         out.append({
             "device_id": name,
             "device_port": str(dev_port.get(idx, "") or "").strip(),
             "platform": str(platform.get(idx, "") or "").strip(),
             "if_index": iface_idx,
             "local_port": str(names.get(iface_idx, "") or "").strip(),
+            "ip": ip,
         })
         if len(out) >= 64:
             break

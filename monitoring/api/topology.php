@@ -89,12 +89,13 @@ function topo_kind_upnp(array $d): string
     // Устройства, найденные агентом через LLDP/SNMP (сетевые железяки)
     $discovered = ($d['ssdp_st'] ?? '') === 'lldp'
         || stripos((string)($d['ssdp_server'] ?? ''), 'snmp') !== false
-        || stripos((string)($d['ssdp_server'] ?? ''), 'lldp') !== false;
+        || stripos((string)($d['ssdp_server'] ?? ''), 'lldp') !== false
+        || stripos((string)($d['ssdp_server'] ?? ''), 'cdp') !== false;
     if ($discovered) {
         if (preg_match('/core|backbone/', $name) || preg_match('/\bccr\b|asr9k|\bne40\b|\bne8000\b|core.?router/', $s)) {
             return 'core';
         }
-        if (preg_match('/catalyst|switch|crs\d|s57|s67|c9200|nexus/', $s)) {
+        if (preg_match('/catalyst|\bswitch\b|ws-c|c(?:2960|3560|3750|3850|9200|9300|9500)|nexus|crs\d|s57|s67|dgs-|procurve|aruba|edgeswitch|sg\d{3}/', $s)) {
             return 'switch';
         }
         if (preg_match('/bras|peer|gate|border|edge|^r\d+|^sw[-_]?\d+|router|cisco ios|7200|isr\d/', $name . ' ' . $s)) {

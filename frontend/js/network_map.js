@@ -218,73 +218,91 @@ const unclashLayer = (items, minGap, minX, maxX) => {
     return items;
 };
 
+const KIND_RANK = { wan: 0, core: 1, router: 2, switch: 3, ap: 3, server: 4, device: 4, subnet: 4 };
+
 const hierarchyLayout = (nodes, links, width, height) => {
     const saved = loadPositions();
-    const children = {};
-    const parentOf = {};
-    (links || []).forEach((link) => {
-        const from = String(link.from);
-        const to = String(link.to);
-        (children[from] ||= []).push(to);
-        if (!parentOf[to]) parentOf[to] = from;
-    });
 
-    const layers = [];
-    const visited = new Set();
-    const walk = (id, depth) => {
-        if (visited.has(id)) return;
-        visited.add(id);
-        (layers[depth] ||= []).push(id);
-        (children[id] || []).forEach((cid) => walk(cid, depth + 1));
+    const rankOf = (node) => {
+        if (String(node.id) === 'wan' || node.kind === 'wan') return 0;
+        const r = KIND_RANK[node.kind];
+        return r != null ? r : 3;
     };
-    walk('wan', 0);
-    nodes.forEach((node) => {
-        const id = String(node.id);
-        if (!visited.has(id)) walk(id, Math.max(layers.length, 1));
+
+    // Соседство — для минимизации пересечений связей
+    const adj = new Map();
+    nodes.forEach((n) => adj.set(String(n.id), new Set()));
+    (links || []).forEach((link) => {
+        const a = String(link.from);
+        const b = String(link.to);
+        if (adj.has(a) && adj.has(b)) {
+            adj.get(a).add(b);
+            adj.get(b).add(a);
+        }
     });
 
-    const padX = 118;
-    const padY = 92;
-    const minGap = 168;
-    const usableH = Math.max(height - padY * 2, 200);
-    const maxDepth = Math.max(layers.length - 1, 1);
-    const xs = {};
+    // Группируем узлы по «этажам» согласно роли
+    const ranks = [];
+    nodes.forEach((n) => {
+        const r = rankOf(n);
+        (ranks[r] ||= []).push(String(n.id));
+    });
+    const maxRank = Math.max(ranks.length - 1, 1);
 
-    layers.forEach((layer, depth) => {
-        const y = padY + (depth / maxDepth) * usableH;
-        const groups = new Map();
-        layer.forEach((id) => {
-            const parent = parentOf[id] || `__root_${depth}`;
-            if (!groups.has(parent)) groups.set(parent, []);
-            groups.get(parent).push(id);
+    const padX = 96;
+    const padY = 84;
+    const usableW = Math.max(width - padX * 2, 160);
+    const usableH = Math.max(height - padY * 2, 160);
+
+    const pos = new Map();
+    ranks.forEach((layer, r) => {
+        if (!layer) return;
+        const y = padY + (r / maxRank) * usableH;
+        layer.forEach((id, i) => {
+            const x = layer.length === 1 ? width / 2 : padX + (i / (layer.length - 1)) * usableW;
+            pos.set(id, { x, y });
         });
-        const items = [];
-        groups.forEach((siblings, parent) => {
-            const parentX = xs[parent] != null ? xs[parent] : width / 2;
-            const spread = Math.max(siblings.length - 1, 0) * minGap;
-            siblings.forEach((id, si) => {
-                items.push({
-                    id,
-                    x: siblings.length === 1 ? parentX : parentX - spread / 2 + si * minGap,
+    });
+
+    // Итерации barycenter: узел стремится к среднему X своих соседей
+    for (let iter = 0; iter < 8; iter++) {
+        ranks.forEach((layer, r) => {
+            if (!layer || !layer.length) return;
+            const y = padY + (r / maxRank) * usableH;
+            const desired = layer.map((id) => {
+                let sum = 0;
+                let cnt = 0;
+                (adj.get(id) || new Set()).forEach((nb) => {
+                    const p = pos.get(nb);
+                    if (p) { sum += p.x; cnt++; }
+                });
+                return cnt ? sum / cnt : (pos.get(id)?.x ?? width / 2);
+            });
+            const order = layer
+                .map((id, i) => ({ id, d: desired[i] }))
+                .sort((a, b) => a.d - b.d)
+                .map((it) => it.id);
+
+            const gap = Math.max(96, usableW / Math.max(order.length - 1, 1));
+            const totalW = gap * (order.length - 1);
+            const startX = Math.max(padX, width / 2 - totalW / 2);
+            order.forEach((id, i) => {
+                pos.set(id, {
+                    x: order.length === 1 ? width / 2 : startX + i * gap,
+                    y,
                 });
             });
         });
-        unclashLayer(items, minGap, padX, width - padX).forEach((it) => {
-            xs[it.id] = it.x;
-            const node = nodes.find((n) => String(n.id) === it.id);
-            if (node) {
-                node._lx = it.x;
-                node._ly = y;
-            }
-        });
-    });
+    }
 
     return nodes.map((node) => {
-        const custom = saved[node.id];
+        const id = String(node.id);
+        const custom = saved[node.id] ?? saved[id];
         if (custom && Number.isFinite(custom.x) && Number.isFinite(custom.y)) {
             return { ...node, x: custom.x, y: custom.y };
         }
-        return { ...node, x: node._lx ?? width / 2, y: node._ly ?? height / 2 };
+        const p = pos.get(id) || { x: width / 2, y: height / 2 };
+        return { ...node, x: p.x, y: p.y };
     });
 };
 

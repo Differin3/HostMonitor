@@ -197,6 +197,7 @@ class MonitoringAgent:
         self._upnp_alive_at = 0.0
         self.lldp_cache = {}  # key -> neighbor info (passive + active)
         self._lldp_devices = []  # последний снимок LLDP/SNMP-устройств (для merge с UPnP)
+        self._cdp_hosts = set()  # mgmt-IP соседей, найденных через CDP (коммутаторы/роутеры)
         # Буфер метрик для retry при transient ошибках
         self._pending_metrics = None
         self._pending_processes = None
@@ -2745,6 +2746,9 @@ class MonitoringAgent:
         for target in lldp_mod.parse_snmp_targets():
             add(target)
 
+        for target in getattr(self, "_cdp_hosts", ()) or ():
+            add(target)
+
         with self._upnp_lock:
             devices = list(self.upnp_devices or [])
         for device in devices:
@@ -2769,6 +2773,7 @@ class MonitoringAgent:
 
         devices = []
         seen_udn = set()
+        seen_ip = set()
 
         # 1) Пассивный кеш → устройства (+ SNMP enrich если есть IP)
         with self._lldp_lock:
@@ -2828,6 +2833,28 @@ class MonitoringAgent:
                     if udn and udn not in seen_udn:
                         seen_udn.add(udn)
                         devices.append(device)
+                # CDP-соседи с management-IP (коммутаторы, роутеры) — тоже устройства
+                for nb in (self_info.get("cdp") or []):
+                    nb_ip = str(nb.get("ip") or "").strip()
+                    if not nb_ip or nb_ip in seen_ip:
+                        continue
+                    seen_ip.add(nb_ip)
+                    self._cdp_hosts.add(nb_ip)
+                    try:
+                        nb_info = lldp_mod.enrich_host(nb_ip, {"source": f"cdp:{host}", "ip": nb_ip})
+                    except Exception:
+                        nb_info = {"source": f"cdp:{host}", "ip": nb_ip}
+                    if not nb_info.get("sys_name"):
+                        nb_info["sys_name"] = nb.get("device_id") or nb_ip
+                    if not nb_info.get("sys_desc"):
+                        nb_info["sys_desc"] = nb.get("platform") or ""
+                    nb_info["cdp_via"] = host
+                    nb_info["cdp_port"] = nb.get("device_port") or ""
+                    ndev = lldp_mod.device_from_lldp(nb_info)
+                    nudn = ndev.get("udn") or ""
+                    if nudn and nudn not in seen_udn:
+                        seen_udn.add(nudn)
+                        devices.append(ndev)
             except Exception:
                 pass
 
