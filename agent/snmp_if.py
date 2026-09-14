@@ -13,6 +13,8 @@ IF_OPER = "1.3.6.1.2.1.2.2.1.8"
 IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
 IF_HC_IN = "1.3.6.1.2.1.31.1.1.1.6"
 IF_HC_OUT = "1.3.6.1.2.1.31.1.1.1.10"
+IF_IN_OCTETS = "1.3.6.1.2.1.2.2.1.10"
+IF_OUT_OCTETS = "1.3.6.1.2.1.2.2.1.16"
 
 # Предыдущие счётчики интерфейсов для расчёта скорости: (host, idx) -> (ts, in, out)
 _prev_octets: Dict[Tuple[str, str], Tuple[float, int, int]] = {}
@@ -291,6 +293,9 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
     speed_low = walk_column(host, community, IF_SPEED, timeout) if not high else {}
     hc_in = walk_column(host, community, IF_HC_IN, timeout)
     hc_out = walk_column(host, community, IF_HC_OUT, timeout)
+    # 32-битные счётчики как фолбэк (на части образов HC-счётчики заполнены не для всех портов)
+    in32 = walk_column(host, community, IF_IN_OCTETS, timeout)
+    out32 = walk_column(host, community, IF_OUT_OCTETS, timeout)
     now = time.time()
     ports: List[Dict[str, Any]] = []
     for idx, name in descr.items():
@@ -306,15 +311,21 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
         if not kind:
             continue
         up = int(oper.get(idx) or 0) == 1
-        rx = int(hc_in.get(idx) or 0)
-        tx = int(hc_out.get(idx) or 0)
+        rx = int(hc_in.get(idx) or in32.get(idx) or 0)
+        tx = int(hc_out.get(idx) or out32.get(idx) or 0)
         rx_bps = tx_bps = 0
         prev = _prev_octets.get((host, idx))
         if prev:
             dt = now - prev[0]
             if dt > 0:
-                rx_bps = max(0, int((rx - prev[1]) / dt))
-                tx_bps = max(0, int((tx - prev[2]) / dt))
+                drx = rx - prev[1]
+                dtx = tx - prev[2]
+                if drx < 0:
+                    drx += 0x100000000  # переполнение 32-бит
+                if dtx < 0:
+                    dtx += 0x100000000
+                rx_bps = max(0, int(drx / dt))
+                tx_bps = max(0, int(dtx / dt))
         _prev_octets[(host, idx)] = (now, rx, tx)
         ports.append({
             "name": name,
