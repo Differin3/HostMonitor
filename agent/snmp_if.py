@@ -111,6 +111,8 @@ def _decode_int(body: bytes) -> int:
 
 
 def _decode_value(tag: int, body: bytes) -> Any:
+    if tag == 0x40:  # IpAddress
+        return ".".join(str(b) for b in body) if len(body) == 4 else body.hex()
     if tag == 0x02:
         return _decode_int(body)
     if tag in (0x41, 0x42, 0x43, 0x47):
