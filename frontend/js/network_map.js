@@ -220,105 +220,129 @@ const unclashLayer = (items, minGap, minX, maxX) => {
 
 const KIND_RANK = { wan: 0, core: 1, router: 2, switch: 3, ap: 3, server: 4, device: 4, subnet: 4 };
 
-const chunk = (arr, n) => {
-    const out = [];
-    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-    return out.length ? out : [[]];
-};
-
 const hierarchyLayout = (nodes, links, width, height) => {
     const saved = loadPositions();
+    const ids = nodes.map((n) => String(n.id));
+    const index = new Map(ids.map((id, i) => [id, i]));
+    const n = nodes.length;
+    if (!n) return nodes;
 
-    const rankOf = (node) => {
-        if (String(node.id) === 'wan' || node.kind === 'wan') return 0;
-        const r = KIND_RANK[node.kind];
-        return r != null ? r : 3;
-    };
+    // Детерминированная круговая инициализация (без random — карта стабильна)
+    const pos = ids.map((_, i) => {
+        const a = (i / Math.max(n, 1)) * Math.PI * 2;
+        const r = Math.min(width, height) * 0.30;
+        return { x: width / 2 + Math.cos(a) * r, y: height / 2 + Math.sin(a) * r };
+    });
 
-    // Соседство — для минимизации пересечений связей
-    const adj = new Map();
-    nodes.forEach((n) => adj.set(String(n.id), new Set()));
-    (links || []).forEach((link) => {
-        const a = String(link.from);
-        const b = String(link.to);
-        if (adj.has(a) && adj.has(b)) {
-            adj.get(a).add(b);
-            adj.get(b).add(a);
+    const edges = [];
+    (links || []).forEach((l) => {
+        const a = index.get(String(l.from));
+        const b = index.get(String(l.to));
+        if (a != null && b != null && a !== b) edges.push([a, b]);
+    });
+
+    const wanIdx = ids.indexOf('wan');
+    const minDist = width < 600 ? 108 : 148;
+    const area = Math.max(width * height, 1);
+    const k = Math.sqrt(area / Math.max(n, 1)) * 0.62;
+
+    let temp = Math.max(width, height) / 12;
+    const iterations = 340;
+
+    for (let it = 0; it < iterations; it++) {
+        const disp = Array.from({ length: n }, () => ({ x: 0, y: 0 }));
+
+        // Отталкивание (усиливается вблизи — против наложений)
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                const dx = pos[i].x - pos[j].x;
+                const dy = pos[i].y - pos[j].y;
+                const dist = Math.hypot(dx, dy) || 0.01;
+                const rep = (k * k) / dist + (dist < minDist ? (minDist - dist) * 5 : 0);
+                const fx = (dx / dist) * rep;
+                const fy = (dy / dist) * rep;
+                disp[i].x += fx; disp[i].y += fy;
+                disp[j].x -= fx; disp[j].y -= fy;
+            }
         }
-    });
 
-    // Группируем узлы по «этажам» согласно роли
-    const ranks = [];
-    nodes.forEach((n) => {
-        const r = rankOf(n);
-        (ranks[r] ||= []).push(String(n.id));
-    });
-    for (let r = 0; r < ranks.length; r++) if (!ranks[r]) ranks[r] = [];
+        // Притяжение по связям
+        for (let e = 0; e < edges.length; e++) {
+            const a = edges[e][0];
+            const b = edges[e][1];
+            const dx = pos[a].x - pos[b].x;
+            const dy = pos[a].y - pos[b].y;
+            const dist = Math.hypot(dx, dy) || 0.01;
+            const att = (dist * dist) / k;
+            const fx = (dx / dist) * att;
+            const fy = (dy / dist) * att;
+            disp[a].x -= fx; disp[a].y -= fy;
+            disp[b].x += fx; disp[b].y += fy;
+        }
 
-    const padX = width < 600 ? 44 : 96;
-    const padY = 80;
-    const usableW = Math.max(width - padX * 2, 160);
-    const usableH = Math.max(height - padY * 2, 200);
+        // Гравитация к центру
+        for (let i = 0; i < n; i++) {
+            disp[i].x += (width / 2 - pos[i].x) * 0.05;
+            disp[i].y += (height / 2 - pos[i].y) * 0.05;
+        }
 
-    // Сколько узлов влезает в ряд (с учётом ширины карточки ~120px)
-    const maxPerRow = Math.max(1, Math.floor(usableW / 150));
-    const totalRows = ranks.reduce((s, layer) => s + chunk(layer, maxPerRow).length, 0) || 1;
-    const rowGap = Math.max(118, Math.min(usableH / totalRows, 172));
-
-    const rankY = [];
-    let cursor = padY;
-    ranks.forEach((layer) => {
-        rankY.push(cursor);
-        cursor += chunk(layer, maxPerRow).length * rowGap;
-    });
-
-    const pos = new Map();
-    const placeRank = (layer, r) => {
-        chunk(layer, maxPerRow).forEach((row, ri) => {
-            const y = rankY[r] + ri * rowGap;
-            const gap = Math.max(120, usableW / Math.max(row.length - 1, 1));
-            const totalW = gap * (row.length - 1);
-            const startX = Math.max(padX, width / 2 - totalW / 2);
-            row.forEach((id, i) => {
-                pos.set(id, {
-                    x: row.length === 1 ? width / 2 : startX + i * gap,
-                    y,
-                });
-            });
-        });
-    };
-
-    ranks.forEach((layer, r) => placeRank(layer, r));
-
-    // Итерации barycenter: узел стремится к среднему X своих соседей
-    for (let iter = 0; iter < 8; iter++) {
-        ranks.forEach((layer, r) => {
-            if (!layer.length) return;
-            const desired = layer.map((id) => {
-                let sum = 0;
-                let cnt = 0;
-                (adj.get(id) || new Set()).forEach((nb) => {
-                    const p = pos.get(nb);
-                    if (p) { sum += p.x; cnt++; }
-                });
-                return cnt ? sum / cnt : (pos.get(id)?.x ?? width / 2);
-            });
-            const order = layer
-                .map((id, i) => ({ id, d: desired[i] }))
-                .sort((a, b) => a.d - b.d)
-                .map((it) => it.id);
-            placeRank(order, r);
-        });
+        // Сдвиг с остыванием
+        for (let i = 0; i < n; i++) {
+            if (i === wanIdx) continue;
+            const d = Math.hypot(disp[i].x, disp[i].y) || 0.01;
+            const lim = Math.min(d, temp);
+            pos[i].x += (disp[i].x / d) * lim;
+            pos[i].y += (disp[i].y / d) * lim;
+        }
+        temp *= 0.985;
     }
 
-    return nodes.map((node) => {
+    // Разведение наложений
+    for (let pass = 0; pass < 60; pass++) {
+        let moved = false;
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                const dx = pos[i].x - pos[j].x;
+                const dy = pos[i].y - pos[j].y;
+                const dist = Math.hypot(dx, dy) || 0.01;
+                if (dist < minDist) {
+                    const push = (minDist - dist) / 2 + 0.5;
+                    const ux = dx / dist;
+                    const uy = dy / dist;
+                    if (i !== wanIdx) { pos[i].x += ux * push; pos[i].y += uy * push; }
+                    if (j !== wanIdx) { pos[j].x -= ux * push; pos[j].y -= uy * push; }
+                    moved = true;
+                }
+            }
+        }
+        if (!moved) break;
+    }
+
+    // Центрируем по видимой области (масштаб не трогаем — карта панорамируется)
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    pos.forEach((p) => {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    });
+    const shiftX = width / 2 - (minX + maxX) / 2;
+    const shiftY = height / 2 - (minY + maxY) / 2;
+    pos.forEach((p) => { p.x += shiftX; p.y += shiftY; });
+
+    // WAN — сверху по центру (после центрирования)
+    if (wanIdx >= 0) {
+        pos[wanIdx] = { x: width / 2, y: 70 };
+    }
+
+    return nodes.map((node, i) => {
         const id = String(node.id);
         const custom = saved[node.id] ?? saved[id];
         if (custom && Number.isFinite(custom.x) && Number.isFinite(custom.y)) {
             return { ...node, x: custom.x, y: custom.y };
         }
-        const p = pos.get(id) || { x: width / 2, y: height / 2 };
-        return { ...node, x: p.x, y: p.y };
+        return { ...node, x: pos[i].x, y: pos[i].y };
     });
 };
 
@@ -559,7 +583,9 @@ const drawLinks = () => {
             cy: String(b.y),
             r: '3.5',
         }));
-        if (link.label) {
+        // Подписи связей показываем только у выбранного узла — иначе «каша» на плотном графе
+        const showLabel = link.from === state.selectedId || link.to === state.selectedId;
+        if (link.label && showLabel) {
             const text = svgEl('text', {
                 class: 'netmap-llabel',
                 x: String(mx),
@@ -587,9 +613,45 @@ const drawLinks = () => {
 };
 
 const applyPan = () => {
-    const t = `translate(${state.panX}px, ${state.panY}px)`;
+    const t = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
     if (els.nodes) els.nodes.style.transform = t;
     if (els.links) els.links.style.transform = t;
+};
+
+const zoomBy = (factor, anchorX, anchorY) => {
+    const { width, height } = stageSize();
+    const ax = anchorX == null ? width / 2 : anchorX;
+    const ay = anchorY == null ? height / 2 : anchorY;
+    const old = state.scale || 1;
+    const next = Math.max(0.2, Math.min(3.5, old * factor));
+    if (next === old) return;
+    const cx = (ax - state.panX) / old;
+    const cy = (ay - state.panY) / old;
+    state.scale = next;
+    state.panX = ax - cx * next;
+    state.panY = ay - cy * next;
+    applyPan();
+};
+
+const fitView = () => {
+    if (!state.nodes.length) return;
+    const { width, height } = stageSize();
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    state.nodes.forEach((n) => {
+        minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+        minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+    });
+    const pad = 96;
+    const bw = Math.max(maxX - minX, 1);
+    const bh = Math.max(maxY - minY, 1);
+    let s = Math.min((width - pad * 2) / bw, (height - pad * 2) / bh, 1.25);
+    if (!Number.isFinite(s) || s <= 0) s = 1;
+    state.scale = s;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    state.panX = width / 2 - cx * s;
+    state.panY = height / 2 - cy * s;
+    applyPan();
 };
 
 const syncPacketPause = () => {
@@ -736,6 +798,7 @@ const load = async (silent = false) => {
         resetEmptyCopy();
         state.loading = false;
         render();
+        if (!silent) fitView();
     } catch (error) {
         console.error('Карта сети:', error);
         if (els.stats && !state.booted) {
@@ -782,17 +845,6 @@ if (els.stage) {
 
     const activePointers = new Map();
     let pinch = null;
-
-    const applyPinch = (clientX, clientY, scale) => {
-        const rect = els.stage.getBoundingClientRect();
-        const cx = clientX - rect.left - state.panX;
-        const cy = clientY - rect.top - state.panY;
-        state.nodes.forEach((node) => {
-            node.x = cx + (node.x - cx) * scale;
-            node.y = cy + (node.y - cy) * scale;
-        });
-        render({ geometry: true, panel: false });
-    };
 
     const endGestures = () => {
         state.dragging = null;
@@ -848,7 +900,8 @@ if (els.stage) {
             if (pinch.dist > 0) {
                 const scale = dist / pinch.dist;
                 if (Math.abs(scale - 1) > 0.004) {
-                    applyPinch((a.x + b.x) / 2, (a.y + b.y) / 2, scale);
+                    const rect = els.stage.getBoundingClientRect();
+                    zoomBy(scale, (a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top);
                     pinch.dist = dist;
                     pinch.moved = true;
                 }
@@ -866,8 +919,9 @@ if (els.stage) {
         if (!state.dragging) return;
         const node = state.nodes.find((n) => String(n.id) === String(state.dragging.id));
         if (!node) return;
-        node.x = state.dragging.ox + (event.clientX - state.dragging.dx);
-        node.y = state.dragging.oy + (event.clientY - state.dragging.dy);
+        const sc = state.scale || 1;
+        node.x = state.dragging.ox + (event.clientX - state.dragging.dx) / sc;
+        node.y = state.dragging.oy + (event.clientY - state.dragging.dy) / sc;
         render({ geometry: true, panel: false });
     });
 
@@ -907,39 +961,19 @@ if (els.stage) {
     document.getElementById('netmap-refresh')?.addEventListener('click', () => load());
     document.getElementById('netmap-fit')?.addEventListener('click', () => {
         localStorage.removeItem(POS_KEY);
-        state.panX = 0;
-        state.panY = 0;
         layoutFresh({ nodes: stripLayout(state.nodes), links: state.links });
         persistLayout();
         render();
+        fitView();
     });
     document.getElementById('netmap-reset')?.addEventListener('click', () => {
         localStorage.removeItem(POS_KEY);
-        state.panX = 0;
-        state.panY = 0;
         layoutFresh({ nodes: stripLayout(state.nodes), links: state.links });
         render();
+        fitView();
     });
-    document.getElementById('netmap-zoom-in')?.addEventListener('click', () => {
-        const cx = (els.stage.getBoundingClientRect().width || 900) / 2;
-        const cy = (els.stage.getBoundingClientRect().height || 560) / 2;
-        state.nodes.forEach((node) => {
-            node.x = cx + (node.x - cx) * 1.12;
-            node.y = cy + (node.y - cy) * 1.12;
-        });
-        persistLayout();
-        render();
-    });
-    document.getElementById('netmap-zoom-out')?.addEventListener('click', () => {
-        const cx = (els.stage.getBoundingClientRect().width || 900) / 2;
-        const cy = (els.stage.getBoundingClientRect().height || 560) / 2;
-        state.nodes.forEach((node) => {
-            node.x = cx + (node.x - cx) / 1.12;
-            node.y = cy + (node.y - cy) / 1.12;
-        });
-        persistLayout();
-        render();
-    });
+    document.getElementById('netmap-zoom-in')?.addEventListener('click', () => zoomBy(1.15));
+    document.getElementById('netmap-zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.15));
     document.getElementById('netmap-pause')?.addEventListener('click', (event) => {
         state.paused = !state.paused;
         event.currentTarget.classList.toggle('active', state.paused);
