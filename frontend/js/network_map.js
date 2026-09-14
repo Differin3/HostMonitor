@@ -746,10 +746,46 @@ if (els.stage) {
         return rect.width > 8 && rect.height > 8;
     };
 
+    const activePointers = new Map();
+    let pinch = null;
+
+    const applyPinch = (clientX, clientY, scale) => {
+        const rect = els.stage.getBoundingClientRect();
+        const cx = clientX - rect.left - state.panX;
+        const cy = clientY - rect.top - state.panY;
+        state.nodes.forEach((node) => {
+            node.x = cx + (node.x - cx) * scale;
+            node.y = cy + (node.y - cy) * scale;
+        });
+        render({ geometry: true, panel: false });
+    };
+
+    const endGestures = () => {
+        state.dragging = null;
+        state.panning = null;
+        els.stage.classList.remove('is-panning');
+    };
+
     els.stage.addEventListener('pointerdown', (event) => {
         if (!stageVisible()) return;
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+        // Два пальца — pinch-zoom
+        if (activePointers.size === 2) {
+            endGestures();
+            const [a, b] = [...activePointers.values()];
+            pinch = {
+                dist: Math.hypot(a.x - b.x, a.y - b.y),
+                cx: (a.x + b.x) / 2,
+                cy: (a.y + b.y) / 2,
+                moved: false,
+            };
+            return;
+        }
+        if (activePointers.size > 2) return;
+
         const nodeEl = nodeFromEvent(event);
-        if (state.tool === 'pan' || (!nodeEl && event.button === 0)) {
+        if (state.tool === 'pan' || (!nodeEl && (event.button === 0 || event.pointerType !== 'mouse'))) {
             state.panning = { x: event.clientX - state.panX, y: event.clientY - state.panY };
             els.stage.classList.add('is-panning');
             return;
@@ -768,6 +804,24 @@ if (els.stage) {
     });
 
     window.addEventListener('pointermove', (event) => {
+        if (activePointers.has(event.pointerId)) {
+            activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        }
+
+        if (pinch && activePointers.size >= 2) {
+            const [a, b] = [...activePointers.values()];
+            const dist = Math.hypot(a.x - b.x, a.y - b.y);
+            if (pinch.dist > 0) {
+                const scale = dist / pinch.dist;
+                if (Math.abs(scale - 1) > 0.004) {
+                    applyPinch((a.x + b.x) / 2, (a.y + b.y) / 2, scale);
+                    pinch.dist = dist;
+                    pinch.moved = true;
+                }
+            }
+            return;
+        }
+
         if (!stageVisible() && !state.panning && !state.dragging) return;
         if (state.panning) {
             state.panX = event.clientX - state.panning.x;
@@ -783,12 +837,22 @@ if (els.stage) {
         render({ geometry: true, panel: false });
     });
 
-    window.addEventListener('pointerup', () => {
-        if (state.dragging) persistLayout();
-        state.dragging = null;
-        state.panning = null;
-        els.stage.classList.remove('is-panning');
-    });
+    const finishPointer = (event) => {
+        if (event && activePointers.has(event.pointerId)) {
+            activePointers.delete(event.pointerId);
+        }
+        if (activePointers.size < 2) {
+            if (pinch && pinch.moved) persistLayout();
+            pinch = null;
+        }
+        if (activePointers.size === 0) {
+            if (state.dragging) persistLayout();
+            endGestures();
+        }
+    };
+
+    window.addEventListener('pointerup', finishPointer);
+    window.addEventListener('pointercancel', finishPointer);
 
     document.querySelectorAll('.netmap-tool[data-tool]').forEach((btn) => {
         btn.addEventListener('click', () => {

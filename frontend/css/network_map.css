@@ -92,6 +92,10 @@
     cursor: default;
     overflow: hidden;
     transition: inset 0.2s ease;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 
 .netmap.panel-collapsed .netmap-stage {
