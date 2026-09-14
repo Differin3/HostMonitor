@@ -180,16 +180,20 @@ def _get_pdu(community: str, oid: str, req_id: int) -> bytes:
 
 
 def _udp(host: str, payload: bytes, timeout: float) -> bytes:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.settimeout(timeout)
-        sock.sendto(payload, (host, 161))
-        data, _ = sock.recvfrom(65535)
-        return data
-    except OSError:
-        return b""
-    finally:
-        sock.close()
+    # По медленным/потеряющим линкам (напр. туннели GNS3) один пакет может потеряться —
+    # делаем до 3 попыток, иначе волкеры счётчиков возвращают дырки/нули.
+    for _ in range(3):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.settimeout(timeout)
+            sock.sendto(payload, (host, 161))
+            data, _ = sock.recvfrom(65535)
+            return data
+        except OSError:
+            continue
+        finally:
+            sock.close()
+    return b""
 
 
 def walk_column(host: str, community: str, column: str, timeout: float, limit: int = 80) -> Dict[str, Any]:
