@@ -516,3 +516,124 @@ if (!function_exists('schema_short_lock')) {
     }
 }
 
+
+// ================== Двухфакторная аутентификация (TOTP) ==================
+
+if (!function_exists('users_ensure_totp_columns')) {
+    function users_ensure_totp_columns(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $needed = [
+                'totp_secret' => "VARCHAR(64) NOT NULL DEFAULT ''",
+                'totp_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            ];
+            $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+            if ($dbName === '') {
+                return;
+            }
+            $existing = [];
+            $stmt = $pdo->prepare(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+            );
+            $stmt->execute([$dbName, 'users']);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $col) {
+                $existing[(string)$col] = true;
+            }
+            foreach ($needed as $col => $ddl) {
+                if (!isset($existing[$col])) {
+                    try {
+                        $pdo->exec("ALTER TABLE users ADD COLUMN `{$col}` {$ddl}");
+                    } catch (Throwable $e) {
+                        // race / already exists
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[users_ensure_totp_columns] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('totp_base32_decode')) {
+    function totp_base32_decode(string $secret): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = strtoupper((string)preg_replace('/[^A-Za-z2-7]/', '', $secret));
+        $bits = '';
+        $n = strlen($secret);
+        for ($i = 0; $i < $n; $i++) {
+            $v = strpos($alphabet, $secret[$i]);
+            if ($v === false) {
+                continue;
+            }
+            $bits .= str_pad(decbin($v), 5, '0', STR_PAD_LEFT);
+        }
+        $out = '';
+        foreach (str_split($bits, 8) as $b) {
+            if (strlen($b) === 8) {
+                $out .= chr((int)bindec($b));
+            }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('totp_secret_generate')) {
+    function totp_secret_generate(): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $s = '';
+        for ($i = 0; $i < 32; $i++) {
+            $s .= $alphabet[random_int(0, 31)];
+        }
+        return $s;
+    }
+}
+
+if (!function_exists('totp_code')) {
+    function totp_code(string $secret, ?int $timestamp = null): string
+    {
+        $ts = $timestamp ?? time();
+        $counter = intdiv($ts, 30);
+        $key = totp_base32_decode($secret);
+        $hash = hash_hmac('sha1', pack('J', $counter), $key, true);
+        $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+        $value = ((ord($hash[$offset]) & 0x7F) << 24)
+            | ((ord($hash[$offset + 1]) & 0xFF) << 16)
+            | ((ord($hash[$offset + 2]) & 0xFF) << 8)
+            | (ord($hash[$offset + 3]) & 0xFF);
+        return str_pad((string)($value % 1000000), 6, '0', STR_PAD_LEFT);
+    }
+}
+
+if (!function_exists('totp_verify')) {
+    function totp_verify(string $secret, string $code, int $window = 1): bool
+    {
+        $code = trim($code);
+        if (!preg_match('/^\d{6}$/', $code)) {
+            return false;
+        }
+        $now = time();
+        for ($i = -$window; $i <= $window; $i++) {
+            if (hash_equals(totp_code($secret, $now + $i * 30), $code)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('totp_otpauth_uri')) {
+    function totp_otpauth_uri(string $username, string $secret, string $issuer = 'HostMonitor'): string
+    {
+        return 'otpauth://totp/' . rawurlencode($issuer) . ':' . rawurlencode($username)
+            . '?secret=' . rawurlencode($secret)
+            . '&issuer=' . rawurlencode($issuer)
+            . '&algorithm=SHA1&digits=6&period=30';
+    }
+}

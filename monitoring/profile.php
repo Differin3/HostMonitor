@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/layout.php';
 
 render_layout_start('Профиль', 'profile');
 ?>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <div class="settings-container">
         <div class="card">
             <div class="card-header">
@@ -59,7 +60,38 @@ render_layout_start('Профиль', 'profile');
                         </div>
                     </div>
                 </div>
-                
+
+                <div class="form-section-divider"></div>
+                <h3 style="margin-bottom: 14px; font-size: 16px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                    <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i>
+                    Двухфакторная аутентификация
+                </h3>
+                <div id="totp-section">
+                    <div id="totp-status" style="color: var(--text-muted); margin-bottom: 10px;">Загрузка…</div>
+                    <div id="totp-actions" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+                    <div id="totp-setup" class="hidden" style="margin-top: 14px;">
+                        <p style="color: var(--text-muted); margin-bottom: 12px;">Отсканируйте QR-код в приложении аутентификации (Google Authenticator, Aegis и т.п.) или введите ключ вручную.</p>
+                        <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
+                            <canvas id="totp-qr" width="180" height="180" style="background:#fff; border-radius:10px; padding:6px;"></canvas>
+                            <div style="min-width: 200px;">
+                                <div class="form-label">Ключ вручную</div>
+                                <code id="totp-secret" style="font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; display: inline-block; margin-top: 6px;"></code>
+                            </div>
+                        </div>
+                        <div class="form-field" style="margin-top: 14px; max-width: 260px;">
+                            <label class="form-label">Код подтверждения</label>
+                            <div class="input-with-icon">
+                                <i data-lucide="shield-check" class="input-icon"></i>
+                                <input type="text" id="totp-confirm-code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="6 цифр">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="primary" id="totp-confirm-btn">Включить 2FA</button>
+                            <button type="button" class="btn-outline" id="totp-cancel-btn">Отмена</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-section-divider"></div>
                 <h3 style="margin-bottom: 16px; font-size: 16px; color: var(--text-primary);">
                     <i data-lucide="bell" style="width: 18px; height: 18px; margin-right: 8px;"></i>
