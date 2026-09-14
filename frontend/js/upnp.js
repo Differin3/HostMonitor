@@ -208,7 +208,12 @@ function openDetails(d) {
     const extra = (d.extra && typeof d.extra === 'object') ? d.extra : {};
     const cdp = Array.isArray(extra.cdp) ? extra.cdp : [];
 
-    const kv = (label, value) => value ? `<div><span>${label}</span><b>${escapeHtml(value)}</b></div>` : '';
+    const statusBadge = `<span class="status ${online ? 'status-online' : 'status-offline'}">${online ? 'online' : 'offline'}</span>`;
+    const model = (d.model_name && d.model_name !== d.friendly_name) ? d.model_name : (d.model_number || '');
+    const desc = String(d.model_description || '').trim();
+
+    const kv = (label, value) => (value && value !== '—') ? `<div><span>${label}</span><b>${escapeHtml(value)}</b></div>` : '';
+    const kvHtml = (label, html) => `<div><span>${label}</span><b>${html}</b></div>`;
 
     const portRows = ports.map((p) => `
         <tr>
@@ -243,19 +248,22 @@ function openDetails(d) {
             <td>${escapeHtml(m.description || '')}</td>
         </tr>`).join('');
 
-    const section = (title, tableHtml, colspan, empty) => `
+    const section = (title, headHtml, bodyHtml, colspan, empty) => `
         <h4>${title}</h4>
         <div class="table-container compact-table">
-            <table><tbody>${tableHtml || emptyRow(colspan, empty)}</tbody></table>
+            <table>
+                <thead>${headHtml}</thead>
+                <tbody>${bodyHtml || emptyRow(colspan, empty)}</tbody>
+            </table>
         </div>`;
 
     els.detailsBody.innerHTML = `
         <div class="upnp-details-kv">
-            ${kv('Статус', online ? 'online' : 'offline')}
+            ${kvHtml('Статус', statusBadge)}
             ${kv('Тип', kind)}
             ${kv('Вендор', vendor)}
             ${kv('Производитель', d.manufacturer)}
-            ${kv('Модель', d.model_name || d.model_number)}
+            ${kv('Модель', model)}
             ${kv('Serial', d.serial_number)}
             ${kv('Хост', d.host)}
             ${kv('WAN', d.wan_ip)}
@@ -265,11 +273,19 @@ function openDetails(d) {
             ${kv('HW', d.hardware_version)}
             ${kv('Нода-источник', d.node_name)}
         </div>
-        ${section('Порты', `
-            <tr><th>Порт</th><th>Тип</th><th>Статус</th><th>Скорость</th><th>↓</th><th>↑</th></tr>${portRows}`, 6, 'нет данных по портам')}
-        ${cdpRows ? section('Соседи (CDP)', `<tr><th>Устройство</th><th>Локальный порт</th><th>Порт соседа</th><th>Платформа</th><th>IP</th></tr>${cdpRows}`, 5, 'нет соседей') : ''}
-        ${svcRows ? section('Сервисы', `<tr><th>Тип сервиса</th><th>Control URL</th></tr>${svcRows}`, 2, 'нет сервисов') : ''}
-        ${mapRows ? section('Проброс портов', `<tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th></tr>${mapRows}`, 4, 'Нет port mapping') : ''}
+        ${desc ? `<div class="upnp-detail-desc">${escapeHtml(desc)}</div>` : ''}
+        ${section('Порты',
+            `<tr><th>Порт</th><th>Тип</th><th>Статус</th><th>Скорость</th><th>↓</th><th>↑</th></tr>`,
+            portRows, 6, 'нет данных по портам')}
+        ${cdpRows ? section('Соседи (CDP)',
+            `<tr><th>Устройство</th><th>Локальный порт</th><th>Порт соседа</th><th>Платформа</th><th>IP</th></tr>`,
+            cdpRows, 5, 'нет соседей') : ''}
+        ${svcRows ? section('Сервисы',
+            `<tr><th>Тип сервиса</th><th>Control URL</th></tr>`,
+            svcRows, 2, 'нет сервисов') : ''}
+        ${mapRows ? section('Проброс портов',
+            `<tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th></tr>`,
+            mapRows, 4, 'Нет port mapping') : ''}
     `;
 
     els.detailsModal.classList.remove('hidden');

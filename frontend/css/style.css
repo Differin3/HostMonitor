@@ -4239,32 +4239,65 @@ body.light .date-picker-footer {
 .upnp-details-kv {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px 16px;
-    margin-bottom: 14px;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
 .upnp-details-kv > div {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
+    background: rgba(148, 163, 184, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    border-radius: 10px;
+    padding: 8px 11px;
 }
 
 .upnp-details-kv span {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .upnp-details-kv b {
     font-weight: 600;
+    font-size: 14px;
+    word-break: break-word;
+}
+
+.upnp-detail-desc {
+    margin: 2px 0 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    background: rgba(59, 130, 246, 0.05);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
     word-break: break-word;
 }
 
 .upnp-details h4 {
-    margin: 14px 0 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0 8px;
+    font-size: 13px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #9aa3b2;
+}
+
+.upnp-details h4::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #3b82f6;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
 }
 
 .gear-card {
