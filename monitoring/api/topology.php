@@ -83,7 +83,26 @@ function topo_vendor(string $haystack): string
 
 function topo_kind_upnp(array $d): string
 {
-    $s = strtolower(($d['device_type'] ?? '') . ' ' . ($d['model_name'] ?? '') . ' ' . ($d['friendly_name'] ?? ''));
+    $s = strtolower(($d['device_type'] ?? '') . ' ' . ($d['model_name'] ?? '') . ' ' . ($d['friendly_name'] ?? '') . ' ' . ($d['model_description'] ?? '') . ' ' . ($d['ssdp_server'] ?? ''));
+    $name = strtolower(trim((string)($d['friendly_name'] ?? '')));
+
+    // Устройства, найденные агентом через LLDP/SNMP (сетевые железяки)
+    $discovered = ($d['ssdp_st'] ?? '') === 'lldp'
+        || stripos((string)($d['ssdp_server'] ?? ''), 'snmp') !== false
+        || stripos((string)($d['ssdp_server'] ?? ''), 'lldp') !== false;
+    if ($discovered) {
+        if (preg_match('/core|backbone/', $name) || preg_match('/\bccr\b|asr9k|\bne40\b|\bne8000\b|core.?router/', $s)) {
+            return 'core';
+        }
+        if (preg_match('/catalyst|switch|crs\d|s57|s67|c9200|nexus/', $s)) {
+            return 'switch';
+        }
+        if (preg_match('/bras|peer|gate|border|edge|^r\d+|^sw[-_]?\d+|router|cisco ios|7200|isr\d/', $name . ' ' . $s)) {
+            return 'router';
+        }
+        return 'router';
+    }
+
     if (preg_match('/ccr|asr9k|\bne40\b|\bne8000\b|core.?router/', $s)) {
         return 'core';
     }
