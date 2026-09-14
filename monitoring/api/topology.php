@@ -812,7 +812,8 @@ try {
         $a = $graph[$link['from']] ?? [];
         $b = $graph[$link['to']] ?? [];
         $online = topo_node_online($a) && topo_node_online($b);
-        $busy = $online && (topo_node_busy($a) || topo_node_busy($b));
+        $linkTraffic = (int)($link['traffic'] ?? 0);
+        $busy = $online && ($linkTraffic > 0 || topo_node_busy($a) || topo_node_busy($b));
         $link['busy'] = $busy;
         $link['activity'] = !$online ? 'down' : ($busy ? 'busy' : 'idle');
     }
