@@ -62,6 +62,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
         <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/nexus.css')) ?>">
         <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/net-gear.css')) ?>">
         <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/icons.css')) ?>">
+        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/mobile.css')) ?>">
         <script>
             window.MONITORING_BASE_PATH = <?= json_encode(monitoring_base_path(), JSON_UNESCAPED_SLASHES) ?>;
             window.MONITORING_API_BASE = <?= json_encode(monitoring_asset('/api'), JSON_UNESCAPED_SLASHES) ?>;
@@ -112,8 +113,12 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
             <p>Загрузка интерфейса...</p>
         </div>
         <div class="app-shell">
+            <div class="nav-backdrop" id="hmNavBackdrop"></div>
             <header class="topbar">
                 <div class="topbar-left">
+                    <button class="hm-mobile-nav" id="hmMobileNav" type="button" aria-label="Меню" aria-controls="appSidebar" aria-expanded="false">
+                        <i data-lucide="menu"></i>
+                    </button>
                     <a class="brand" href="index.php">
                         <span class="brand-mark"><i data-lucide="activity"></i></span>
                         <span><?= htmlspecialchars($brandName) ?></span>
@@ -223,7 +228,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
             </div>
             <?php endif; ?>
             <div class="container">
-            <nav class="sidebar">
+            <nav class="sidebar" id="appSidebar">
                 <button class="sidebar-toggle hm-collapse-btn" id="sidebarToggle" type="button" title="Свернуть меню" aria-label="Свернуть меню"></button>
                 <div class="logo">
                     <i data-lucide="activity"></i>
@@ -390,6 +395,7 @@ function render_layout_end(array $scripts = []): void
             });
         </script>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/panels.js')) ?>"></script>
+        <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/mobile.js')) ?>"></script>
         <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/panel_update.js')) ?>"></script>
         <?php endif; ?>
