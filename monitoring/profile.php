@@ -104,6 +104,13 @@ render_layout_start('Профиль', 'profile');
                             <button type="button" class="btn-outline" id="totp-codes-done" style="margin-top: 10px;">Я сохранил коды</button>
                         </div>
                     </div>
+                    <div id="totp-devices" class="hidden" style="margin-top: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+                            <div style="color: var(--text-muted);">Доверенные устройства</div>
+                            <button type="button" class="btn-outline" id="totp-revoke-all"><i data-lucide="log-out"></i> Отозвать все</button>
+                        </div>
+                        <div id="totp-devices-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                    </div>
                 </div>
 
                 <div class="form-section-divider"></div>

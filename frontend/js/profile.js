@@ -119,12 +119,18 @@ async function totpLoadStatus() {
                     })
                     .catch(() => {});
             }
+            const devicesEl = document.getElementById('totp-devices');
+            if (devicesEl) {
+                devicesEl.classList.remove('hidden');
+                totpLoadDevices();
+            }
         } else {
             statusEl.innerHTML = '<span class="status status-offline">выключена</span>';
             actionsEl.innerHTML = '<button type="button" class="primary" id="totp-enable-btn"><i data-lucide="shield-check"></i> Включить 2FA</button>';
             document.getElementById('totp-enable-btn').onclick = totpSetup;
             setupEl.classList.add('hidden');
             if (recoveryEl) recoveryEl.classList.add('hidden');
+            document.getElementById('totp-devices')?.classList.add('hidden');
         }
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
@@ -234,5 +240,83 @@ document.getElementById('totp-regen-btn')?.addEventListener('click', totpRegen);
 document.getElementById('totp-codes-done')?.addEventListener('click', () => {
     document.getElementById('totp-codes-view')?.classList.add('hidden');
 });
+
+function totpDeviceLabel(ua) {
+    const s = (ua || '').toLowerCase();
+    let os = 'Устройство';
+    if (/windows/.test(s)) os = 'Windows';
+    else if (/iphone|ipad|ios/.test(s)) os = 'iOS';
+    else if (/android/.test(s)) os = 'Android';
+    else if (/mac os|macintosh/.test(s)) os = 'macOS';
+    else if (/linux/.test(s)) os = 'Linux';
+    let br = '';
+    if (/edg\//.test(s)) br = 'Edge';
+    else if (/opr\//.test(s)) br = 'Opera';
+    else if (/chrome\//.test(s)) br = 'Chrome';
+    else if (/firefox\//.test(s)) br = 'Firefox';
+    else if (/safari\//.test(s)) br = 'Safari';
+    return [os, br].filter(Boolean).join(' · ');
+}
+
+async function totpLoadDevices() {
+    const list = document.getElementById('totp-devices-list');
+    if (!list) return;
+    try {
+        const res = await fetch(TOTP_API + '?action=devices', { credentials: 'include' });
+        const data = await res.json();
+        const devs = data.devices || [];
+        if (!devs.length) {
+            list.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Нет доверенных устройств</div>';
+            return;
+        }
+        list.innerHTML = devs.map((d) => `
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid rgba(148,163,184,0.12); border-radius:10px;">
+                <div style="min-width:0;">
+                    <div>${totpDeviceLabel(d.user_agent)}</div>
+                    <div style="color:var(--text-muted); font-size:12px;">${d.ip || ''} · до ${d.expires_at || ''}</div>
+                </div>
+                <button type="button" class="btn-outline" data-revoke="${d.id}">Отозвать</button>
+            </div>`).join('');
+    } catch (e) {
+        list.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Не удалось загрузить</div>';
+    }
+}
+
+async function totpRevokeDevice(id) {
+    try {
+        await fetch(TOTP_API + '?action=device-revoke', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: Number(id) }),
+        });
+        totpLoadDevices();
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+}
+
+async function totpRevokeAll() {
+    const ok = await window.showConfirm?.('Отозвать все доверенные устройства?', '2FA', 'warning');
+    if (!ok) return;
+    try {
+        await fetch(TOTP_API + '?action=devices-revoke-all', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        totpLoadDevices();
+        window.showToast?.('Все доверенные устройства отозваны', 'success');
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+}
+
+document.getElementById('totp-devices-list')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-revoke]');
+    if (b) totpRevokeDevice(b.getAttribute('data-revoke'));
+});
+document.getElementById('totp-revoke-all')?.addEventListener('click', totpRevokeAll);
 
 document.addEventListener('DOMContentLoaded', totpLoadStatus);

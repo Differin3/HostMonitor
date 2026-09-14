@@ -34,6 +34,33 @@ if ($method === 'GET' && $action === 'recovery-status') {
     exit;
 }
 
+if ($method === 'GET' && $action === 'devices') {
+    trusted_devices_ensure_table($pdo);
+    $stmt = $pdo->prepare("SELECT id, user_agent, ip, created_at, expires_at FROM trusted_devices WHERE user_id = ? AND expires_at > NOW() ORDER BY created_at DESC");
+    $stmt->execute([$userId]);
+    echo json_encode(['devices' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    exit;
+}
+
+if ($method === 'POST' && $action === 'device-revoke') {
+    $data = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    $id = (int)($data['id'] ?? 0);
+    if ($id > 0) {
+        $pdo->prepare("DELETE FROM trusted_devices WHERE id = ? AND user_id = ?")->execute([$id, $userId]);
+    }
+    session_write_close();
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+if ($method === 'POST' && $action === 'devices-revoke-all') {
+    trusted_devices_revoke_all($pdo, $userId);
+    session_write_close();
+    log_auth_event($pdo, $userId, $username, 'trusted_revoke_all', true, 'All trusted devices revoked');
+    echo json_encode(['success' => true]);
+    exit;
+}
+
 if ($method === 'POST' && $action === 'setup') {
     $stmt = $pdo->prepare("SELECT username, totp_enabled FROM users WHERE id = ?");
     $stmt->execute([$userId]);
