@@ -725,7 +725,7 @@ function handlePost($pdo) {
 
         if ($version !== '' || $commit !== '') {
             $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET status = 'online', last_seen = NOW(),
+                "UPDATE nodes SET status = 'online', last_seen = ?,
                     agent_version = COALESCE(NULLIF(?, ''), agent_version),
                     agent_commit = COALESCE(NULLIF(?, ''), agent_commit),
                     agent_branch = COALESCE(NULLIF(?, ''), agent_branch),
@@ -733,10 +733,10 @@ function handlePost($pdo) {
                     agent_updated_at = NOW()
                  WHERE id = ?"
             );
-            $updateStmt->execute([$version, $commit, $branch, $remote, $nodeId]);
+            $updateStmt->execute([date('Y-m-d H:i:s'), $version, $commit, $branch, $remote, $nodeId]);
         } else {
-            $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
-            $updateStmt->execute([$nodeId]);
+            $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = ? WHERE id = ?");
+            $updateStmt->execute([date('Y-m-d H:i:s'), $nodeId]);
         }
 
         if (array_key_exists('boot_time', $data)) {

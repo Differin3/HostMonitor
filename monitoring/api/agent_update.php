@@ -398,10 +398,10 @@ try {
                 agent_updated_at = NOW(),
                 command_result = COALESCE(NULLIF(?, ''), command_result),
                 status = 'online',
-                last_seen = NOW()
+                last_seen = ?
              WHERE id = ?"
         );
-        $stmt->execute([$version, $commit, $remote, $branch, $available, $msg, $nodeId]);
+        $stmt->execute([$version, $commit, $remote, $branch, $available, $msg, date('Y-m-d H:i:s'), $nodeId]);
 
         if ($ok) {
             // Успех: снимаем слот (рестарт агента часто не успевает command-status)

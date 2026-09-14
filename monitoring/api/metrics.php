@@ -220,15 +220,15 @@ function handlePost($pdo) {
         $dupCheck = $pdo->prepare("SELECT 1 FROM metrics WHERE node_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 30 SECOND) LIMIT 1");
         $dupCheck->execute([$nodeId]);
         if ($dupCheck->fetch()) {
-            $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?")->execute([$nodeId]);
+            $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = ? WHERE id = ?")->execute([date('Y-m-d H:i:s'), $nodeId]);
             http_response_code(200);
             echo json_encode(['message' => 'Duplicate skipped', 'cycle_id' => $cycleId]);
             return;
         }
     }
 
-    $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = NOW() WHERE id = ?");
-    $updateStmt->execute([$nodeId]);
+    $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = ? WHERE id = ?");
+    $updateStmt->execute([date('Y-m-d H:i:s'), $nodeId]);
 
     // Обновляем платформу (os_name, arch, is_truenas и т.д.) — приходит с каждой метрикой
     $platformFields = ['os_name', 'os_family', 'os_version', 'arch', 'kernel',
