@@ -149,7 +149,7 @@
         if (/catalyst|switch|crs\d|s57|s67|c9200|c9300|c2960|c3560|c3750/.test(s)) return 'switch';
         if (/ccr|asr|ne40|ne8000|\bcore\b/.test(s)) return 'core';
         if (/access.?point|\bap\b|\bhap\b|\bwap\b|c9100|cap /.test(s)) return 'ap';
-        if (Number(device.is_igd) === 1 || /gateway|igd|router/.test(s)) return 'router';
+        if (Number(device.is_igd) === 1 || /gateway|igd|router|bras|peer|border|7200|isr\d|cisco ios|\bios\b/.test(s)) return 'router';
         return 'device';
     };
 

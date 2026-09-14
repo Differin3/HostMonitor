@@ -4239,32 +4239,35 @@ body.light .date-picker-footer {
 .upnp-details-kv {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 2px 22px;
     margin-bottom: 12px;
 }
 
 .upnp-details-kv > div {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
+    align-items: baseline;
+    gap: 8px;
     min-width: 0;
-    background: rgba(148, 163, 184, 0.06);
-    border: 1px solid rgba(148, 163, 184, 0.1);
-    border-radius: 10px;
-    padding: 8px 11px;
+    padding: 7px 0;
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.12);
 }
 
 .upnp-details-kv span {
     color: var(--text-muted);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+    font-size: 12.5px;
+    flex-shrink: 0;
+}
+
+.upnp-details-kv span::after {
+    content: ':';
+    margin-right: 8px;
 }
 
 .upnp-details-kv b {
     font-weight: 600;
     font-size: 14px;
     word-break: break-word;
+    min-width: 0;
 }
 
 .upnp-detail-desc {
@@ -4277,6 +4280,9 @@ body.light .date-picker-footer {
     font-size: 12.5px;
     line-height: 1.5;
     word-break: break-word;
+    white-space: pre-wrap;
+    max-height: 150px;
+    overflow-y: auto;
 }
 
 .upnp-details h4 {
