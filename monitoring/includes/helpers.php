@@ -637,3 +637,83 @@ if (!function_exists('totp_otpauth_uri')) {
             . '&algorithm=SHA1&digits=6&period=30';
     }
 }
+
+// ================== Коды восстановления 2FA ==================
+
+if (!function_exists('totp_recovery_ensure_table')) {
+    function totp_recovery_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS totp_recovery_codes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                code_hash VARCHAR(255) NOT NULL,
+                used TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[totp_recovery_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('recovery_codes_generate')) {
+    function recovery_codes_generate(int $count = 10): array
+    {
+        $codes = [];
+        for ($i = 0; $i < $count; $i++) {
+            $raw = strtoupper(bin2hex(random_bytes(5))); // 10 hex-символов
+            $codes[] = substr($raw, 0, 5) . '-' . substr($raw, 5, 5);
+        }
+        return $codes;
+    }
+}
+
+if (!function_exists('recovery_codes_store')) {
+    function recovery_codes_store(PDO $pdo, int $userId, array $codes): void
+    {
+        totp_recovery_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM totp_recovery_codes WHERE user_id = ?")->execute([$userId]);
+        $ins = $pdo->prepare("INSERT INTO totp_recovery_codes (user_id, code_hash) VALUES (?, ?)");
+        foreach ($codes as $c) {
+            $ins->execute([$userId, password_hash($c, PASSWORD_DEFAULT)]);
+        }
+    }
+}
+
+if (!function_exists('recovery_codes_remaining')) {
+    function recovery_codes_remaining(PDO $pdo, int $userId): int
+    {
+        totp_recovery_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM totp_recovery_codes WHERE user_id = ? AND used = 0");
+        $stmt->execute([$userId]);
+        return (int)$stmt->fetchColumn();
+    }
+}
+
+if (!function_exists('recovery_codes_verify')) {
+    function recovery_codes_verify(PDO $pdo, int $userId, string $code): bool
+    {
+        $norm = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $code));
+        if (strlen($norm) !== 10) {
+            return false;
+        }
+        $formatted = substr($norm, 0, 5) . '-' . substr($norm, 5, 5);
+        totp_recovery_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT id, code_hash FROM totp_recovery_codes WHERE user_id = ? AND used = 0");
+        $stmt->execute([$userId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (password_verify($formatted, (string)$row['code_hash'])) {
+                $pdo->prepare("UPDATE totp_recovery_codes SET used = 1 WHERE id = ?")->execute([(int)$row['id']]);
+                return true;
+            }
+        }
+        return false;
+    }
+}

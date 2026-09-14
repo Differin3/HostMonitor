@@ -90,6 +90,20 @@ render_layout_start('Профиль', 'profile');
                             <button type="button" class="btn-outline" id="totp-cancel-btn">Отмена</button>
                         </div>
                     </div>
+                    <div id="totp-recovery" class="hidden" style="margin-top: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                            <div style="color: var(--text-muted);">Коды восстановления: <b id="totp-recovery-count" style="color: var(--text-primary);">0</b></div>
+                            <button type="button" class="btn-outline" id="totp-regen-btn"><i data-lucide="refresh-cw"></i> Перегенерировать коды</button>
+                        </div>
+                        <div id="totp-codes-view" class="hidden" style="margin-top: 12px; padding: 12px; border: 1px solid rgba(245,158,11,0.35); background: rgba(245,158,11,0.08); border-radius: 10px;">
+                            <p style="color: #fbbf24; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                                <i data-lucide="alert-triangle" style="width: 14px; height: 14px;"></i>
+                                Сохраните коды — они показываются один раз. Каждый код одноразовый.
+                            </p>
+                            <div id="totp-codes-list" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 16px; font-family: ui-monospace, monospace; font-size: 14px;"></div>
+                            <button type="button" class="btn-outline" id="totp-codes-done" style="margin-top: 10px;">Я сохранил коды</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-section-divider"></div>

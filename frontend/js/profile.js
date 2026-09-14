@@ -102,16 +102,29 @@ async function totpLoadStatus() {
     try {
         const res = await fetch(TOTP_API + '?action=status', { credentials: 'include' });
         const data = await res.json();
+        const recoveryEl = document.getElementById('totp-recovery');
         if (data.enabled) {
             statusEl.innerHTML = '<span class="status status-online">включена</span>';
             actionsEl.innerHTML = '<button type="button" class="btn-outline" id="totp-disable-btn"><i data-lucide="shield-off"></i> Отключить 2FA</button>';
             document.getElementById('totp-disable-btn').onclick = totpDisable;
             setupEl.classList.add('hidden');
+            if (recoveryEl) {
+                recoveryEl.classList.remove('hidden');
+                document.getElementById('totp-codes-view')?.classList.add('hidden');
+                fetch(TOTP_API + '?action=recovery-status', { credentials: 'include' })
+                    .then((r) => r.json())
+                    .then((d) => {
+                        const c = document.getElementById('totp-recovery-count');
+                        if (c) c.textContent = String(d.remaining ?? 0);
+                    })
+                    .catch(() => {});
+            }
         } else {
             statusEl.innerHTML = '<span class="status status-offline">выключена</span>';
             actionsEl.innerHTML = '<button type="button" class="primary" id="totp-enable-btn"><i data-lucide="shield-check"></i> Включить 2FA</button>';
             document.getElementById('totp-enable-btn').onclick = totpSetup;
             setupEl.classList.add('hidden');
+            if (recoveryEl) recoveryEl.classList.add('hidden');
         }
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
@@ -159,7 +172,8 @@ async function totpConfirm() {
         const data = await res.json();
         if (!res.ok) { window.showToast?.(data.error || 'Неверный код', 'error'); return; }
         window.showToast?.('Двухфакторная аутентификация включена', 'success');
-        totpLoadStatus();
+        await totpLoadStatus();
+        totpShowCodes(data.recovery_codes || []);
     } catch (e) {
         window.showToast?.(e.message, 'error');
     }
@@ -186,4 +200,39 @@ async function totpDisable() {
 
 document.getElementById('totp-confirm-btn')?.addEventListener('click', totpConfirm);
 document.getElementById('totp-cancel-btn')?.addEventListener('click', totpLoadStatus);
+
+function totpShowCodes(codes) {
+    const view = document.getElementById('totp-codes-view');
+    const list = document.getElementById('totp-codes-list');
+    if (!view || !list) return;
+    list.innerHTML = (codes || []).map((c) => `<code>${c}</code>`).join('');
+    view.classList.remove('hidden');
+}
+
+async function totpRegen() {
+    const ok = await window.showConfirm?.('Сгенерировать новые коды восстановления? Старые перестанут работать.', '2FA', 'warning');
+    if (!ok) return;
+    try {
+        const res = await fetch(TOTP_API + '?action=regenerate-recovery', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        const data = await res.json();
+        if (!res.ok) { window.showToast?.(data.error || 'Ошибка', 'error'); return; }
+        totpShowCodes(data.recovery_codes || []);
+        const c = document.getElementById('totp-recovery-count');
+        if (c) c.textContent = String((data.recovery_codes || []).length);
+        window.showToast?.('Новые коды восстановления сгенерированы', 'success');
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+}
+
+document.getElementById('totp-regen-btn')?.addEventListener('click', totpRegen);
+document.getElementById('totp-codes-done')?.addEventListener('click', () => {
+    document.getElementById('totp-codes-view')?.classList.add('hidden');
+});
+
 document.addEventListener('DOMContentLoaded', totpLoadStatus);

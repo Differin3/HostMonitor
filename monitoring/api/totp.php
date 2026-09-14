@@ -29,6 +29,11 @@ if ($method === 'GET' && $action === 'status') {
     exit;
 }
 
+if ($method === 'GET' && $action === 'recovery-status') {
+    echo json_encode(['remaining' => recovery_codes_remaining($pdo, $userId)]);
+    exit;
+}
+
 if ($method === 'POST' && $action === 'setup') {
     $stmt = $pdo->prepare("SELECT username, totp_enabled FROM users WHERE id = ?");
     $stmt->execute([$userId]);
@@ -58,10 +63,26 @@ if ($method === 'POST' && $action === 'confirm') {
     }
     $stmt = $pdo->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?");
     $stmt->execute([$secret, $userId]);
+    $codes = recovery_codes_generate(10);
+    recovery_codes_store($pdo, $userId, $codes);
     unset($_SESSION['pending_totp_secret']);
     session_write_close();
     log_auth_event($pdo, $userId, $username, 'totp_enable', true, '2FA enabled');
-    echo json_encode(['success' => true]);
+    echo json_encode(['success' => true, 'recovery_codes' => $codes]);
+    exit;
+}
+
+if ($method === 'POST' && $action === 'regenerate-recovery') {
+    $stmt = $pdo->prepare("SELECT totp_enabled FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    if ((int)$stmt->fetchColumn() !== 1) {
+        json_error('2FA не включена', 400);
+    }
+    $codes = recovery_codes_generate(10);
+    recovery_codes_store($pdo, $userId, $codes);
+    session_write_close();
+    log_auth_event($pdo, $userId, $username, 'totp_recovery_regen', true, 'Recovery codes regenerated');
+    echo json_encode(['success' => true, 'recovery_codes' => $codes]);
     exit;
 }
 

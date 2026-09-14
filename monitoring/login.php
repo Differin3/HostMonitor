@@ -58,14 +58,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("SELECT totp_secret FROM users WHERE id = ?");
             $stmt->execute([(int)$pending['id']]);
             $secret = (string)$stmt->fetchColumn();
-            if ($secret !== '' && totp_verify($secret, $code)) {
+            $okTotp = ($secret !== '' && totp_verify($secret, $code));
+            $okRecovery = false;
+            if (!$okTotp) {
+                $okRecovery = recovery_codes_verify($pdo, (int)$pending['id'], $code);
+            }
+            if ($okTotp || $okRecovery) {
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $pending['id'];
                 $_SESSION['username'] = $pending['username'];
                 $_SESSION['role'] = $pending['role'];
                 $_SESSION['last_activity'] = time();
                 unset($_SESSION['pending_2fa']);
-                log_auth_event($pdo, (int)$pending['id'], $pending['username'], 'login_2fa', true, '2FA verified');
+                log_auth_event($pdo, (int)$pending['id'], $pending['username'], 'login_2fa', true, $okRecovery ? 'Recovery code used' : '2FA verified');
                 session_write_close();
                 header('Location: index.php');
                 exit;
@@ -200,8 +205,9 @@ $totpStep = !empty($_SESSION['pending_2fa']) || isset($_GET['totp']);
                         <label class="form-label">Код из приложения аутентификации</label>
                         <div class="input-with-icon">
                             <i data-lucide="shield-check" class="input-icon"></i>
-                            <input type="text" name="totp_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="6 цифр" required autofocus autocomplete="one-time-code">
+                            <input type="text" name="totp_code" inputmode="text" maxlength="11" placeholder="6 цифр или код восстановления" required autofocus autocomplete="one-time-code">
                         </div>
+                        <p style="color: var(--text-muted); font-size: 12px; margin-top: 8px;">Введите 6-значный код из приложения или один из кодов восстановления (формат XXXXX-XXXXX).</p>
                     </div>
                     <button type="submit" class="primary" style="width: 100%; margin-top: 8px;">
                         <i data-lucide="log-in"></i>
