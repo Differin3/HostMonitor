@@ -14,6 +14,10 @@ IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
 # CISCO-CDP-MIB cdpCacheTable (1.3.6.1.4.1.9.9.23.1.2.1.1)
 CDP_CACHE_BASE = "1.3.6.1.4.1.9.9.23.1.2.1.1"
 
+# IP-MIB ipAddrTable
+IP_ADENT_ADDR = "1.3.6.1.2.1.4.20.1.1"
+IP_ADENT_NETMASK = "1.3.6.1.2.1.4.20.1.3"
+
 ETHER_TYPES = {6, 7, 26, 62, 69, 117}
 SKIP_TYPES = {1, 24, 23, 53, 131, 135, 136, 161}
 SKIP_PREFIXES = (
@@ -333,6 +337,27 @@ def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
             "if_index": iface_idx,
             "local_port": str(names.get(iface_idx, "") or "").strip(),
         })
+        if len(out) >= 64:
+            break
+    return out
+
+
+def snmp_ips(host: str) -> List[Dict[str, str]]:
+    """IPv4-адреса интерфейсов устройства (IP-MIB ipAddrTable)."""
+    if not host or os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return []
+    community = os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+    addrs = walk_column(host, community, IP_ADENT_ADDR, timeout, limit=200)
+    if not addrs:
+        return []
+    masks = walk_column(host, community, IP_ADENT_NETMASK, timeout, limit=200)
+    out: List[Dict[str, str]] = []
+    for idx, val in addrs.items():
+        ip = str(val or "").strip()
+        if not ip:
+            continue
+        out.append({"ip": ip, "mask": str(masks.get(idx, "") or "").strip()})
         if len(out) >= 64:
             break
     return out

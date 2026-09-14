@@ -570,6 +570,7 @@ try {
             'connection_status' => $d['connection_status'] ?? '',
             'dhcp_ips' => $dhcpIps,
             'cdp' => is_array($extra['cdp'] ?? null) ? $extra['cdp'] : [],
+            'ips' => is_array($extra['ips'] ?? null) ? $extra['ips'] : [],
             'detail' => trim(($d['manufacturer'] ?? '') . ' ' . ($d['model_name'] ?? '')),
         ]);
     }
@@ -655,6 +656,32 @@ try {
             $rp = trim((string)($nb['device_port'] ?? ''));
             $label = ($lp !== '' ? $lp : 'CDP') . ($rp !== '' ? ' ↔ ' . $rp : '');
             $addLink($nid, $pid, $label, 'lan');
+        }
+    }
+
+    // Хост/агент ↔ роутер, если их адреса в одной подсети (напр. агент в лабовой сети)
+    foreach ($graph as $sid => $sn) {
+        if (($sn['kind'] ?? '') !== 'server') {
+            continue;
+        }
+        foreach ($sn['lan_ips'] ?? [] as $lan) {
+            $lip = topo_any_ip((string)($lan['ip'] ?? ''));
+            if (!$lip || (int)($lan['family'] ?? 4) === 6) {
+                continue;
+            }
+            $lmask = $lan['mask'] ?? null;
+            foreach ($graph as $rid => $rn) {
+                if ($rid === $sid || !in_array($rn['kind'] ?? '', ['router', 'core', 'switch'], true)) {
+                    continue;
+                }
+                foreach (($rn['ips'] ?? []) as $dip) {
+                    $d = topo_any_ip((string)($dip['ip'] ?? ''));
+                    if ($d && topo_same_subnet($lip, $d, $lmask)) {
+                        $addLink($rid, $sid, 'LAN ' . $d, 'lan');
+                        continue 3;
+                    }
+                }
+            }
         }
     }
 
