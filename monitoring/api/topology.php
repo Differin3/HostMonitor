@@ -245,6 +245,17 @@ function topo_ports_up($json): int
     return $n;
 }
 
+function topo_fmt_bps(int $bps): string
+{
+    if ($bps >= 1048576) {
+        return round($bps / 1048576, 1) . ' МБ/с';
+    }
+    if ($bps >= 1024) {
+        return round($bps / 1024, 1) . ' КБ/с';
+    }
+    return $bps . ' Б/с';
+}
+
 function topo_node_busy(array $n): bool
 {
     $kind = $n['kind'] ?? '';
@@ -426,7 +437,7 @@ try {
     $addNode = function (array $n) use (&$graph): void {
         $graph[$n['id']] = $n;
     };
-    $addLink = function (string $from, string $to, string $label, string $kind = 'lan') use (&$links, &$seenLink, &$parentOf): void {
+    $addLink = function (string $from, string $to, string $label, string $kind = 'lan', array $meta = []) use (&$links, &$seenLink, &$parentOf): void {
         if ($from === $to) {
             return;
         }
@@ -438,12 +449,12 @@ try {
         if (!isset($parentOf[$to])) {
             $parentOf[$to] = $from;
         }
-        $links[] = [
+        $links[] = array_merge([
             'from' => $from,
             'to' => $to,
             'label' => $label,
             'kind' => $kind,
-        ];
+        ], $meta);
     };
 
     $addNode([
@@ -540,6 +551,14 @@ try {
             $decoded = json_decode($extra, true);
             $extra = is_array($decoded) ? $decoded : [];
         }
+        $portsArr = $d['ports'] ?? [];
+        if (is_string($portsArr)) {
+            $decoded = json_decode($portsArr, true);
+            $portsArr = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($portsArr)) {
+            $portsArr = [];
+        }
         $dhcpIps = [];
         foreach (($extra['hosts'] ?? []) as $h) {
             if (!is_array($h)) {
@@ -571,6 +590,7 @@ try {
             'dhcp_ips' => $dhcpIps,
             'cdp' => is_array($extra['cdp'] ?? null) ? $extra['cdp'] : [],
             'ips' => is_array($extra['ips'] ?? null) ? $extra['ips'] : [],
+            'ports' => $portsArr,
             'detail' => trim(($d['manufacturer'] ?? '') . ' ' . ($d['model_name'] ?? '')),
         ]);
     }
@@ -639,6 +659,12 @@ try {
         }
     }
     foreach ($graph as $nid => $n) {
+        $portMap = [];
+        foreach (($n['ports'] ?? []) as $p) {
+            if (is_array($p) && !empty($p['name'])) {
+                $portMap[strtolower((string)$p['name'])] = $p;
+            }
+        }
         foreach (($n['cdp'] ?? []) as $nb) {
             if (!is_array($nb)) {
                 continue;
@@ -654,8 +680,16 @@ try {
             }
             $lp = trim((string)($nb['local_port'] ?? ''));
             $rp = trim((string)($nb['device_port'] ?? ''));
+            $traffic = 0;
+            if ($lp !== '' && isset($portMap[strtolower($lp)])) {
+                $pp = $portMap[strtolower($lp)];
+                $traffic = (int)($pp['rx_bps'] ?? 0) + (int)($pp['tx_bps'] ?? 0);
+            }
             $label = ($lp !== '' ? $lp : 'CDP') . ($rp !== '' ? ' ↔ ' . $rp : '');
-            $addLink($nid, $pid, $label, 'lan');
+            if ($traffic > 0) {
+                $label .= ' · ' . topo_fmt_bps($traffic);
+            }
+            $addLink($nid, $pid, $label, 'lan', ['busy' => $traffic > 0, 'traffic' => $traffic]);
         }
     }
 

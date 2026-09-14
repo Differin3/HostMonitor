@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import socket
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
@@ -10,6 +11,11 @@ IF_TYPE = "1.3.6.1.2.1.2.2.1.3"
 IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 IF_OPER = "1.3.6.1.2.1.2.2.1.8"
 IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
+IF_HC_IN = "1.3.6.1.2.1.31.1.1.1.6"
+IF_HC_OUT = "1.3.6.1.2.1.31.1.1.1.10"
+
+# Предыдущие счётчики интерфейсов для расчёта скорости: (host, idx) -> (ts, in, out)
+_prev_octets: Dict[Tuple[str, str], Tuple[float, int, int]] = {}
 
 # CISCO-CDP-MIB cdpCacheTable (1.3.6.1.4.1.9.9.23.1.2.1.1)
 CDP_CACHE_BASE = "1.3.6.1.4.1.9.9.23.1.2.1.1"
@@ -279,6 +285,9 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
     oper = walk_column(host, community, IF_OPER, timeout)
     high = walk_column(host, community, IF_HIGH_SPEED, timeout)
     speed_low = walk_column(host, community, IF_SPEED, timeout) if not high else {}
+    hc_in = walk_column(host, community, IF_HC_IN, timeout)
+    hc_out = walk_column(host, community, IF_HC_OUT, timeout)
+    now = time.time()
     ports: List[Dict[str, Any]] = []
     for idx, name in descr.items():
         name = str(name or "").strip()
@@ -293,12 +302,24 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
         if not kind:
             continue
         up = int(oper.get(idx) or 0) == 1
+        rx = int(hc_in.get(idx) or 0)
+        tx = int(hc_out.get(idx) or 0)
+        rx_bps = tx_bps = 0
+        prev = _prev_octets.get((host, idx))
+        if prev:
+            dt = now - prev[0]
+            if dt > 0:
+                rx_bps = max(0, int((rx - prev[1]) / dt))
+                tx_bps = max(0, int((tx - prev[2]) / dt))
+        _prev_octets[(host, idx)] = (now, rx, tx)
         ports.append({
             "name": name,
             "type": kind,
             "up": up,
             "speed": speed,
             "index": idx,
+            "rx_bps": rx_bps,
+            "tx_bps": tx_bps,
         })
         if len(ports) >= 64:
             break
