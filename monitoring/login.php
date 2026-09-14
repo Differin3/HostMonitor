@@ -70,6 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role'] = $pending['role'];
                 $_SESSION['last_activity'] = time();
                 unset($_SESSION['pending_2fa']);
+                if (!empty($_POST['remember_device'])) {
+                    $token = trusted_device_issue($pdo, (int)$pending['id']);
+                    setcookie('hm_trusted', $token, trusted_device_cookie_options(30));
+                }
                 log_auth_event($pdo, (int)$pending['id'], $pending['username'], 'login_2fa', true, $okRecovery ? 'Recovery code used' : '2FA verified');
                 session_write_close();
                 header('Location: index.php');
@@ -108,17 +112,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
 
                 if ($user && password_verify($password, $user['password_hash'])) {
-                    // Если включена 2FA — переходим к вводу кода
+                    // Если включена 2FA — переходим к вводу кода (кроме доверенных устройств)
                     if (!empty($user['totp_enabled'])) {
-                        $_SESSION['pending_2fa'] = [
-                            'id' => (int)$user['id'],
-                            'username' => $user['username'],
-                            'role' => $user['role'],
-                            'ts' => time(),
-                        ];
-                        session_write_close();
-                        header('Location: login.php?totp=1');
-                        exit;
+                        $trustedToken = (string)($_COOKIE['hm_trusted'] ?? '');
+                        if ($trustedToken === '' || !trusted_device_verify($pdo, (int)$user['id'], $trustedToken)) {
+                            $_SESSION['pending_2fa'] = [
+                                'id' => (int)$user['id'],
+                                'username' => $user['username'],
+                                'role' => $user['role'],
+                                'ts' => time(),
+                            ];
+                            session_write_close();
+                            header('Location: login.php?totp=1');
+                            exit;
+                        }
                     }
 
                     session_regenerate_id(true);
@@ -209,6 +216,10 @@ $totpStep = !empty($_SESSION['pending_2fa']) || isset($_GET['totp']);
                         </div>
                         <p style="color: var(--text-muted); font-size: 12px; margin-top: 8px;">Введите 6-значный код из приложения или один из кодов восстановления (формат XXXXX-XXXXX).</p>
                     </div>
+                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">
+                        <input type="checkbox" name="remember_device" value="1">
+                        <span>Запомнить это устройство на 30 дней</span>
+                    </label>
                     <button type="submit" class="primary" style="width: 100%; margin-top: 8px;">
                         <i data-lucide="log-in"></i>
                         <span>Подтвердить</span>

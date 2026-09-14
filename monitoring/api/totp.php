@@ -89,6 +89,7 @@ if ($method === 'POST' && $action === 'regenerate-recovery') {
 if ($method === 'POST' && $action === 'disable') {
     $stmt = $pdo->prepare("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?");
     $stmt->execute([$userId]);
+    trusted_devices_revoke_all($pdo, $userId);
     unset($_SESSION['pending_totp_secret']);
     session_write_close();
     log_auth_event($pdo, $userId, $username, 'totp_disable', true, '2FA disabled');

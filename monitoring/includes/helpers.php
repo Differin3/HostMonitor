@@ -717,3 +717,92 @@ if (!function_exists('recovery_codes_verify')) {
         return false;
     }
 }
+
+// ================== Доверенные устройства (обход 2FA) ==================
+
+if (!function_exists('trusted_devices_ensure_table')) {
+    function trusted_devices_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS trusted_devices (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token_hash VARCHAR(64) NOT NULL,
+                user_agent VARCHAR(255) NULL,
+                ip VARCHAR(45) NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_token (token_hash),
+                INDEX idx_user (user_id),
+                INDEX idx_expires (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[trusted_devices_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('trusted_device_issue')) {
+    function trusted_device_issue(PDO $pdo, int $userId, int $days = 30): string
+    {
+        trusted_devices_ensure_table($pdo);
+        $token = bin2hex(random_bytes(32));
+        $hash = hash('sha256', $token);
+        $expires = date('Y-m-d H:i:s', time() + max(1, $days) * 86400);
+        $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+        $ip = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+        $stmt = $pdo->prepare("INSERT INTO trusted_devices (user_id, token_hash, user_agent, ip, expires_at) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$userId, $hash, $ua, $ip, $expires]);
+        return $token;
+    }
+}
+
+if (!function_exists('trusted_device_verify')) {
+    function trusted_device_verify(PDO $pdo, int $userId, string $token): bool
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return false;
+        }
+        try {
+            trusted_devices_ensure_table($pdo);
+            $hash = hash('sha256', $token);
+            $stmt = $pdo->prepare("SELECT 1 FROM trusted_devices WHERE user_id = ? AND token_hash = ? AND expires_at > NOW() LIMIT 1");
+            $stmt->execute([$userId, $hash]);
+            return (bool)$stmt->fetchColumn();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('trusted_devices_revoke_all')) {
+    function trusted_devices_revoke_all(PDO $pdo, int $userId): void
+    {
+        try {
+            trusted_devices_ensure_table($pdo);
+            $pdo->prepare("DELETE FROM trusted_devices WHERE user_id = ?")->execute([$userId]);
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+}
+
+if (!function_exists('trusted_device_cookie_options')) {
+    function trusted_device_cookie_options(int $days = 30): array
+    {
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        return [
+            'expires' => time() + max(1, $days) * 86400,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $secure,
+        ];
+    }
+}
