@@ -2773,7 +2773,21 @@ class MonitoringAgent:
 
         devices = []
         seen_udn = set()
+        seen_names = set()
         seen_ip = set()
+        pending_cdp = []
+
+        def push(device):
+            udn = device.get("udn") or ""
+            nm = (device.get("friendly_name") or "").strip().lower()
+            if not udn or udn in seen_udn:
+                return
+            if nm and nm in seen_names:
+                return
+            seen_udn.add(udn)
+            if nm:
+                seen_names.add(nm)
+            devices.append(device)
 
         # 1) Пассивный кеш → устройства (+ SNMP enrich если есть IP)
         with self._lldp_lock:
@@ -2786,16 +2800,12 @@ class MonitoringAgent:
                     info = lldp_mod.enrich_host(ip, info)
                 except Exception as e:
                     _log(f"LLDP enrich {ip}: {e}")
-            device = lldp_mod.device_from_lldp(info)
-            udn = device.get("udn") or ""
-            if udn and udn not in seen_udn:
-                seen_udn.add(udn)
-                devices.append(device)
+            push(lldp_mod.device_from_lldp(info))
 
         if not enabled:
             return devices
 
-        # 2) SNMP RemTable с известных хостов
+        # 2) SNMP RemTable с известных хостов + собственный host
         for host in self._get_known_hosts():
             try:
                 neighbors = lldp_mod.poll_remote_table(host)
@@ -2818,45 +2828,47 @@ class MonitoringAgent:
                     prev.update({k: v for k, v in info.items() if v not in (None, "", [])})
                     prev["seen_at"] = time.time()
                     self.lldp_cache[key] = prev
-                device = lldp_mod.device_from_lldp(info)
-                udn = device.get("udn") or ""
-                if udn and udn not in seen_udn:
-                    seen_udn.add(udn)
-                    devices.append(device)
+                push(lldp_mod.device_from_lldp(info))
 
             # Сам polled host как устройство (если отвечает на SNMP)
             try:
                 self_info = lldp_mod.enrich_host(host, {"source": f"snmp-target:{host}", "ip": host})
                 if self_info.get("ports") or self_info.get("sys_name"):
-                    device = lldp_mod.device_from_lldp(self_info)
-                    udn = device.get("udn") or ""
-                    if udn and udn not in seen_udn:
-                        seen_udn.add(udn)
-                        devices.append(device)
-                # CDP-соседи с management-IP (коммутаторы, роутеры) — тоже устройства
+                    push(lldp_mod.device_from_lldp(self_info))
+                # Собираем CDP-соседей с management-IP — обработаем после всех хостов
                 for nb in (self_info.get("cdp") or []):
                     nb_ip = str(nb.get("ip") or "").strip()
                     if not nb_ip or nb_ip in seen_ip:
                         continue
                     seen_ip.add(nb_ip)
                     self._cdp_hosts.add(nb_ip)
-                    try:
-                        nb_info = lldp_mod.enrich_host(nb_ip, {"source": f"cdp:{host}", "ip": nb_ip})
-                    except Exception:
-                        nb_info = {"source": f"cdp:{host}", "ip": nb_ip}
-                    if not nb_info.get("sys_name"):
-                        nb_info["sys_name"] = nb.get("device_id") or nb_ip
-                    if not nb_info.get("sys_desc"):
-                        nb_info["sys_desc"] = nb.get("platform") or ""
-                    nb_info["cdp_via"] = host
-                    nb_info["cdp_port"] = nb.get("device_port") or ""
-                    ndev = lldp_mod.device_from_lldp(nb_info)
-                    nudn = ndev.get("udn") or ""
-                    if nudn and nudn not in seen_udn:
-                        seen_udn.add(nudn)
-                        devices.append(ndev)
+                    pending_cdp.append({
+                        "ip": nb_ip,
+                        "name": str(nb.get("device_id") or "").strip(),
+                        "platform": str(nb.get("platform") or "").strip(),
+                        "via": host,
+                        "port": str(nb.get("device_port") or "").strip(),
+                    })
             except Exception:
                 pass
+
+        # 3) CDP-соседи (коммутаторы/роутеры) — добавляем тех, кого ещё нет по имени
+        for nb in pending_cdp:
+            nm = nb["name"].strip().lower()
+            if nm and nm in seen_names:
+                continue
+            nb_ip = nb["ip"]
+            try:
+                nb_info = lldp_mod.enrich_host(nb_ip, {"source": f"cdp:{nb['via']}", "ip": nb_ip})
+            except Exception:
+                nb_info = {"source": f"cdp:{nb['via']}", "ip": nb_ip}
+            if not nb_info.get("sys_name"):
+                nb_info["sys_name"] = nb["name"] or nb_ip
+            if not nb_info.get("sys_desc"):
+                nb_info["sys_desc"] = nb["platform"]
+            nb_info["cdp_via"] = nb["via"]
+            nb_info["cdp_port"] = nb["port"]
+            push(lldp_mod.device_from_lldp(nb_info))
 
         self._lldp_devices = list(devices)
         _log(f"LLDP poll produced {len(devices)} device(s), cache={len(self.lldp_cache)}")
