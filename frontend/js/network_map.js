@@ -220,6 +220,12 @@ const unclashLayer = (items, minGap, minX, maxX) => {
 
 const KIND_RANK = { wan: 0, core: 1, router: 2, switch: 3, ap: 3, server: 4, device: 4, subnet: 4 };
 
+const chunk = (arr, n) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out.length ? out : [[]];
+};
+
 const hierarchyLayout = (nodes, links, width, height) => {
     const saved = loadPositions();
 
@@ -247,28 +253,47 @@ const hierarchyLayout = (nodes, links, width, height) => {
         const r = rankOf(n);
         (ranks[r] ||= []).push(String(n.id));
     });
-    const maxRank = Math.max(ranks.length - 1, 1);
+    for (let r = 0; r < ranks.length; r++) if (!ranks[r]) ranks[r] = [];
 
-    const padX = 96;
-    const padY = 84;
+    const padX = width < 600 ? 44 : 96;
+    const padY = 80;
     const usableW = Math.max(width - padX * 2, 160);
-    const usableH = Math.max(height - padY * 2, 160);
+    const usableH = Math.max(height - padY * 2, 200);
+
+    // Сколько узлов влезает в ряд (с учётом ширины карточки ~120px)
+    const maxPerRow = Math.max(1, Math.floor(usableW / 150));
+    const totalRows = ranks.reduce((s, layer) => s + chunk(layer, maxPerRow).length, 0) || 1;
+    const rowGap = Math.max(118, Math.min(usableH / totalRows, 172));
+
+    const rankY = [];
+    let cursor = padY;
+    ranks.forEach((layer) => {
+        rankY.push(cursor);
+        cursor += chunk(layer, maxPerRow).length * rowGap;
+    });
 
     const pos = new Map();
-    ranks.forEach((layer, r) => {
-        if (!layer) return;
-        const y = padY + (r / maxRank) * usableH;
-        layer.forEach((id, i) => {
-            const x = layer.length === 1 ? width / 2 : padX + (i / (layer.length - 1)) * usableW;
-            pos.set(id, { x, y });
+    const placeRank = (layer, r) => {
+        chunk(layer, maxPerRow).forEach((row, ri) => {
+            const y = rankY[r] + ri * rowGap;
+            const gap = Math.max(120, usableW / Math.max(row.length - 1, 1));
+            const totalW = gap * (row.length - 1);
+            const startX = Math.max(padX, width / 2 - totalW / 2);
+            row.forEach((id, i) => {
+                pos.set(id, {
+                    x: row.length === 1 ? width / 2 : startX + i * gap,
+                    y,
+                });
+            });
         });
-    });
+    };
+
+    ranks.forEach((layer, r) => placeRank(layer, r));
 
     // Итерации barycenter: узел стремится к среднему X своих соседей
     for (let iter = 0; iter < 8; iter++) {
         ranks.forEach((layer, r) => {
-            if (!layer || !layer.length) return;
-            const y = padY + (r / maxRank) * usableH;
+            if (!layer.length) return;
             const desired = layer.map((id) => {
                 let sum = 0;
                 let cnt = 0;
@@ -282,16 +307,7 @@ const hierarchyLayout = (nodes, links, width, height) => {
                 .map((id, i) => ({ id, d: desired[i] }))
                 .sort((a, b) => a.d - b.d)
                 .map((it) => it.id);
-
-            const gap = Math.max(96, usableW / Math.max(order.length - 1, 1));
-            const totalW = gap * (order.length - 1);
-            const startX = Math.max(padX, width / 2 - totalW / 2);
-            order.forEach((id, i) => {
-                pos.set(id, {
-                    x: order.length === 1 ? width / 2 : startX + i * gap,
-                    y,
-                });
-            });
+            placeRank(order, r);
         });
     }
 
