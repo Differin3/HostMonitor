@@ -606,13 +606,16 @@ body.light .hm-nav-toggle:hover {
     position: relative;
     z-index: 1;
     min-width: 0;
+}
+
+.stat-card-content {
     flex: 1;
 }
 
 .stat-card-icon {
     border-radius: 14px;
     box-shadow: 0 0 18px rgba(59, 130, 246, 0.25);
-    flex-shrink: 0;
+    flex: 0 0 auto;
 }
 
 .stat-card-icon i,

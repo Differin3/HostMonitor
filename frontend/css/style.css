@@ -4184,3 +4184,17 @@ body.light .date-picker-footer {
 .processes-tabs .tab-content.active {
     display: block;
 }
+
+/* Иконка внутри поля не должна наезжать на текст ни в одном контейнере */
+.settings-section .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.settings-section .form-field .input-with-icon select,
+.ha-grid .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.ha-grid .form-field .input-with-icon select,
+.db-ha-panel .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.db-ha-panel .form-field .input-with-icon select,
+.login-card .ha-grid .input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.login-card .ha-grid .input-with-icon select,
+.input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.input-with-icon select {
+    padding-left: 42px;
+}
