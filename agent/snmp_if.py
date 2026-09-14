@@ -314,7 +314,6 @@ def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
         return []
     dev_port = walk_column(host, community, CDP_CACHE_BASE + ".7", timeout, limit=200)
     platform = walk_column(host, community, CDP_CACHE_BASE + ".8", timeout, limit=200)
-    if_idx = walk_column(host, community, CDP_CACHE_BASE + ".1", timeout, limit=200)
     names: Dict[str, Any] = {}
     try:
         names = walk_column(host, community, IF_DESCR, timeout, limit=200)
@@ -325,7 +324,8 @@ def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
         name = str(name or "").strip()
         if not name:
             continue
-        iface_idx = str(if_idx.get(idx, "") or "").split(".")[0]
+        # индекс cdpCacheTable = "<ifIndex>.<deviceIndex>"; локальный порт берём из ifIndex
+        iface_idx = str(idx).split(".")[0]
         out.append({
             "device_id": name,
             "device_port": str(dev_port.get(idx, "") or "").strip(),
