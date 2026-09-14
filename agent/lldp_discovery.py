@@ -137,6 +137,7 @@ def device_from_lldp(info: Dict[str, Any]) -> Dict[str, Any]:
             "local_port": info.get("local_port") or "",
             "chassis_id": info.get("chassis_raw") or mac,
             "sys_desc": desc,
+            "cdp": info.get("cdp") or [],
         },
     }
 
@@ -379,6 +380,12 @@ def enrich_host(host: str, base: Optional[Dict[str, Any]] = None) -> Dict[str, A
         ports = []
     if ports:
         info["ports"] = ports
+    try:
+        cdp = snmp_if.cdp_neighbors(host)
+    except Exception:
+        cdp = []
+    if cdp:
+        info["cdp"] = cdp
     info.setdefault("source", f"snmp:{host}")
     return info
 

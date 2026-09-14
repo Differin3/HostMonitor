@@ -11,6 +11,9 @@ IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 IF_OPER = "1.3.6.1.2.1.2.2.1.8"
 IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
 
+# CISCO-CDP-MIB cdpCacheTable (1.3.6.1.4.1.9.9.23.1.2.1.1)
+CDP_CACHE_BASE = "1.3.6.1.4.1.9.9.23.1.2.1.1"
+
 ETHER_TYPES = {6, 7, 26, 62, 69, 117}
 SKIP_TYPES = {1, 24, 23, 53, 131, 135, 136, 161}
 SKIP_PREFIXES = (
@@ -294,3 +297,42 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
         if len(ports) >= 64:
             break
     return ports
+
+
+def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
+    """Соседи по CISCO-CDP-MIB (cdpCacheTable): имя устройства, порт, платформа.
+
+    Cisco-роутеры шлют CDP по умолчанию, поэтому это даёт реальные линки
+    между устройствами даже когда LLDP не поддерживается образом.
+    """
+    if not host or os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return []
+    community = os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+    dev_id = walk_column(host, community, CDP_CACHE_BASE + ".6", timeout, limit=200)
+    if not dev_id:
+        return []
+    dev_port = walk_column(host, community, CDP_CACHE_BASE + ".7", timeout, limit=200)
+    platform = walk_column(host, community, CDP_CACHE_BASE + ".8", timeout, limit=200)
+    if_idx = walk_column(host, community, CDP_CACHE_BASE + ".1", timeout, limit=200)
+    names: Dict[str, Any] = {}
+    try:
+        names = walk_column(host, community, IF_DESCR, timeout, limit=200)
+    except Exception:
+        names = {}
+    out: List[Dict[str, Any]] = []
+    for idx, name in dev_id.items():
+        name = str(name or "").strip()
+        if not name:
+            continue
+        iface_idx = str(if_idx.get(idx, "") or "").split(".")[0]
+        out.append({
+            "device_id": name,
+            "device_port": str(dev_port.get(idx, "") or "").strip(),
+            "platform": str(platform.get(idx, "") or "").strip(),
+            "if_index": iface_idx,
+            "local_port": str(names.get(iface_idx, "") or "").strip(),
+        })
+        if len(out) >= 64:
+            break
+    return out

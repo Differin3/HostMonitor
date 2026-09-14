@@ -569,6 +569,7 @@ try {
             'wan_link' => $d['wan_link'] ?? '',
             'connection_status' => $d['connection_status'] ?? '',
             'dhcp_ips' => $dhcpIps,
+            'cdp' => is_array($extra['cdp'] ?? null) ? $extra['cdp'] : [],
             'detail' => trim(($d['manufacturer'] ?? '') . ' ' . ($d['model_name'] ?? '')),
         ]);
     }
@@ -617,6 +618,39 @@ try {
             }
         }
         $addLink($uplink, $dev['id'], $label, $kind);
+    }
+
+    // Связи между устройствами по данным CDP (CISCO-CDP-MIB)
+    $nameIndex = [];
+    foreach ($graph as $nid => $n) {
+        $nm = strtolower(trim((string)($n['name'] ?? '')));
+        if ($nm === '') {
+            continue;
+        }
+        $nameIndex[$nm] = $nid;
+        if (strpos($nm, '.') !== false) {
+            $nameIndex[explode('.', $nm, 2)[0]] = $nid;
+        }
+    }
+    foreach ($graph as $nid => $n) {
+        foreach (($n['cdp'] ?? []) as $nb) {
+            if (!is_array($nb)) {
+                continue;
+            }
+            $peer = strtolower(trim((string)($nb['device_id'] ?? '')));
+            if ($peer === '') {
+                continue;
+            }
+            $peerKey = strpos($peer, '.') !== false ? explode('.', $peer, 2)[0] : $peer;
+            $pid = $nameIndex[$peer] ?? $nameIndex[$peerKey] ?? null;
+            if (!$pid || $pid === $nid) {
+                continue;
+            }
+            $lp = trim((string)($nb['local_port'] ?? ''));
+            $rp = trim((string)($nb['device_port'] ?? ''));
+            $label = ($lp !== '' ? $lp : 'CDP') . ($rp !== '' ? ' ↔ ' . $rp : '');
+            $addLink($nid, $pid, $label, 'lan');
+        }
     }
 
     foreach ($graph as $dev) {
