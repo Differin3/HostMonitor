@@ -139,6 +139,7 @@ def device_from_lldp(info: Dict[str, Any]) -> Dict[str, Any]:
             "sys_desc": desc,
             "cdp": info.get("cdp") or [],
             "ips": info.get("ips") or [],
+            "traffic": info.get("traffic") or {},
         },
     }
 
@@ -381,6 +382,12 @@ def enrich_host(host: str, base: Optional[Dict[str, Any]] = None) -> Dict[str, A
         ports = []
     if ports:
         info["ports"] = ports
+        info["traffic"] = {
+            "rx_bps": sum(int(p.get("rx_bps") or 0) for p in ports),
+            "tx_bps": sum(int(p.get("tx_bps") or 0) for p in ports),
+            "rx_bytes": sum(int(p.get("rx_bytes") or 0) for p in ports),
+            "tx_bytes": sum(int(p.get("tx_bytes") or 0) for p in ports),
+        }
     try:
         cdp = snmp_if.cdp_neighbors(host)
     except Exception:

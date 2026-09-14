@@ -320,6 +320,8 @@ def collect_ports(host: str) -> List[Dict[str, Any]]:
             "index": idx,
             "rx_bps": rx_bps,
             "tx_bps": tx_bps,
+            "rx_bytes": rx,
+            "tx_bytes": tx,
         })
         if len(ports) >= 64:
             break

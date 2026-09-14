@@ -434,6 +434,24 @@ try {
             } elseif (!is_array($device['ports'] ?? null)) {
                 $device['ports'] = [];
             }
+            // SNMP/LLDP-устройства: агрегированный трафик по портам (агент кладёт в extra.traffic)
+            $tr = $device['extra']['traffic'] ?? null;
+            if (is_array($tr)) {
+                if ((int)($device['bytes_received'] ?? 0) <= 0) {
+                    $device['bytes_received'] = (int)($tr['rx_bytes'] ?? 0);
+                }
+                if ((int)($device['bytes_sent'] ?? 0) <= 0) {
+                    $device['bytes_sent'] = (int)($tr['tx_bytes'] ?? 0);
+                }
+                $device['rate_down_bps'] = (int)($tr['rx_bps'] ?? 0);
+                $device['rate_up_bps'] = (int)($tr['tx_bps'] ?? 0);
+                if ((int)($device['link_bitrate_down'] ?? 0) <= 0) {
+                    $device['link_bitrate_down'] = (int)($tr['rx_bps'] ?? 0) * 8;
+                }
+                if ((int)($device['link_bitrate_up'] ?? 0) <= 0) {
+                    $device['link_bitrate_up'] = (int)($tr['tx_bps'] ?? 0) * 8;
+                }
+            }
             $dt = (string)($device['device_type'] ?? '');
             if (preg_match('/WANDevice|WANConnectionDevice|LANDevice/i', $dt) && (int)($device['is_igd'] ?? 0) !== 1) {
                 continue;
