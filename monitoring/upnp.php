@@ -105,5 +105,15 @@ render_layout_start(
             </form>
         </div>
     </div>
+
+    <div class="modal hidden" id="upnp-details-modal">
+        <div class="modal-dialog" style="max-width: 680px;">
+            <div class="modal-header">
+                <h2 id="upnp-details-title">Устройство</h2>
+                <button class="modal-close" type="button" id="upnp-details-close"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" id="upnp-details-body"></div>
+        </div>
+    </div>
 <?php
 render_layout_end(['/frontend/js/net-gear.js', '/frontend/js/upnp.js']);

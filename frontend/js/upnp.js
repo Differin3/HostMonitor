@@ -15,6 +15,10 @@ const els = {
     onlineCount: document.getElementById('upnp-online-count'),
     modal: document.getElementById('upnp-map-modal'),
     form: document.getElementById('upnp-map-form'),
+    detailsModal: document.getElementById('upnp-details-modal'),
+    detailsBody: document.getElementById('upnp-details-body'),
+    detailsTitle: document.getElementById('upnp-details-title'),
+    detailsClose: document.getElementById('upnp-details-close'),
 };
 
 const escapeHtml = (value) => String(value ?? '')
@@ -38,6 +42,18 @@ const formatBitrate = (n) => {
     if (v >= 1000000) return `${(v / 1000000).toFixed(0)} Мбит/с`;
     if (v >= 1000) return `${(v / 1000).toFixed(0)} Кбит/с`;
     return `${v} бит/с`;
+};
+
+const formatUptime = (sec) => {
+    const s = Number(sec) || 0;
+    if (!s) return '';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d) return `${d}д ${h}ч`;
+    if (h) return `${h}ч ${m}м`;
+    if (m) return `${m}м`;
+    return `${s}с`;
 };
 
 const deviceIcon = (device) => {
@@ -177,6 +193,96 @@ function closeModal() {
     setTimeout(() => els.modal.classList.add('hidden'), 180);
 }
 
+const emptyRow = (colspan, text) => `<tr><td colspan="${colspan}" class="text-muted">${text}</td></tr>`;
+
+function openDetails(d) {
+    if (!els.detailsModal || !els.detailsBody) return;
+    els.detailsTitle.textContent = d.friendly_name || d.model_name || d.udn || 'Устройство';
+
+    const vendor = window.HostMonitorGear ? HostMonitorGear.detectVendor(d) : '';
+    const kind = window.HostMonitorGear ? HostMonitorGear.detectKind(d) : '';
+    const online = d.online;
+    const ports = Array.isArray(d.ports) ? d.ports : [];
+    const services = d.services || [];
+    const maps = d.port_mappings || [];
+    const extra = (d.extra && typeof d.extra === 'object') ? d.extra : {};
+    const cdp = Array.isArray(extra.cdp) ? extra.cdp : [];
+
+    const kv = (label, value) => value ? `<div><span>${label}</span><b>${escapeHtml(value)}</b></div>` : '';
+
+    const portRows = ports.map((p) => `
+        <tr>
+            <td>${escapeHtml(p.name)}</td>
+            <td>${escapeHtml(p.type || '')}</td>
+            <td>${p.up ? '<span class="status status-online">up</span>' : '<span class="status status-offline">down</span>'}</td>
+            <td>${p.speed ? `${p.speed} Мбит/с` : '—'}</td>
+            <td>${formatBitrate(Number(p.rx_bps || 0) * 8)}</td>
+            <td>${formatBitrate(Number(p.tx_bps || 0) * 8)}</td>
+        </tr>`).join('');
+
+    const cdpRows = cdp.map((n) => `
+        <tr>
+            <td>${escapeHtml(n.device_id || '')}</td>
+            <td>${escapeHtml(n.local_port || '')}</td>
+            <td>${escapeHtml(n.device_port || '')}</td>
+            <td>${escapeHtml(n.platform || '')}</td>
+            <td>${escapeHtml(n.ip || '')}</td>
+        </tr>`).join('');
+
+    const svcRows = services.map((s) => `
+        <tr>
+            <td>${escapeHtml(s.service_type || '')}</td>
+            <td>${escapeHtml(s.control_url || '')}</td>
+        </tr>`).join('');
+
+    const mapRows = maps.map((m) => `
+        <tr>
+            <td>${escapeHtml(m.protocol)}</td>
+            <td>${escapeHtml(m.external_port)}</td>
+            <td>${escapeHtml(m.internal_client)}:${escapeHtml(m.internal_port)}</td>
+            <td>${escapeHtml(m.description || '')}</td>
+        </tr>`).join('');
+
+    const section = (title, tableHtml, colspan, empty) => `
+        <h4>${title}</h4>
+        <div class="table-container compact-table">
+            <table><tbody>${tableHtml || emptyRow(colspan, empty)}</tbody></table>
+        </div>`;
+
+    els.detailsBody.innerHTML = `
+        <div class="upnp-details-kv">
+            ${kv('Статус', online ? 'online' : 'offline')}
+            ${kv('Тип', kind)}
+            ${kv('Вендор', vendor)}
+            ${kv('Производитель', d.manufacturer)}
+            ${kv('Модель', d.model_name || d.model_number)}
+            ${kv('Serial', d.serial_number)}
+            ${kv('Хост', d.host)}
+            ${kv('WAN', d.wan_ip)}
+            ${kv('Соединение', d.connection_status)}
+            ${kv('Uptime', formatUptime(d.uptime))}
+            ${kv('ПО', d.software)}
+            ${kv('HW', d.hardware_version)}
+            ${kv('Нода-источник', d.node_name)}
+        </div>
+        ${section('Порты', `
+            <tr><th>Порт</th><th>Тип</th><th>Статус</th><th>Скорость</th><th>↓</th><th>↑</th></tr>${portRows}`, 6, 'нет данных по портам')}
+        ${cdpRows ? section('Соседи (CDP)', `<tr><th>Устройство</th><th>Локальный порт</th><th>Порт соседа</th><th>Платформа</th><th>IP</th></tr>${cdpRows}`, 5, 'нет соседей') : ''}
+        ${svcRows ? section('Сервисы', `<tr><th>Тип сервиса</th><th>Control URL</th></tr>${svcRows}`, 2, 'нет сервисов') : ''}
+        ${mapRows ? section('Проброс портов', `<tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th></tr>${mapRows}`, 4, 'Нет port mapping') : ''}
+    `;
+
+    els.detailsModal.classList.remove('hidden');
+    els.detailsModal.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeDetails() {
+    if (!els.detailsModal) return;
+    els.detailsModal.classList.remove('active');
+    setTimeout(() => els.detailsModal.classList.add('hidden'), 180);
+}
+
 els.vendorFilter?.addEventListener('change', render);
 els.search?.addEventListener('input', render);
 els.nodeFilter?.addEventListener('change', render);
@@ -216,27 +322,44 @@ els.grid?.addEventListener('click', async (event) => {
         openModal(addBtn.getAttribute('data-add-map'));
         return;
     }
-    const delBtn = event.target.closest('[data-del-map]');
-    if (!delBtn) return;
-    const ok = await window.showConfirm('Удалить port mapping?', 'UPnP', 'danger');
-    if (!ok) return;
-    try {
-        await fetchJson(`${API_BASE}/upnp.php?action=delete-mapping`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                device_id: Number(delBtn.dataset.id),
-                external_port: Number(delBtn.dataset.port),
-                protocol: delBtn.dataset.proto,
-            }),
-        });
-        window.showToast?.('Команда удаления отправлена агенту', 'success');
-    } catch (e) {
-        window.showToast?.(e.message, 'error');
+    const detailsBtn = event.target.closest('[data-details]');
+    if (detailsBtn) {
+        const d = allDevices.find((x) => String(x.id) === String(detailsBtn.getAttribute('data-details')));
+        if (d) openDetails(d);
+        return;
     }
+    const delBtn = event.target.closest('[data-del-map]');
+    if (delBtn) {
+        const ok = await window.showConfirm('Удалить port mapping?', 'UPnP', 'danger');
+        if (!ok) return;
+        try {
+            await fetchJson(`${API_BASE}/upnp.php?action=delete-mapping`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: Number(delBtn.dataset.id),
+                    external_port: Number(delBtn.dataset.port),
+                    protocol: delBtn.dataset.proto,
+                }),
+            });
+            window.showToast?.('Команда удаления отправлена агенту', 'success');
+        } catch (e) {
+            window.showToast?.(e.message, 'error');
+        }
+        return;
+    }
+    // Клик по карточке открывает детали (кроме кнопок/таблиц)
+    if (event.target.closest('button, a, input, select, .table-container')) return;
+    const card = event.target.closest('.gear-card, .card');
+    if (!card) return;
+    const id = card.getAttribute('data-device-id');
+    if (id == null || id === '') return;
+    const d = allDevices.find((x) => String(x.id) === String(id));
+    if (d) openDetails(d);
 });
 
 document.getElementById('upnp-map-close')?.addEventListener('click', closeModal);
+els.detailsClose?.addEventListener('click', closeDetails);
 els.form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(els.form);

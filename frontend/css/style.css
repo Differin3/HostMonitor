@@ -4198,3 +4198,45 @@ body.light .date-picker-footer {
 .input-with-icon select {
     padding-left: 42px;
 }
+
+/* ——— UPnP: интерактивные плашки и окно деталей ——— */
+.upnp-details-kv {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+    margin-bottom: 14px;
+}
+
+.upnp-details-kv > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.upnp-details-kv span {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.upnp-details-kv b {
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.upnp-details h4 {
+    margin: 14px 0 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.gear-card {
+    cursor: pointer;
+}
+
+@media (max-width: 820px) {
+    .upnp-details-kv {
+        grid-template-columns: 1fr;
+    }
+}

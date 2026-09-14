@@ -375,7 +375,7 @@
                 </tr>
             `).join('');
             return `
-                <div class="card gear-card vendor-${vendor}" data-vendor="${vendor}" data-kind="${kind}">
+                <div class="card gear-card vendor-${vendor}" data-vendor="${vendor}" data-kind="${kind}" data-device-id="${device.id || ''}" data-udn="${escapeHtml(device.udn || '')}">
                     ${face}
                     <div class="card-header">
                         <div class="card-title">
@@ -391,7 +391,10 @@
                     <div class="info-row"><i data-lucide="plug"></i><span>${escapeHtml(portsLine)}</span></div>
                     ${extraRows}
                     <div class="gear-pills">${services.map((s) => `<span class="pill">${s}</span>`).join('') || '<span class="text-muted">нет сервисов</span>'}</div>
-                    ${device.node_id ? `<button class="primary" data-add-map="${device.id}"><i data-lucide="plus"></i> Проброс порта</button>` : ''}
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn-outline" type="button" data-details="${device.id}"><i data-lucide="info"></i> Подробнее</button>
+                        ${device.node_id ? `<button class="primary" data-add-map="${device.id}"><i data-lucide="plus"></i> Проброс порта</button>` : ''}
+                    </div>
                     <div class="table-container compact-table" style="margin-top:12px; max-height:220px;">
                         <table>
                             <thead><tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th><th></th></tr></thead>
