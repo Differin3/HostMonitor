@@ -218,131 +218,73 @@ const unclashLayer = (items, minGap, minX, maxX) => {
     return items;
 };
 
-const KIND_RANK = { wan: 0, core: 1, router: 2, switch: 3, ap: 3, server: 4, device: 4, subnet: 4 };
-
 const hierarchyLayout = (nodes, links, width, height) => {
     const saved = loadPositions();
-    const ids = nodes.map((n) => String(n.id));
-    const index = new Map(ids.map((id, i) => [id, i]));
-    const n = nodes.length;
-    if (!n) return nodes;
-
-    // Детерминированная круговая инициализация (без random — карта стабильна)
-    const pos = ids.map((_, i) => {
-        const a = (i / Math.max(n, 1)) * Math.PI * 2;
-        const r = Math.min(width, height) * 0.30;
-        return { x: width / 2 + Math.cos(a) * r, y: height / 2 + Math.sin(a) * r };
+    const children = {};
+    const parentOf = {};
+    (links || []).forEach((link) => {
+        const from = String(link.from);
+        const to = String(link.to);
+        (children[from] ||= []).push(to);
+        if (!parentOf[to]) parentOf[to] = from;
     });
 
-    const edges = [];
-    (links || []).forEach((l) => {
-        const a = index.get(String(l.from));
-        const b = index.get(String(l.to));
-        if (a != null && b != null && a !== b) edges.push([a, b]);
-    });
-
-    const wanIdx = ids.indexOf('wan');
-    const minDist = width < 600 ? 108 : 148;
-    const area = Math.max(width * height, 1);
-    const k = Math.sqrt(area / Math.max(n, 1)) * 0.62;
-
-    let temp = Math.max(width, height) / 12;
-    const iterations = 340;
-
-    for (let it = 0; it < iterations; it++) {
-        const disp = Array.from({ length: n }, () => ({ x: 0, y: 0 }));
-
-        // Отталкивание (усиливается вблизи — против наложений)
-        for (let i = 0; i < n; i++) {
-            for (let j = i + 1; j < n; j++) {
-                const dx = pos[i].x - pos[j].x;
-                const dy = pos[i].y - pos[j].y;
-                const dist = Math.hypot(dx, dy) || 0.01;
-                const rep = (k * k) / dist + (dist < minDist ? (minDist - dist) * 5 : 0);
-                const fx = (dx / dist) * rep;
-                const fy = (dy / dist) * rep;
-                disp[i].x += fx; disp[i].y += fy;
-                disp[j].x -= fx; disp[j].y -= fy;
-            }
-        }
-
-        // Притяжение по связям
-        for (let e = 0; e < edges.length; e++) {
-            const a = edges[e][0];
-            const b = edges[e][1];
-            const dx = pos[a].x - pos[b].x;
-            const dy = pos[a].y - pos[b].y;
-            const dist = Math.hypot(dx, dy) || 0.01;
-            const att = (dist * dist) / k;
-            const fx = (dx / dist) * att;
-            const fy = (dy / dist) * att;
-            disp[a].x -= fx; disp[a].y -= fy;
-            disp[b].x += fx; disp[b].y += fy;
-        }
-
-        // Гравитация к центру
-        for (let i = 0; i < n; i++) {
-            disp[i].x += (width / 2 - pos[i].x) * 0.05;
-            disp[i].y += (height / 2 - pos[i].y) * 0.05;
-        }
-
-        // Сдвиг с остыванием
-        for (let i = 0; i < n; i++) {
-            if (i === wanIdx) continue;
-            const d = Math.hypot(disp[i].x, disp[i].y) || 0.01;
-            const lim = Math.min(d, temp);
-            pos[i].x += (disp[i].x / d) * lim;
-            pos[i].y += (disp[i].y / d) * lim;
-        }
-        temp *= 0.985;
-    }
-
-    // Разведение наложений
-    for (let pass = 0; pass < 60; pass++) {
-        let moved = false;
-        for (let i = 0; i < n; i++) {
-            for (let j = i + 1; j < n; j++) {
-                const dx = pos[i].x - pos[j].x;
-                const dy = pos[i].y - pos[j].y;
-                const dist = Math.hypot(dx, dy) || 0.01;
-                if (dist < minDist) {
-                    const push = (minDist - dist) / 2 + 0.5;
-                    const ux = dx / dist;
-                    const uy = dy / dist;
-                    if (i !== wanIdx) { pos[i].x += ux * push; pos[i].y += uy * push; }
-                    if (j !== wanIdx) { pos[j].x -= ux * push; pos[j].y -= uy * push; }
-                    moved = true;
-                }
-            }
-        }
-        if (!moved) break;
-    }
-
-    // Центрируем по видимой области (масштаб не трогаем — карта панорамируется)
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    pos.forEach((p) => {
-        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-    });
-    const shiftX = width / 2 - (minX + maxX) / 2;
-    const shiftY = height / 2 - (minY + maxY) / 2;
-    pos.forEach((p) => { p.x += shiftX; p.y += shiftY; });
-
-    // WAN — сверху по центру (после центрирования)
-    if (wanIdx >= 0) {
-        pos[wanIdx] = { x: width / 2, y: 70 };
-    }
-
-    return nodes.map((node, i) => {
+    const layers = [];
+    const visited = new Set();
+    const walk = (id, depth) => {
+        if (visited.has(id)) return;
+        visited.add(id);
+        (layers[depth] ||= []).push(id);
+        (children[id] || []).forEach((cid) => walk(cid, depth + 1));
+    };
+    walk('wan', 0);
+    nodes.forEach((node) => {
         const id = String(node.id);
-        const custom = saved[node.id] ?? saved[id];
+        if (!visited.has(id)) walk(id, Math.max(layers.length, 1));
+    });
+
+    const padX = 118;
+    const padY = 92;
+    const minGap = 168;
+    const usableH = Math.max(height - padY * 2, 200);
+    const maxDepth = Math.max(layers.length - 1, 1);
+    const xs = {};
+
+    layers.forEach((layer, depth) => {
+        const y = padY + (depth / maxDepth) * usableH;
+        const groups = new Map();
+        layer.forEach((id) => {
+            const parent = parentOf[id] || `__root_${depth}`;
+            if (!groups.has(parent)) groups.set(parent, []);
+            groups.get(parent).push(id);
+        });
+        const items = [];
+        groups.forEach((siblings, parent) => {
+            const parentX = xs[parent] != null ? xs[parent] : width / 2;
+            const spread = Math.max(siblings.length - 1, 0) * minGap;
+            siblings.forEach((id, si) => {
+                items.push({
+                    id,
+                    x: siblings.length === 1 ? parentX : parentX - spread / 2 + si * minGap,
+                });
+            });
+        });
+        unclashLayer(items, minGap, padX, width - padX).forEach((it) => {
+            xs[it.id] = it.x;
+            const node = nodes.find((n) => String(n.id) === it.id);
+            if (node) {
+                node._lx = it.x;
+                node._ly = y;
+            }
+        });
+    });
+
+    return nodes.map((node) => {
+        const custom = saved[node.id];
         if (custom && Number.isFinite(custom.x) && Number.isFinite(custom.y)) {
             return { ...node, x: custom.x, y: custom.y };
         }
-        return { ...node, x: pos[i].x, y: pos[i].y };
+        return { ...node, x: node._lx ?? width / 2, y: node._ly ?? height / 2 };
     });
 };
 
@@ -583,9 +525,7 @@ const drawLinks = () => {
             cy: String(b.y),
             r: '3.5',
         }));
-        // Подписи связей показываем только у выбранного узла — иначе «каша» на плотном графе
-        const showLabel = link.from === state.selectedId || link.to === state.selectedId;
-        if (link.label && showLabel) {
+        if (link.label) {
             const text = svgEl('text', {
                 class: 'netmap-llabel',
                 x: String(mx),
@@ -613,45 +553,9 @@ const drawLinks = () => {
 };
 
 const applyPan = () => {
-    const t = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+    const t = `translate(${state.panX}px, ${state.panY}px)`;
     if (els.nodes) els.nodes.style.transform = t;
     if (els.links) els.links.style.transform = t;
-};
-
-const zoomBy = (factor, anchorX, anchorY) => {
-    const { width, height } = stageSize();
-    const ax = anchorX == null ? width / 2 : anchorX;
-    const ay = anchorY == null ? height / 2 : anchorY;
-    const old = state.scale || 1;
-    const next = Math.max(0.2, Math.min(3.5, old * factor));
-    if (next === old) return;
-    const cx = (ax - state.panX) / old;
-    const cy = (ay - state.panY) / old;
-    state.scale = next;
-    state.panX = ax - cx * next;
-    state.panY = ay - cy * next;
-    applyPan();
-};
-
-const fitView = () => {
-    if (!state.nodes.length) return;
-    const { width, height } = stageSize();
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    state.nodes.forEach((n) => {
-        minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
-        minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
-    });
-    const pad = 96;
-    const bw = Math.max(maxX - minX, 1);
-    const bh = Math.max(maxY - minY, 1);
-    let s = Math.min((width - pad * 2) / bw, (height - pad * 2) / bh, 1.25);
-    if (!Number.isFinite(s) || s <= 0) s = 1;
-    state.scale = s;
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    state.panX = width / 2 - cx * s;
-    state.panY = height / 2 - cy * s;
-    applyPan();
 };
 
 const syncPacketPause = () => {
@@ -798,7 +702,6 @@ const load = async (silent = false) => {
         resetEmptyCopy();
         state.loading = false;
         render();
-        if (!silent) fitView();
     } catch (error) {
         console.error('Карта сети:', error);
         if (els.stats && !state.booted) {
@@ -843,35 +746,10 @@ if (els.stage) {
         return rect.width > 8 && rect.height > 8;
     };
 
-    const activePointers = new Map();
-    let pinch = null;
-
-    const endGestures = () => {
-        state.dragging = null;
-        state.panning = null;
-        els.stage.classList.remove('is-panning');
-    };
-
     els.stage.addEventListener('pointerdown', (event) => {
         if (!stageVisible()) return;
-        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-
-        // Два пальца — pinch-zoom
-        if (activePointers.size === 2) {
-            endGestures();
-            const [a, b] = [...activePointers.values()];
-            pinch = {
-                dist: Math.hypot(a.x - b.x, a.y - b.y),
-                cx: (a.x + b.x) / 2,
-                cy: (a.y + b.y) / 2,
-                moved: false,
-            };
-            return;
-        }
-        if (activePointers.size > 2) return;
-
         const nodeEl = nodeFromEvent(event);
-        if (state.tool === 'pan' || (!nodeEl && (event.button === 0 || event.pointerType !== 'mouse'))) {
+        if (state.tool === 'pan' || (!nodeEl && event.button === 0)) {
             state.panning = { x: event.clientX - state.panX, y: event.clientY - state.panY };
             els.stage.classList.add('is-panning');
             return;
@@ -890,25 +768,6 @@ if (els.stage) {
     });
 
     window.addEventListener('pointermove', (event) => {
-        if (activePointers.has(event.pointerId)) {
-            activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        }
-
-        if (pinch && activePointers.size >= 2) {
-            const [a, b] = [...activePointers.values()];
-            const dist = Math.hypot(a.x - b.x, a.y - b.y);
-            if (pinch.dist > 0) {
-                const scale = dist / pinch.dist;
-                if (Math.abs(scale - 1) > 0.004) {
-                    const rect = els.stage.getBoundingClientRect();
-                    zoomBy(scale, (a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top);
-                    pinch.dist = dist;
-                    pinch.moved = true;
-                }
-            }
-            return;
-        }
-
         if (!stageVisible() && !state.panning && !state.dragging) return;
         if (state.panning) {
             state.panX = event.clientX - state.panning.x;
@@ -919,28 +778,17 @@ if (els.stage) {
         if (!state.dragging) return;
         const node = state.nodes.find((n) => String(n.id) === String(state.dragging.id));
         if (!node) return;
-        const sc = state.scale || 1;
-        node.x = state.dragging.ox + (event.clientX - state.dragging.dx) / sc;
-        node.y = state.dragging.oy + (event.clientY - state.dragging.dy) / sc;
+        node.x = state.dragging.ox + (event.clientX - state.dragging.dx);
+        node.y = state.dragging.oy + (event.clientY - state.dragging.dy);
         render({ geometry: true, panel: false });
     });
 
-    const finishPointer = (event) => {
-        if (event && activePointers.has(event.pointerId)) {
-            activePointers.delete(event.pointerId);
-        }
-        if (activePointers.size < 2) {
-            if (pinch && pinch.moved) persistLayout();
-            pinch = null;
-        }
-        if (activePointers.size === 0) {
-            if (state.dragging) persistLayout();
-            endGestures();
-        }
-    };
-
-    window.addEventListener('pointerup', finishPointer);
-    window.addEventListener('pointercancel', finishPointer);
+    window.addEventListener('pointerup', () => {
+        if (state.dragging) persistLayout();
+        state.dragging = null;
+        state.panning = null;
+        els.stage.classList.remove('is-panning');
+    });
 
     document.querySelectorAll('.netmap-tool[data-tool]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -961,19 +809,39 @@ if (els.stage) {
     document.getElementById('netmap-refresh')?.addEventListener('click', () => load());
     document.getElementById('netmap-fit')?.addEventListener('click', () => {
         localStorage.removeItem(POS_KEY);
+        state.panX = 0;
+        state.panY = 0;
         layoutFresh({ nodes: stripLayout(state.nodes), links: state.links });
         persistLayout();
         render();
-        fitView();
     });
     document.getElementById('netmap-reset')?.addEventListener('click', () => {
         localStorage.removeItem(POS_KEY);
+        state.panX = 0;
+        state.panY = 0;
         layoutFresh({ nodes: stripLayout(state.nodes), links: state.links });
         render();
-        fitView();
     });
-    document.getElementById('netmap-zoom-in')?.addEventListener('click', () => zoomBy(1.15));
-    document.getElementById('netmap-zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.15));
+    document.getElementById('netmap-zoom-in')?.addEventListener('click', () => {
+        const cx = (els.stage.getBoundingClientRect().width || 900) / 2;
+        const cy = (els.stage.getBoundingClientRect().height || 560) / 2;
+        state.nodes.forEach((node) => {
+            node.x = cx + (node.x - cx) * 1.12;
+            node.y = cy + (node.y - cy) * 1.12;
+        });
+        persistLayout();
+        render();
+    });
+    document.getElementById('netmap-zoom-out')?.addEventListener('click', () => {
+        const cx = (els.stage.getBoundingClientRect().width || 900) / 2;
+        const cy = (els.stage.getBoundingClientRect().height || 560) / 2;
+        state.nodes.forEach((node) => {
+            node.x = cx + (node.x - cx) / 1.12;
+            node.y = cy + (node.y - cy) / 1.12;
+        });
+        persistLayout();
+        render();
+    });
     document.getElementById('netmap-pause')?.addEventListener('click', (event) => {
         state.paused = !state.paused;
         event.currentTarget.classList.toggle('active', state.paused);
