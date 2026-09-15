@@ -1,0 +1,96 @@
+<?php
+// Проверка сессии и авторизации
+// Настройка сессий для PHP-CGI
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_only_cookies', '1');
+ini_set('session.cookie_samesite', 'Lax');
+if (php_sapi_name() !== 'cli' && (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') && (!isset($_SERVER['HTTP_X_FORWARDED_PROTO']) || $_SERVER['HTTP_X_FORWARDED_PROTO'] !== 'https')) {
+    ini_set('session.cookie_secure', '0');
+} else {
+    ini_set('session.cookie_secure', '1');
+}
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+// Generate CSRF token for session-based auth
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+require_once __DIR__ . '/database.php';
+
+if (db_needs_setup()) {
+    header('Location: setup.php');
+    exit;
+}
+
+if (db_is_configured()) {
+    $dbOk = false;
+    try {
+        $pdo = getDbConnection();
+        if ($pdo) {
+            $pdo->query('SELECT 1');
+            $dbOk = true;
+        }
+    } catch (Throwable $e) {
+        $dbOk = false;
+    }
+    if (!$dbOk) {
+        // Не пинговать primary+replica по 12с — страница и так уже без БД
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "База данных недоступна. Проверьте настройки подключения в data/db.local.php\n";
+        exit;
+    }
+}
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
+}
+
+$timeoutMin = (int)setting_get('session_timeout_minutes', '60');
+if ($timeoutMin < 5) {
+    $timeoutMin = 5;
+}
+if ($timeoutMin > 1440) {
+    $timeoutMin = 1440;
+}
+$last = (int)($_SESSION['last_activity'] ?? time());
+if ((time() - $last) > ($timeoutMin * 60)) {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], (bool)$p['secure'], (bool)$p['httponly']);
+    }
+    session_destroy();
+    header('Location: login.php?expired=1');
+    exit;
+}
+$_SESSION['last_activity'] = time();
+
+// Проверяем/обновляем запись сессии в БД (список сессий и «Выйти везде»)
+if (function_exists('session_touch')) {
+    try {
+        $pdoSess = getDbConnection();
+        if ($pdoSess && !session_touch($pdoSess, (int)$_SESSION['user_id'])) {
+            // Сессия отозвана (например, «Выйти везде» с другого устройства)
+            $_SESSION = [];
+            if (ini_get('session.use_cookies')) {
+                $p = session_get_cookie_params();
+                setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], (bool)$p['secure'], (bool)$p['httponly']);
+            }
+            session_destroy();
+            header('Location: login.php?expired=1');
+            exit;
+        }
+    } catch (Throwable $e) {
+        // БД недоступна — не выкидываем пользователя
+    }
+}
+
+// Важно: отпускаем file-lock сессии, иначе параллельные API/вкладки ждут до CGI timeout
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+

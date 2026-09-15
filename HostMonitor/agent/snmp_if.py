@@ -1,0 +1,460 @@
+"""Minimal SNMPv2c IF-MIB walker — physical ports and oper status."""
+from __future__ import annotations
+
+import os
+import socket
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
+IF_TYPE = "1.3.6.1.2.1.2.2.1.3"
+IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
+IF_OPER = "1.3.6.1.2.1.2.2.1.8"
+IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
+IF_HC_IN = "1.3.6.1.2.1.31.1.1.1.6"
+IF_HC_OUT = "1.3.6.1.2.1.31.1.1.1.10"
+IF_IN_OCTETS = "1.3.6.1.2.1.2.2.1.10"
+IF_OUT_OCTETS = "1.3.6.1.2.1.2.2.1.16"
+
+# Предыдущие счётчики интерфейсов для расчёта скорости: (host, idx) -> (ts, in, out)
+_prev_octets: Dict[Tuple[str, str], Tuple[float, int, int]] = {}
+
+# CISCO-CDP-MIB cdpCacheTable (1.3.6.1.4.1.9.9.23.1.2.1.1)
+CDP_CACHE_BASE = "1.3.6.1.4.1.9.9.23.1.2.1.1"
+
+# IP-MIB ipAddrTable
+IP_ADENT_ADDR = "1.3.6.1.2.1.4.20.1.1"
+IP_ADENT_NETMASK = "1.3.6.1.2.1.4.20.1.3"
+
+ETHER_TYPES = {6, 7, 26, 62, 69, 117}
+SKIP_TYPES = {1, 24, 23, 53, 131, 135, 136, 161}
+SKIP_PREFIXES = (
+    "lo", "loopback", "null", "vlan", "tunnel", "gre", "pptp", "l2tp",
+    "wg", "docker", "veth", "br-", "cni", "flannel", "calico", "kube",
+    "virbr", "docker0", "awdl", "llw", "utun", "anpi",
+)
+
+
+def _ber_len(n: int) -> bytes:
+    if n < 128:
+        return bytes([n])
+    raw = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(raw)]) + raw
+
+
+def _ber_int(n: int) -> bytes:
+    if n == 0:
+        body = b"\x00"
+    else:
+        length = max(1, (n.bit_length() + 8) // 8)
+        body = n.to_bytes(length, "big", signed=True)
+        if n > 0 and body[0] & 0x80:
+            body = b"\x00" + body
+    return b"\x02" + _ber_len(len(body)) + body
+
+
+def _ber_oid(oid: str) -> bytes:
+    parts = [int(p) for p in oid.strip(".").split(".") if p]
+    body = bytes([40 * parts[0] + parts[1]])
+    for part in parts[2:]:
+        if part < 128:
+            body += bytes([part])
+            continue
+        stack = [part & 0x7F]
+        part >>= 7
+        while part:
+            stack.append(0x80 | (part & 0x7F))
+            part >>= 7
+        body += bytes(reversed(stack))
+    return b"\x06" + _ber_len(len(body)) + body
+
+
+def _ber_octets(data: bytes) -> bytes:
+    return b"\x04" + _ber_len(len(data)) + data
+
+
+def _seq(tag: int, body: bytes) -> bytes:
+    return bytes([tag]) + _ber_len(len(body)) + body
+
+
+def _read_len(buf: bytes, i: int) -> Tuple[int, int]:
+    if i >= len(buf):
+        raise ValueError("truncated BER length")
+    first = buf[i]
+    i += 1
+    if first < 128:
+        return first, i
+    n = first & 0x7F
+    if n == 0 or i + n > len(buf):
+        raise ValueError("bad BER length")
+    return int.from_bytes(buf[i:i + n], "big"), i + n
+
+
+def _read_tlv(buf: bytes, i: int) -> Tuple[int, bytes, int]:
+    if i >= len(buf):
+        raise ValueError("truncated BER tag")
+    tag = buf[i]
+    length, j = _read_len(buf, i + 1)
+    if j + length > len(buf):
+        raise ValueError("truncated BER value")
+    return tag, buf[j:j + length], j + length
+
+
+def _decode_oid(body: bytes) -> str:
+    if not body:
+        return ""
+    first = body[0]
+    parts = [first // 40, first % 40]
+    acc = 0
+    for byte in body[1:]:
+        acc = (acc << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            parts.append(acc)
+            acc = 0
+    return ".".join(str(p) for p in parts)
+
+
+def _decode_int(body: bytes) -> int:
+    return int.from_bytes(body, "big", signed=True) if body else 0
+
+
+def _decode_value(tag: int, body: bytes) -> Any:
+    if tag == 0x40:  # IpAddress
+        return ".".join(str(b) for b in body) if len(body) == 4 else body.hex()
+    if tag == 0x02:
+        return _decode_int(body)
+    if tag in (0x41, 0x42, 0x43, 0x47):
+        return int.from_bytes(body, "big", signed=False) if body else 0
+    if tag == 0x46:
+        return int.from_bytes(body, "big", signed=False) if body else 0
+    if tag == 0x04:
+        try:
+            return body.decode("utf-8", errors="replace").strip("\x00")
+        except Exception:
+            return body.hex()
+    if tag == 0x06:
+        return _decode_oid(body)
+    if tag in (0x80, 0x81, 0x82, 0x05):
+        return None
+    return body
+
+
+def _find_varbind(buf: bytes) -> Optional[Tuple[str, Any]]:
+    i = 0
+    while i < len(buf):
+        try:
+            tag, body, nxt = _read_tlv(buf, i)
+        except (ValueError, IndexError):
+            return None
+        if tag & 0x20:
+            inner = _find_varbind(body)
+            if inner:
+                return inner
+            i = nxt
+            continue
+        if tag == 0x06:
+            oid = _decode_oid(body)
+            try:
+                vtag, vbody, _ = _read_tlv(buf, nxt)
+            except (ValueError, IndexError):
+                return None
+            return oid, _decode_value(vtag, vbody)
+        i = nxt
+    return None
+
+
+def _find_varbind_raw(buf: bytes) -> Optional[Tuple[str, int, bytes]]:
+    """Как _find_varbind, но возвращает сырое значение (tag, body) — нужно для IpAddress/octet."""
+    i = 0
+    while i < len(buf):
+        try:
+            tag, body, nxt = _read_tlv(buf, i)
+        except (ValueError, IndexError):
+            return None
+        if tag & 0x20:
+            inner = _find_varbind_raw(body)
+            if inner:
+                return inner
+            i = nxt
+            continue
+        if tag == 0x06:
+            oid = _decode_oid(body)
+            try:
+                vtag, vbody, _ = _read_tlv(buf, nxt)
+            except (ValueError, IndexError):
+                return None
+            return oid, vtag, vbody
+        i = nxt
+    return None
+
+
+def walk_column_raw(host: str, community: str, column: str, timeout: float, limit: int = 80) -> Dict[str, bytes]:
+    out: Dict[str, bytes] = {}
+    current = column
+    prefix = column + "."
+    for req_id in range(1, limit + 1):
+        raw = _udp(host, _getnext_pdu(community, current, req_id), timeout)
+        if not raw:
+            break
+        parsed = _find_varbind_raw(raw)
+        if not parsed:
+            break
+        oid, _vtag, vbody = parsed
+        if not oid.startswith(prefix):
+            break
+        if oid == current:
+            break
+        out[oid[len(prefix):]] = vbody
+        current = oid
+    return out
+
+
+def _getnext_pdu(community: str, oid: str, req_id: int) -> bytes:
+    varbind = _seq(0x30, _ber_oid(oid) + b"\x05\x00")
+    pdu = _seq(
+        0xA1,
+        _ber_int(req_id) + _ber_int(0) + _ber_int(0) + _seq(0x30, varbind),
+    )
+    return _seq(0x30, _ber_int(1) + _ber_octets(community.encode("latin-1")) + pdu)
+
+
+def _get_pdu(community: str, oid: str, req_id: int) -> bytes:
+    varbind = _seq(0x30, _ber_oid(oid) + b"\x05\x00")
+    pdu = _seq(
+        0xA0,
+        _ber_int(req_id) + _ber_int(0) + _ber_int(0) + _seq(0x30, varbind),
+    )
+    return _seq(0x30, _ber_int(1) + _ber_octets(community.encode("latin-1")) + pdu)
+
+
+def _udp(host: str, payload: bytes, timeout: float) -> bytes:
+    # По медленным/потеряющим линкам (напр. туннели GNS3) один пакет может потеряться —
+    # делаем до 3 попыток, иначе волкеры счётчиков возвращают дырки/нули.
+    for _ in range(3):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.settimeout(timeout)
+            sock.sendto(payload, (host, 161))
+            data, _ = sock.recvfrom(65535)
+            return data
+        except OSError:
+            continue
+        finally:
+            sock.close()
+    return b""
+
+
+def walk_column(host: str, community: str, column: str, timeout: float, limit: int = 80) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    current = column
+    prefix = column + "."
+    for req_id in range(1, limit + 1):
+        raw = _udp(host, _getnext_pdu(community, current, req_id), timeout)
+        if not raw:
+            break
+        parsed = _find_varbind(raw)
+        if not parsed:
+            break
+        oid, value = parsed
+        if value is None or not oid.startswith(prefix):
+            break
+        if oid == current:
+            break
+        index = oid[len(prefix):]
+        out[index] = value
+        current = oid
+    return out
+
+
+def _classify(name: str, if_type: int, speed: int) -> Optional[str]:
+    low = name.lower()
+    if low == "lo" or low.startswith("loopback") or any(low.startswith(p) for p in SKIP_PREFIXES if p != "lo"):
+        return None
+    if if_type in SKIP_TYPES:
+        return None
+    if "sfp28" in low or "qsfp" in low:
+        return "xs"
+    if "sfp" in low:
+        return "sfp"
+    if if_type in ETHER_TYPES or any(x in low for x in ("ether", "eth", "gi0", "ge0", "fa0", "combo", "wan", "enp", "ens")):
+        return "copper"
+    if "gigabit" in low or "fastethernet" in low or low.startswith("ge") or low.startswith("gi"):
+        return "copper"
+    if speed >= 25000:
+        return "xs"
+    if speed >= 10000:
+        return "sfp"
+    return None
+
+
+def snmp_get(host: str, oid: str, community: Optional[str] = None, timeout: Optional[float] = None) -> Any:
+    """SNMPv2c GET одного OID. Возвращает значение или None."""
+    if not host or not oid:
+        return None
+    if os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return None
+    community = community or os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(timeout if timeout is not None else os.getenv("SNMP_TIMEOUT", "0.8"))
+    raw = _udp(host, _get_pdu(community, oid.lstrip("."), 1), timeout)
+    if not raw:
+        return None
+    parsed = _find_varbind(raw)
+    if not parsed:
+        return None
+    _, value = parsed
+    return value
+
+
+def snmp_sysinfo(host: str) -> Dict[str, str]:
+    """sysDescr / sysObjectID / sysName / sysLocation."""
+    out: Dict[str, str] = {}
+    mapping = {
+        "sysDescr": "1.3.6.1.2.1.1.1.0",
+        "sysObjectID": "1.3.6.1.2.1.1.2.0",
+        "sysName": "1.3.6.1.2.1.1.5.0",
+        "sysLocation": "1.3.6.1.2.1.1.6.0",
+    }
+    for key, oid in mapping.items():
+        try:
+            val = snmp_get(host, oid)
+        except Exception:
+            val = None
+        if val is None:
+            continue
+        out[key] = str(val).strip()
+    return out
+
+
+def collect_ports(host: str) -> List[Dict[str, Any]]:
+    if not host or os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return []
+    community = os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+    descr = walk_column(host, community, IF_DESCR, timeout)
+    if not descr:
+        return []
+    types = walk_column(host, community, IF_TYPE, timeout)
+    oper = walk_column(host, community, IF_OPER, timeout)
+    high = walk_column(host, community, IF_HIGH_SPEED, timeout)
+    speed_low = walk_column(host, community, IF_SPEED, timeout) if not high else {}
+    hc_in = walk_column(host, community, IF_HC_IN, timeout)
+    hc_out = walk_column(host, community, IF_HC_OUT, timeout)
+    # 32-битные счётчики как фолбэк (на части образов HC-счётчики заполнены не для всех портов)
+    in32 = walk_column(host, community, IF_IN_OCTETS, timeout)
+    out32 = walk_column(host, community, IF_OUT_OCTETS, timeout)
+    now = time.time()
+    ports: List[Dict[str, Any]] = []
+    for idx, name in descr.items():
+        name = str(name or "").strip()
+        if not name:
+            continue
+        if_type = int(types.get(idx) or 0)
+        speed = int(high.get(idx) or 0)
+        if not speed:
+            raw = int(speed_low.get(idx) or 0)
+            speed = raw // 1000000 if raw else 0
+        kind = _classify(name, if_type, speed)
+        if not kind:
+            continue
+        up = int(oper.get(idx) or 0) == 1
+        rx = int(hc_in.get(idx) or in32.get(idx) or 0)
+        tx = int(hc_out.get(idx) or out32.get(idx) or 0)
+        rx_bps = tx_bps = 0
+        prev = _prev_octets.get((host, idx))
+        if prev:
+            dt = now - prev[0]
+            if dt > 0:
+                drx = rx - prev[1]
+                dtx = tx - prev[2]
+                if drx < 0:
+                    drx += 0x100000000  # переполнение 32-бит
+                if dtx < 0:
+                    dtx += 0x100000000
+                rx_bps = max(0, int(drx / dt))
+                tx_bps = max(0, int(dtx / dt))
+        _prev_octets[(host, idx)] = (now, rx, tx)
+        ports.append({
+            "name": name,
+            "type": kind,
+            "up": up,
+            "speed": speed,
+            "index": idx,
+            "rx_bps": rx_bps,
+            "tx_bps": tx_bps,
+            "rx_bytes": rx,
+            "tx_bytes": tx,
+        })
+        if len(ports) >= 64:
+            break
+    return ports
+
+
+def cdp_neighbors(host: str) -> List[Dict[str, Any]]:
+    """Соседи по CISCO-CDP-MIB (cdpCacheTable): имя устройства, порт, платформа.
+
+    Cisco-роутеры шлют CDP по умолчанию, поэтому это даёт реальные линки
+    между устройствами даже когда LLDP не поддерживается образом.
+    """
+    if not host or os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return []
+    community = os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+    dev_id = walk_column(host, community, CDP_CACHE_BASE + ".6", timeout, limit=200)
+    if not dev_id:
+        return []
+    dev_port = walk_column(host, community, CDP_CACHE_BASE + ".7", timeout, limit=200)
+    platform = walk_column(host, community, CDP_CACHE_BASE + ".8", timeout, limit=200)
+    dev_addr = walk_column_raw(host, community, CDP_CACHE_BASE + ".4", timeout, limit=200)
+    addr_type = walk_column(host, community, CDP_CACHE_BASE + ".3", timeout, limit=200)
+    names: Dict[str, Any] = {}
+    try:
+        names = walk_column(host, community, IF_DESCR, timeout, limit=200)
+    except Exception:
+        names = {}
+    out: List[Dict[str, Any]] = []
+    for idx, name in dev_id.items():
+        name = str(name or "").strip()
+        if not name:
+            continue
+        # индекс cdpCacheTable = "<ifIndex>.<deviceIndex>"; локальный порт берём из ifIndex
+        iface_idx = str(idx).split(".")[0]
+        ip = ""
+        try:
+            if int(addr_type.get(idx, 0) or 0) == 1:
+                raw = dev_addr.get(idx)
+                if isinstance(raw, (bytes, bytearray)) and len(raw) == 4:
+                    ip = ".".join(str(x) for x in raw)
+        except Exception:
+            ip = ""
+        out.append({
+            "device_id": name,
+            "device_port": str(dev_port.get(idx, "") or "").strip(),
+            "platform": str(platform.get(idx, "") or "").strip(),
+            "if_index": iface_idx,
+            "local_port": str(names.get(iface_idx, "") or "").strip(),
+            "ip": ip,
+        })
+        if len(out) >= 64:
+            break
+    return out
+
+
+def snmp_ips(host: str) -> List[Dict[str, str]]:
+    """IPv4-адреса интерфейсов устройства (IP-MIB ipAddrTable)."""
+    if not host or os.getenv("SNMP_ENABLED", "true").lower() != "true":
+        return []
+    community = os.getenv("SNMP_COMMUNITY", "public")
+    timeout = float(os.getenv("SNMP_TIMEOUT", "0.8"))
+    addrs = walk_column(host, community, IP_ADENT_ADDR, timeout, limit=200)
+    if not addrs:
+        return []
+    masks = walk_column(host, community, IP_ADENT_NETMASK, timeout, limit=200)
+    out: List[Dict[str, str]] = []
+    for idx, val in addrs.items():
+        ip = str(val or "").strip()
+        if not ip:
+            continue
+        out.append({"ip": ip, "mask": str(masks.get(idx, "") or "").strip()})
+        if len(out) >= 64:
+            break
+    return out

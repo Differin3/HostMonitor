@@ -1,0 +1,948 @@
+<?php
+declare(strict_types=1);
+
+if (!function_exists('str_contains')) {
+    function str_contains(string $haystack, string $needle): bool
+    {
+        return $needle === '' || strpos($haystack, $needle) !== false;
+    }
+}
+
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(string $haystack, string $needle): bool
+    {
+        return $needle === '' || strncmp($haystack, $needle, strlen($needle)) === 0;
+    }
+}
+
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(string $haystack, string $needle): bool
+    {
+        if ($needle === '') {
+            return true;
+        }
+        $len = strlen($needle);
+        return $len <= strlen($haystack) && substr($haystack, -$len) === $needle;
+    }
+}
+
+if (!function_exists('json_error')) {
+    function json_error(string $message, int $status = 400): void
+    {
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        http_response_code($status);
+        echo json_encode(['error' => $message]);
+        exit;
+    }
+}
+
+if (!function_exists('json_exception')) {
+    function json_exception(Throwable $e, bool $expose = false): void
+    {
+        error_log('[monitoring-api] ' . $e->getMessage());
+        $msg = $expose ? $e->getMessage() : 'Internal server error';
+        json_error($msg, 500);
+    }
+}
+
+if (!function_exists('csrf_token_generate')) {
+    function csrf_token_generate(): string
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+}
+
+if (!function_exists('csrf_token_validate')) {
+    function csrf_token_validate(?string $token): bool
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $expected = $_SESSION['csrf_token'] ?? '';
+        if ($expected === '' || $token === '' || $token === null) {
+            return false;
+        }
+        return hash_equals($expected, $token);
+    }
+}
+
+if (!function_exists('require_csrf')) {
+    /**
+     * Validate CSRF token for session-authenticated POST/PUT/PATCH/DELETE requests.
+     * Skips validation for Bearer token auth (agent API).
+     */
+    function require_csrf(): void
+    {
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            return;
+        }
+
+        // If Bearer token auth is present, skip CSRF (agents don't use cookies)
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (empty($authHeader) && function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+        if (empty($authHeader)) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+        }
+        if ($authHeader && preg_match('/Bearer\s+/i', $authHeader)) {
+            return;
+        }
+
+        // Session-based auth requires CSRF token
+        $token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (empty($token)) {
+            $token = $_POST['csrf_token'] ?? '';
+        }
+        if (!csrf_token_validate($token)) {
+            json_error('CSRF token missing or invalid', 403);
+        }
+    }
+}
+
+if (!function_exists('log_auth_event')) {
+    function log_auth_event(PDO $pdo, $userId, $username, $eventType, $success, $message = null) {
+        try {
+            // Проверяем наличие таблицы auth_logs
+            $pdo->exec("CREATE TABLE IF NOT EXISTS auth_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT,
+                username VARCHAR(100),
+                ip_address VARCHAR(45),
+                event_type VARCHAR(20) NOT NULL,
+                success BOOLEAN DEFAULT FALSE,
+                message TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_event_type (event_type),
+                INDEX idx_timestamp (timestamp),
+                INDEX idx_ip_address (ip_address)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            
+            $ipAddress = client_ip() ?: 'unknown';
+            $stmt = $pdo->prepare("INSERT INTO auth_logs (user_id, username, ip_address, event_type, success, message) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$userId, $username, $ipAddress, $eventType, $success ? 1 : 0, $message]);
+        } catch (Exception $e) {
+            error_log("Error logging auth event: " . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('require_api_auth')) {
+    function require_api_auth(PDO $pdo): array
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $nodeInfo = null;
+        if (isset($_SESSION['user_id'])) {
+            $userId = (int)$_SESSION['user_id'];
+            // Validate CSRF for session-authenticated state-changing requests
+            require_csrf();
+            // Не держим session lock на время SQL/ответа — иначе другие вкладки виснут
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+            return ['user' => $userId, 'node' => null];
+        }
+
+        // Пробуем получить заголовок Authorization разными способами
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (empty($authHeader) && function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+        // Также пробуем через REDIRECT_HTTP_AUTHORIZATION (для некоторых конфигураций)
+        if (empty($authHeader)) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+        }
+        
+        if ($authHeader && preg_match('/Bearer\s+(.+)/i', $authHeader, $m)) {
+            $token = trim($m[1]);
+            
+            $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
+            $stmt->execute([$token]);
+            $nodeInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($nodeInfo) {
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    session_write_close();
+                }
+                return ['user' => null, 'node' => $nodeInfo];
+            }
+        } else {
+            error_log("[require_api_auth] No Authorization header found");
+        }
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+        json_error('Unauthorized', 401);
+    }
+}
+
+if (!function_exists('monitoring_base_path')) {
+    function monitoring_base_path(): string
+    {
+        // Проверяем конфигурацию
+        $config = require __DIR__ . '/config.php';
+        if (isset($config['base_path']) && !empty($config['base_path'])) {
+            return rtrim($config['base_path'], '/');
+        }
+        
+        // Автоопределение из SCRIPT_NAME
+        $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+        $dir = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+        return $dir === '/' ? '' : $dir;
+    }
+}
+
+if (!function_exists('monitoring_asset')) {
+    function monitoring_asset(string $path): string
+    {
+        // Если путь начинается с /frontend, используем абсолютный путь от корня
+        // Это нужно для XAMPP, где frontend находится в htdocs/frontend
+        if (strpos($path, '/frontend') === 0) {
+            return $path; // Абсолютный путь от корня сайта
+        }
+        
+        $base = monitoring_base_path();
+        return $base . $path;
+    }
+}
+
+if (!function_exists('monitoring_url')) {
+    function monitoring_url(string $path): string
+    {
+        $base = monitoring_base_path();
+        return $base . '/' . ltrim($path, '/');
+    }
+}
+
+if (!function_exists('node_heartbeat_timeout_sec')) {
+    /**
+     * Через сколько секунд без last_seen нода считается offline.
+     * Агент шлёт heartbeat каждые 15с; 90с ≈ 6 пропущенных heartbeats.
+     */
+    function node_heartbeat_timeout_sec(): int
+    {
+        return 90;
+    }
+}
+
+if (!function_exists('node_presence_from_last_seen')) {
+    /**
+     * Реальный online/offline по last_seen агента (не по устаревшему nodes.status в БД).
+     * Пустой last_seen → offline.
+     */
+    function node_presence_from_last_seen(?string $lastSeen, ?int $timeoutSec = null): string
+    {
+        $timeout = $timeoutSec ?? node_heartbeat_timeout_sec();
+        $raw = trim((string)$lastSeen);
+        if ($raw === '') {
+            return 'offline';
+        }
+        $ts = strtotime($raw);
+        if ($ts === false || $ts <= 0) {
+            return 'offline';
+        }
+        // Часы MySQL впереди PHP → отрицательный age; всё равно online только если в разумных пределах
+        $age = time() - $ts;
+        if ($age < -120) {
+            // last_seen «из будущего» больше чем на 2м — недоверие, offline
+            return 'offline';
+        }
+        return ($age <= $timeout) ? 'online' : 'offline';
+    }
+}
+
+if (!function_exists('nodes_refresh_presence_status')) {
+    /**
+     * Синхронизирует nodes.status с last_seen.
+     * Иначе дашборд/топология/агенты читают «залипший» online из БД.
+     *
+     * @return int число обновлённых строк
+     */
+    function nodes_refresh_presence_status(PDO $pdo, ?int $timeoutSec = null): int
+    {
+        $timeout = max(30, $timeoutSec ?? node_heartbeat_timeout_sec());
+        $updated = 0;
+        try {
+            // Просроченный last_seen / NULL → offline
+            $stmtOff = $pdo->prepare(
+                "UPDATE nodes
+                 SET status = 'offline'
+                 WHERE status = 'online'
+                   AND (
+                       last_seen IS NULL
+                       OR last_seen < (NOW() - INTERVAL ? SECOND)
+                   )"
+            );
+            $stmtOff->execute([$timeout]);
+            $updated += (int)$stmtOff->rowCount();
+
+            // Свежий last_seen → online
+            $stmtOn = $pdo->prepare(
+                "UPDATE nodes
+                 SET status = 'online'
+                 WHERE status <> 'online'
+                   AND last_seen IS NOT NULL
+                   AND last_seen >= (NOW() - INTERVAL ? SECOND)"
+            );
+            $stmtOn->execute([$timeout]);
+            $updated += (int)$stmtOn->rowCount();
+        } catch (Throwable $e) {
+            return $updated;
+        }
+        return $updated;
+    }
+}
+
+if (!function_exists('nodes_ensure_agent_columns')) {
+    /**
+     * Добавляет agent_* колонки без долгих блокировок.
+     * Маркер в data/ — не гоняем INFORMATION_SCHEMA на каждый heartbeat CGI.
+     */
+    function nodes_ensure_agent_columns(PDO $pdo): void
+    {
+        static $done = [];
+
+        $needed = [
+            'agent_version' => 'VARCHAR(32) NULL',
+            'agent_commit' => 'VARCHAR(64) NULL',
+            'agent_remote_commit' => 'VARCHAR(64) NULL',
+            'agent_branch' => 'VARCHAR(64) NULL',
+            'agent_update_available' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'agent_updated_at' => 'TIMESTAMP NULL',
+            'command_result' => 'TEXT NULL',
+            // Unix timestamp загрузки ОС (для реального uptime ноды)
+            'boot_time' => 'INT UNSIGNED NULL',
+            // Платформа (TrueNAS, Proxmox, FreeBSD и т.д.)
+            'os_name' => 'VARCHAR(64) NULL',
+            'os_family' => 'VARCHAR(64) NULL',
+            'os_version' => 'VARCHAR(64) NULL',
+            'arch' => 'VARCHAR(32) NULL',
+            'kernel' => 'VARCHAR(64) NULL',
+            'is_truenas' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_proxmox' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_synology' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'is_freebsd' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'has_zfs' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        ];
+
+        $markerDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
+        $marker = $markerDir . DIRECTORY_SEPARATOR . '.agent_columns_ok_v2';
+        // Уже мигрировали недавно — не трогаем БД (важно для php-cgi на каждый heartbeat)
+        if (is_file($marker) && (time() - (int)@filemtime($marker)) < 86400) {
+            return;
+        }
+
+        try {
+            $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+            if ($dbName === '') {
+                return;
+            }
+            $cacheKey = $dbName . '@' . spl_object_id($pdo);
+            if (isset($done[$cacheKey])) {
+                return;
+            }
+            $done[$cacheKey] = true;
+
+            $existing = [];
+            $stmt = $pdo->prepare(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+            );
+            $stmt->execute([$dbName, 'nodes']);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $col) {
+                $existing[(string)$col] = true;
+            }
+
+            $missing = [];
+            foreach ($needed as $col => $ddl) {
+                if (!isset($existing[$col])) {
+                    $missing[$col] = $ddl;
+                }
+            }
+            if (!$missing) {
+                if (is_dir($markerDir) || @mkdir($markerDir, 0750, true)) {
+                    @file_put_contents($marker, (string)time());
+                }
+                return;
+            }
+
+            try {
+                $pdo->exec('SET SESSION lock_wait_timeout = 2');
+            } catch (Throwable $e) {
+                // ignore
+            }
+            foreach ($missing as $col => $ddl) {
+                try {
+                    $pdo->exec("ALTER TABLE nodes ADD COLUMN `{$col}` {$ddl}");
+                } catch (Throwable $e) {
+                    // race / already exists
+                }
+            }
+            if (is_dir($markerDir) || @mkdir($markerDir, 0750, true)) {
+                @file_put_contents($marker, (string)time());
+            }
+        } catch (Throwable $e) {
+            error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('nodes_store_boot_time')) {
+    /** Сохранить boot_time ноды (unix timestamp загрузки ОС). */
+    function nodes_store_boot_time(PDO $pdo, int $nodeId, $bootTime): void
+    {
+        if ($nodeId <= 0) {
+            return;
+        }
+        $bootTs = 0;
+        if (is_numeric($bootTime)) {
+            $bootTs = (int)$bootTime;
+        } elseif (is_string($bootTime) && $bootTime !== '') {
+            $parsed = strtotime($bootTime);
+            $bootTs = $parsed !== false ? (int)$parsed : 0;
+        }
+        $now = time();
+        if ($bootTs <= 0 || $bootTs > $now + 60 || $bootTs < $now - (86400 * 365 * 30)) {
+            return;
+        }
+        try {
+            nodes_ensure_agent_columns($pdo);
+            $stmt = $pdo->prepare('UPDATE nodes SET boot_time = ? WHERE id = ?');
+            $stmt->execute([$bootTs, $nodeId]);
+        } catch (Throwable $e) {
+            error_log('[nodes_store_boot_time] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('nodes_ensure_agent_columns_all')) {
+    /**
+     * Миграция agent_* на активной и (если есть) резервной БД.
+     * @return list<array{role:string,ok:bool,error?:string}>
+     */
+    function nodes_ensure_agent_columns_all(?PDO $active = null): array
+    {
+        $results = [];
+        if ($active instanceof PDO) {
+            nodes_ensure_agent_columns($active);
+            $results[] = ['role' => 'active', 'ok' => true];
+        }
+
+        if (!function_exists('db_config_load') || !function_exists('db_replica_enabled')) {
+            return $results;
+        }
+
+        try {
+            $cfg = db_config_load();
+            $roles = ['primary'];
+            if (db_replica_enabled($cfg)) {
+                $roles[] = 'replica';
+            }
+            foreach ($roles as $role) {
+                try {
+                    $ep = db_endpoint($cfg, $role);
+                    if (($ep['host'] ?? '') === '' || ($ep['name'] ?? '') === '') {
+                        continue;
+                    }
+                    // Короткий таймаут: иначе UI ждёт недоступную replica
+                    $pdo = db_try_connect($ep, 2);
+                    nodes_ensure_agent_columns($pdo);
+                    $results[] = ['role' => $role, 'ok' => true];
+                } catch (Throwable $e) {
+                    $results[] = ['role' => $role, 'ok' => false, 'error' => $e->getMessage()];
+                    error_log('[nodes_ensure_agent_columns_all:' . $role . '] ' . $e->getMessage());
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[nodes_ensure_agent_columns_all] ' . $e->getMessage());
+        }
+
+        return $results;
+    }
+}
+
+if (!function_exists('schema_marker_path')) {
+    function schema_marker_path(string $name): string
+    {
+        $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
+        return $dir . DIRECTORY_SEPARATOR . '.schema_' . preg_replace('/[^a-z0-9_]+/i', '_', $name) . '_ok';
+    }
+}
+
+if (!function_exists('schema_marker_fresh')) {
+    /** true = миграцию можно пропустить */
+    function schema_marker_fresh(string $name, int $ttlSec = 86400): bool
+    {
+        $path = schema_marker_path($name);
+        return is_file($path) && (time() - (int)@filemtime($path)) < $ttlSec;
+    }
+}
+
+if (!function_exists('schema_marker_touch')) {
+    function schema_marker_touch(string $name): void
+    {
+        $path = schema_marker_path($name);
+        $dir = dirname($path);
+        if (is_dir($dir) || @mkdir($dir, 0750, true)) {
+            @file_put_contents($path, (string)time());
+        }
+    }
+}
+
+if (!function_exists('schema_short_lock')) {
+    /** Короткий lock wait перед ALTER — иначе CGI ждёт lock_wait_timeout=50с */
+    function schema_short_lock(PDO $pdo): void
+    {
+        try {
+            $pdo->exec('SET SESSION lock_wait_timeout = 2');
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+}
+
+
+// ================== Двухфакторная аутентификация (TOTP) ==================
+
+if (!function_exists('users_ensure_totp_columns')) {
+    function users_ensure_totp_columns(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $needed = [
+                'totp_secret' => "VARCHAR(64) NOT NULL DEFAULT ''",
+                'totp_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            ];
+            $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+            if ($dbName === '') {
+                return;
+            }
+            $existing = [];
+            $stmt = $pdo->prepare(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+            );
+            $stmt->execute([$dbName, 'users']);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $col) {
+                $existing[(string)$col] = true;
+            }
+            foreach ($needed as $col => $ddl) {
+                if (!isset($existing[$col])) {
+                    try {
+                        $pdo->exec("ALTER TABLE users ADD COLUMN `{$col}` {$ddl}");
+                    } catch (Throwable $e) {
+                        // race / already exists
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[users_ensure_totp_columns] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('totp_base32_decode')) {
+    function totp_base32_decode(string $secret): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $secret = strtoupper((string)preg_replace('/[^A-Za-z2-7]/', '', $secret));
+        $bits = '';
+        $n = strlen($secret);
+        for ($i = 0; $i < $n; $i++) {
+            $v = strpos($alphabet, $secret[$i]);
+            if ($v === false) {
+                continue;
+            }
+            $bits .= str_pad(decbin($v), 5, '0', STR_PAD_LEFT);
+        }
+        $out = '';
+        foreach (str_split($bits, 8) as $b) {
+            if (strlen($b) === 8) {
+                $out .= chr((int)bindec($b));
+            }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('totp_secret_generate')) {
+    function totp_secret_generate(): string
+    {
+        $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $s = '';
+        for ($i = 0; $i < 32; $i++) {
+            $s .= $alphabet[random_int(0, 31)];
+        }
+        return $s;
+    }
+}
+
+if (!function_exists('totp_code')) {
+    function totp_code(string $secret, ?int $timestamp = null): string
+    {
+        $ts = $timestamp ?? time();
+        $counter = intdiv($ts, 30);
+        $key = totp_base32_decode($secret);
+        $hash = hash_hmac('sha1', pack('J', $counter), $key, true);
+        $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+        $value = ((ord($hash[$offset]) & 0x7F) << 24)
+            | ((ord($hash[$offset + 1]) & 0xFF) << 16)
+            | ((ord($hash[$offset + 2]) & 0xFF) << 8)
+            | (ord($hash[$offset + 3]) & 0xFF);
+        return str_pad((string)($value % 1000000), 6, '0', STR_PAD_LEFT);
+    }
+}
+
+if (!function_exists('totp_verify')) {
+    function totp_verify(string $secret, string $code, int $window = 1): bool
+    {
+        $code = trim($code);
+        if (!preg_match('/^\d{6}$/', $code)) {
+            return false;
+        }
+        $now = time();
+        for ($i = -$window; $i <= $window; $i++) {
+            if (hash_equals(totp_code($secret, $now + $i * 30), $code)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('totp_otpauth_uri')) {
+    function totp_otpauth_uri(string $username, string $secret, string $issuer = 'HostMonitor'): string
+    {
+        return 'otpauth://totp/' . rawurlencode($issuer) . ':' . rawurlencode($username)
+            . '?secret=' . rawurlencode($secret)
+            . '&issuer=' . rawurlencode($issuer)
+            . '&algorithm=SHA1&digits=6&period=30';
+    }
+}
+
+// ================== Коды восстановления 2FA ==================
+
+if (!function_exists('totp_recovery_ensure_table')) {
+    function totp_recovery_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS totp_recovery_codes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                code_hash VARCHAR(255) NOT NULL,
+                used TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[totp_recovery_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('recovery_codes_generate')) {
+    function recovery_codes_generate(int $count = 10): array
+    {
+        $codes = [];
+        for ($i = 0; $i < $count; $i++) {
+            $raw = strtoupper(bin2hex(random_bytes(5))); // 10 hex-символов
+            $codes[] = substr($raw, 0, 5) . '-' . substr($raw, 5, 5);
+        }
+        return $codes;
+    }
+}
+
+if (!function_exists('recovery_codes_store')) {
+    function recovery_codes_store(PDO $pdo, int $userId, array $codes): void
+    {
+        totp_recovery_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM totp_recovery_codes WHERE user_id = ?")->execute([$userId]);
+        $ins = $pdo->prepare("INSERT INTO totp_recovery_codes (user_id, code_hash) VALUES (?, ?)");
+        foreach ($codes as $c) {
+            $ins->execute([$userId, password_hash($c, PASSWORD_DEFAULT)]);
+        }
+    }
+}
+
+if (!function_exists('recovery_codes_remaining')) {
+    function recovery_codes_remaining(PDO $pdo, int $userId): int
+    {
+        totp_recovery_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM totp_recovery_codes WHERE user_id = ? AND used = 0");
+        $stmt->execute([$userId]);
+        return (int)$stmt->fetchColumn();
+    }
+}
+
+if (!function_exists('recovery_codes_verify')) {
+    function recovery_codes_verify(PDO $pdo, int $userId, string $code): bool
+    {
+        $norm = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $code));
+        if (strlen($norm) !== 10) {
+            return false;
+        }
+        $formatted = substr($norm, 0, 5) . '-' . substr($norm, 5, 5);
+        totp_recovery_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT id, code_hash FROM totp_recovery_codes WHERE user_id = ? AND used = 0");
+        $stmt->execute([$userId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (password_verify($formatted, (string)$row['code_hash'])) {
+                $pdo->prepare("UPDATE totp_recovery_codes SET used = 1 WHERE id = ?")->execute([(int)$row['id']]);
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+// ================== Доверенные устройства (обход 2FA) ==================
+
+if (!function_exists('trusted_devices_ensure_table')) {
+    function trusted_devices_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS trusted_devices (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token_hash VARCHAR(64) NOT NULL,
+                user_agent VARCHAR(255) NULL,
+                ip VARCHAR(45) NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_token (token_hash),
+                INDEX idx_user (user_id),
+                INDEX idx_expires (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[trusted_devices_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('trusted_device_issue')) {
+    function trusted_device_issue(PDO $pdo, int $userId, int $days = 30): string
+    {
+        trusted_devices_ensure_table($pdo);
+        $token = bin2hex(random_bytes(32));
+        $hash = hash('sha256', $token);
+        $expires = date('Y-m-d H:i:s', time() + max(1, $days) * 86400);
+        $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+        $ip = substr(client_ip(), 0, 45);
+        $stmt = $pdo->prepare("INSERT INTO trusted_devices (user_id, token_hash, user_agent, ip, expires_at) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$userId, $hash, $ua, $ip, $expires]);
+        return $token;
+    }
+}
+
+if (!function_exists('trusted_device_verify')) {
+    function trusted_device_verify(PDO $pdo, int $userId, string $token): bool
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return false;
+        }
+        try {
+            trusted_devices_ensure_table($pdo);
+            $hash = hash('sha256', $token);
+            $stmt = $pdo->prepare("SELECT 1 FROM trusted_devices WHERE user_id = ? AND token_hash = ? AND expires_at > NOW() LIMIT 1");
+            $stmt->execute([$userId, $hash]);
+            return (bool)$stmt->fetchColumn();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('trusted_devices_revoke_all')) {
+    function trusted_devices_revoke_all(PDO $pdo, int $userId): void
+    {
+        try {
+            trusted_devices_ensure_table($pdo);
+            $pdo->prepare("DELETE FROM trusted_devices WHERE user_id = ?")->execute([$userId]);
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+}
+
+if (!function_exists('trusted_device_cookie_options')) {
+    function trusted_device_cookie_options(int $days = 30): array
+    {
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        return [
+            'expires' => time() + max(1, $days) * 86400,
+            'path' => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $secure,
+        ];
+    }
+}
+
+// ================== Активные сессии пользователя ==================
+
+if (!function_exists('user_sessions_ensure_table')) {
+    function user_sessions_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS user_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                session_hash VARCHAR(64) NOT NULL,
+                user_agent VARCHAR(255) NULL,
+                ip VARCHAR(45) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_session (session_hash),
+                INDEX idx_user (user_id),
+                INDEX idx_last (last_activity)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[user_sessions_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('current_session_hash')) {
+    function current_session_hash(): string
+    {
+        return hash('sha256', (string)session_id());
+    }
+}
+
+if (!function_exists('session_register')) {
+    function session_register(PDO $pdo, int $userId): void
+    {
+        try {
+            user_sessions_ensure_table($pdo);
+            $hash = current_session_hash();
+            if ($hash === hash('sha256', '')) {
+                return;
+            }
+            $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+            $ip = substr(client_ip(), 0, 45);
+            $now = date('Y-m-d H:i:s');
+            $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, session_hash, user_agent, ip, created_at, last_activity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), user_agent = VALUES(user_agent), ip = VALUES(ip), last_activity = VALUES(last_activity)");
+            $stmt->execute([$userId, $hash, $ua, $ip, $now, $now]);
+        } catch (Throwable $e) {
+            error_log('[session_register] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('session_touch')) {
+    /** Обновляет активность текущей сессии. false = сессия отозвана/неизвестна. */
+    function session_touch(PDO $pdo, int $userId): bool
+    {
+        try {
+            user_sessions_ensure_table($pdo);
+            $hash = current_session_hash();
+            $chk = $pdo->prepare("SELECT 1 FROM user_sessions WHERE session_hash = ? AND user_id = ? LIMIT 1");
+            $chk->execute([$hash, $userId]);
+            if (!$chk->fetchColumn()) {
+                return false;
+            }
+            $pdo->prepare("UPDATE user_sessions SET last_activity = ? WHERE session_hash = ? AND user_id = ?")
+                ->execute([date('Y-m-d H:i:s'), $hash, $userId]);
+            return true;
+        } catch (Throwable $e) {
+            return true; // при ошибке БД не выкидываем пользователя
+        }
+    }
+}
+
+if (!function_exists('session_list')) {
+    function session_list(PDO $pdo, int $userId): array
+    {
+        user_sessions_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT id, session_hash, user_agent, ip, created_at, last_activity FROM user_sessions WHERE user_id = ? ORDER BY last_activity DESC");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+if (!function_exists('session_revoke')) {
+    function session_revoke(PDO $pdo, int $userId, int $id): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE id = ? AND user_id = ?")->execute([$id, $userId]);
+    }
+}
+
+if (!function_exists('session_revoke_others')) {
+    function session_revoke_others(PDO $pdo, int $userId): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ? AND session_hash <> ?")->execute([$userId, current_session_hash()]);
+    }
+}
+
+if (!function_exists('session_revoke_all')) {
+    function session_revoke_all(PDO $pdo, int $userId): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ?")->execute([$userId]);
+    }
+}
+
+if (!function_exists('client_ip')) {
+    /** Реальный IP клиента с учётом обратного прокси (NPM/nginx/Cloudflare). */
+    function client_ip(): string
+    {
+        $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        // Доверяем X-Forwarded-* только если прямое соединение от прокси (loopback/приватный/локальный)
+        $isTrustedProxy = ($remote === '')
+            || ($remote === '127.0.0.1')
+            || ($remote === '::1')
+            || (filter_var($remote, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+        if ($isTrustedProxy) {
+            foreach (['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP'] as $key) {
+                $val = (string)($_SERVER[$key] ?? '');
+                if ($val === '') {
+                    continue;
+                }
+                foreach (array_map('trim', explode(',', $val)) as $cand) {
+                    if ($cand !== '' && filter_var($cand, FILTER_VALIDATE_IP)) {
+                        return $cand;
+                    }
+                }
+            }
+        }
+        return $remote;
+    }
+}

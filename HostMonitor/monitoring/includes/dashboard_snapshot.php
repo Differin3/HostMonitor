@@ -1,0 +1,530 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/helpers.php';
+
+/**
+ * Сбор данных дашборда для REST и SSE (без ping/GPU — быстрый снимок).
+ */
+
+function dashboard_hot_entry(?array $row, string $valueKey): ?array
+{
+    if (!$row) {
+        return null;
+    }
+    return [
+        'id' => (int)($row['id'] ?? 0),
+        'name' => (string)($row['name'] ?? ''),
+        'host' => (string)($row['host'] ?? ''),
+        'value' => round((float)($row[$valueKey] ?? 0), 1),
+    ];
+}
+
+function dashboard_summary(PDO $pdo): array
+{
+    // Сначала синхронизируем status ↔ last_seen, иначе счётчик «онлайн» врёт
+    if (function_exists('nodes_refresh_presence_status')) {
+        nodes_refresh_presence_status($pdo);
+    }
+    $timeout = function_exists('node_heartbeat_timeout_sec') ? node_heartbeat_timeout_sec() : 180;
+    $nodesStmt = $pdo->prepare(
+        "SELECT COUNT(*) AS total,
+                SUM(CASE
+                    WHEN last_seen IS NOT NULL AND last_seen >= (NOW() - INTERVAL ? SECOND) THEN 1
+                    ELSE 0
+                END) AS online
+         FROM nodes"
+    );
+    $nodesStmt->execute([$timeout]);
+    $nodesStats = $nodesStmt->fetch(PDO::FETCH_ASSOC);
+
+    $processesActive = 0;
+    $containersRunning = 0;
+    try {
+        $processesActive = (int)$pdo->query("SELECT COUNT(*) FROM processes")->fetchColumn();
+    } catch (Throwable $e) {
+        $processesActive = 0;
+    }
+    try {
+        $containersRunning = (int)$pdo->query("SELECT COUNT(*) FROM containers WHERE status = 'running'")->fetchColumn();
+    } catch (Throwable $e) {
+        $containersRunning = 0;
+    }
+
+    $avgSqlFull = "SELECT AVG(cpu_percent) as avg_cpu, AVG(memory_percent) as avg_ram, AVG(disk_percent) as avg_disk,
+                          MAX(cpu_percent) as max_cpu, MAX(memory_percent) as max_ram, MAX(disk_percent) as max_disk,
+                          AVG(load_avg) as avg_load, AVG(swap_percent) as avg_swap, MAX(swap_percent) as max_swap,
+                          AVG(network_in) as avg_net_in, AVG(network_out) as avg_net_out
+                   FROM metrics WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s)";
+    $avgSqlBasic = "SELECT AVG(cpu_percent) as avg_cpu, AVG(memory_percent) as avg_ram, AVG(disk_percent) as avg_disk,
+                           MAX(cpu_percent) as max_cpu, MAX(memory_percent) as max_ram, MAX(disk_percent) as max_disk
+                    FROM metrics WHERE timestamp >= DATE_SUB(NOW(), INTERVAL %s)";
+    $cpuStats = null;
+    try {
+        $cpuStats = $pdo->query(sprintf($avgSqlFull, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
+        if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
+            $cpuStats = $pdo->query(sprintf($avgSqlFull, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+        }
+    } catch (Throwable $e) {
+        try {
+            $cpuStats = $pdo->query(sprintf($avgSqlBasic, '5 MINUTE'))->fetch(PDO::FETCH_ASSOC);
+            if (!isset($cpuStats['avg_cpu']) || $cpuStats['avg_cpu'] === null) {
+                $cpuStats = $pdo->query(sprintf($avgSqlBasic, '1 HOUR'))->fetch(PDO::FETCH_ASSOC);
+            }
+        } catch (Throwable $e2) {
+            $cpuStats = null;
+        }
+    }
+
+    $alertsCount = 0;
+    $alertsCritical = 0;
+    try {
+        $alertsCount = (int)$pdo->query("SELECT COUNT(*) FROM alerts WHERE resolved = 0")->fetchColumn();
+        $alertsCritical = (int)$pdo->query(
+            "SELECT COUNT(*) FROM alerts WHERE resolved = 0 AND LOWER(level) IN ('critical','error','fatal')"
+        )->fetchColumn();
+    } catch (Throwable $e) {
+        $alertsCount = 0;
+        $alertsCritical = 0;
+    }
+
+    $dbTotal = 0;
+    $dbOnline = 0;
+    try {
+        $dbRow = $pdo->query("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END) AS online FROM monitored_databases WHERE enabled = 1")->fetch(PDO::FETCH_ASSOC);
+        $dbTotal = (int)($dbRow['total'] ?? 0);
+        $dbOnline = (int)($dbRow['online'] ?? 0);
+    } catch (Throwable $e) {
+        $dbTotal = 0;
+        $dbOnline = 0;
+    }
+
+    $topCpu = [];
+    $topRam = [];
+    $topDisk = [];
+    try {
+        $latestSql = "
+            SELECT n.id, n.name, n.host, n.status,
+                   m.cpu_percent, m.memory_percent, m.disk_percent, m.load_avg,
+                   m.network_in, m.network_out, m.timestamp
+            FROM nodes n
+            INNER JOIN metrics m ON m.node_id = n.id
+            INNER JOIN (
+                SELECT node_id, MAX(timestamp) AS ts
+                FROM metrics
+                WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                GROUP BY node_id
+            ) last ON last.node_id = m.node_id AND last.ts = m.timestamp
+            ORDER BY m.cpu_percent DESC
+        ";
+        $latest = $pdo->query($latestSql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $byCpu = $latest;
+        usort($byCpu, static fn($a, $b) => (float)($b['cpu_percent'] ?? 0) <=> (float)($a['cpu_percent'] ?? 0));
+        $byRam = $latest;
+        usort($byRam, static fn($a, $b) => (float)($b['memory_percent'] ?? 0) <=> (float)($a['memory_percent'] ?? 0));
+        $byDisk = $latest;
+        usort($byDisk, static fn($a, $b) => (float)($b['disk_percent'] ?? 0) <=> (float)($a['disk_percent'] ?? 0));
+        $byNet = $latest;
+        usort($byNet, static function ($a, $b) {
+            $av = (float)($a['network_in'] ?? 0) + (float)($a['network_out'] ?? 0);
+            $bv = (float)($b['network_in'] ?? 0) + (float)($b['network_out'] ?? 0);
+            return $bv <=> $av;
+        });
+
+        $mapTop = static function (array $rows, string $key): array {
+            $out = [];
+            foreach (array_slice($rows, 0, 8) as $row) {
+                $out[] = [
+                    'id' => (int)$row['id'],
+                    'name' => (string)($row['name'] ?? ''),
+                    'host' => (string)($row['host'] ?? ''),
+                    'status' => (string)($row['status'] ?? 'offline'),
+                    'cpu' => round((float)($row['cpu_percent'] ?? 0), 1),
+                    'ram' => round((float)($row['memory_percent'] ?? 0), 1),
+                    'disk' => round((float)($row['disk_percent'] ?? 0), 1),
+                    'load' => round((float)($row['load_avg'] ?? 0), 2),
+                    'value' => round((float)($row[$key] ?? 0), 1),
+                ];
+            }
+            return $out;
+        };
+        $topCpu = $mapTop($byCpu, 'cpu_percent');
+        $topRam = $mapTop($byRam, 'memory_percent');
+        $topDisk = $mapTop($byDisk, 'disk_percent');
+        $topNet = [];
+        foreach (array_slice($byNet, 0, 8) as $row) {
+            $netIn = (float)($row['network_in'] ?? 0);
+            $netOut = (float)($row['network_out'] ?? 0);
+            $topNet[] = [
+                'id' => (int)$row['id'],
+                'name' => (string)($row['name'] ?? ''),
+                'host' => (string)($row['host'] ?? ''),
+                'status' => (string)($row['status'] ?? 'offline'),
+                'net_in' => round($netIn, 1),
+                'net_out' => round($netOut, 1),
+                'value' => round($netIn + $netOut, 1),
+            ];
+        }
+    } catch (Throwable $e) {
+        $topCpu = [];
+        $topRam = [];
+        $topDisk = [];
+        $topNet = [];
+    }
+
+    $nodesTotal = (int)($nodesStats['total'] ?? 0);
+    $nodesOnline = (int)($nodesStats['online'] ?? 0);
+
+    $gpuAvg = 0;
+    $gpuMax = 0;
+    $gpuCount = 0;
+    try {
+        $gpuRow = $pdo->query(
+            "SELECT AVG(gm.utilization) as avg_util, MAX(gm.utilization) as max_util, COUNT(DISTINCT gm.gpu_index) as gpu_cnt
+             FROM gpu_metrics gm
+             INNER JOIN (
+                 SELECT node_id, MAX(timestamp) AS ts
+                 FROM gpu_metrics
+                 WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                 GROUP BY node_id
+             ) last ON last.node_id = gm.node_id AND last.ts = gm.timestamp"
+        )->fetch(PDO::FETCH_ASSOC);
+        $gpuAvg = round((float)($gpuRow['avg_util'] ?? 0), 1);
+        $gpuMax = round((float)($gpuRow['max_util'] ?? 0), 1);
+        $gpuCount = (int)($gpuRow['gpu_cnt'] ?? 0);
+    } catch (Throwable $e) {
+    }
+
+    $trafficInTotal = 0;
+    $trafficOutTotal = 0;
+    try {
+        $trafficRow = $pdo->query(
+            "SELECT SUM(m.network_in_total) AS in_total, SUM(m.network_out_total) AS out_total
+             FROM nodes n
+             INNER JOIN metrics m ON m.node_id = n.id
+             INNER JOIN (
+                 SELECT node_id, MAX(timestamp) AS ts FROM metrics GROUP BY node_id
+             ) last ON last.node_id = m.node_id AND last.ts = m.timestamp"
+        )->fetch(PDO::FETCH_ASSOC);
+        $trafficInTotal = (float)($trafficRow['in_total'] ?? 0);
+        $trafficOutTotal = (float)($trafficRow['out_total'] ?? 0);
+    } catch (Throwable $e) {
+        $trafficInTotal = 0;
+        $trafficOutTotal = 0;
+    }
+
+    return [
+        'nodes_total' => $nodesTotal,
+        'nodes_online' => $nodesOnline,
+        'nodes_offline' => max(0, $nodesTotal - $nodesOnline),
+        'processes_active' => $processesActive,
+        'containers_running' => $containersRunning,
+        'cpu_avg' => round((float)($cpuStats['avg_cpu'] ?? 0), 1),
+        'ram_avg' => round((float)($cpuStats['avg_ram'] ?? 0), 1),
+        'disk_avg' => round((float)($cpuStats['avg_disk'] ?? 0), 1),
+        'cpu_max' => round((float)($cpuStats['max_cpu'] ?? 0), 1),
+        'ram_max' => round((float)($cpuStats['max_ram'] ?? 0), 1),
+        'disk_max' => round((float)($cpuStats['max_disk'] ?? 0), 1),
+        'load_avg' => round((float)($cpuStats['avg_load'] ?? 0), 2),
+        'swap_avg' => round((float)($cpuStats['avg_swap'] ?? 0), 1),
+        'swap_max' => round((float)($cpuStats['max_swap'] ?? 0), 1),
+        'gpu_avg' => $gpuAvg,
+        'gpu_max' => $gpuMax,
+        'gpu_count' => $gpuCount,
+        'network_in_avg' => round((float)($cpuStats['avg_net_in'] ?? 0), 1),
+        'network_out_avg' => round((float)($cpuStats['avg_net_out'] ?? 0), 1),
+        'traffic_in_total' => $trafficInTotal,
+        'traffic_out_total' => $trafficOutTotal,
+        'traffic_total' => $trafficInTotal + $trafficOutTotal,
+        'cpu_hot' => dashboard_hot_entry($topCpu[0] ?? null, 'value'),
+        'ram_hot' => dashboard_hot_entry($topRam[0] ?? null, 'value'),
+        'disk_hot' => dashboard_hot_entry($topDisk[0] ?? null, 'value'),
+        'top_cpu' => $topCpu,
+        'top_ram' => $topRam,
+        'top_disk' => $topDisk,
+        'top_net' => $topNet,
+        'alerts_count' => $alertsCount,
+        'alerts_critical' => $alertsCritical,
+        'databases_total' => $dbTotal,
+        'databases_online' => $dbOnline,
+    ];
+}
+
+function dashboard_alerts(PDO $pdo, int $limit = 6): array
+{
+    $limit = max(1, min($limit, 50));
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT a.*, COALESCE(n.name, CONCAT('Node ', a.node_id)) as node_name
+             FROM alerts a
+             LEFT JOIN nodes n ON a.node_id = n.id
+             WHERE a.resolved = FALSE
+             ORDER BY a.created_at DESC
+             LIMIT ?"
+        );
+        $stmt->execute([$limit]);
+        $alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    return array_map(static function (array $alert): array {
+        return [
+            'id' => $alert['id'],
+            'level' => $alert['level'],
+            'title' => $alert['title'],
+            'node' => $alert['node_name'] ?? 'N/A',
+            'node_id' => $alert['node_id'],
+            'timestamp' => $alert['created_at'],
+        ];
+    }, $alerts);
+}
+
+function dashboard_nodes_light(PDO $pdo, int $limit = 6): array
+{
+    $limit = max(1, min($limit, 50));
+    $stmt = $pdo->query("SELECT id, name, host, status, last_seen FROM nodes ORDER BY name");
+    $nodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$nodes) {
+        return [];
+    }
+
+    $nodeIds = array_column($nodes, 'id');
+    $metricsByNode = [];
+    $placeholders = implode(',', array_fill(0, count($nodeIds), '?'));
+    $metricsSql = "
+        SELECT m.node_id, m.cpu_percent, m.memory_percent, m.disk_percent,
+               m.network_in, m.network_out, m.load_avg, m.swap_percent,
+               m.cpu_count, m.memory_used, m.memory_total, m.disk_used, m.disk_total,
+               m.network_in_total, m.network_out_total,
+               m.timestamp
+        FROM metrics m
+        INNER JOIN (
+            SELECT node_id, MAX(timestamp) AS ts
+            FROM metrics
+            WHERE node_id IN ($placeholders)
+            GROUP BY node_id
+        ) last ON last.node_id = m.node_id AND last.ts = m.timestamp
+    ";
+    try {
+        $metricsStmt = $pdo->prepare($metricsSql);
+        $metricsStmt->execute($nodeIds);
+        while ($row = $metricsStmt->fetch(PDO::FETCH_ASSOC)) {
+            $metricsByNode[(int)$row['node_id']] = $row;
+        }
+    } catch (Throwable $e) {
+        $metricsByNode = [];
+    }
+
+    $heartbeatTimeout = function_exists('node_heartbeat_timeout_sec')
+        ? node_heartbeat_timeout_sec()
+        : 180;
+    if (function_exists('nodes_refresh_presence_status')) {
+        nodes_refresh_presence_status($pdo, $heartbeatTimeout);
+    }
+    $out = [];
+    foreach ($nodes as $node) {
+        $id = (int)$node['id'];
+        $node['status'] = function_exists('node_presence_from_last_seen')
+            ? node_presence_from_last_seen(
+                isset($node['last_seen']) ? (string)$node['last_seen'] : null,
+                $heartbeatTimeout
+            )
+            : ((($node['status'] ?? '') === 'online') ? 'online' : 'offline');
+        if (empty($node['name'])) {
+            $node['name'] = "Node {$id}";
+        }
+        $m = $metricsByNode[$id] ?? null;
+        $out[] = [
+            'id' => $id,
+            'name' => $node['name'],
+            'host' => $node['host'] ?? '',
+            'status' => $node['status'] ?? 'offline',
+            'cpu_usage' => (float)($m['cpu_percent'] ?? 0),
+            'memory_usage' => (float)($m['memory_percent'] ?? 0),
+            'disk_usage' => (float)($m['disk_percent'] ?? 0),
+            'network_in' => (float)($m['network_in'] ?? 0),
+            'network_out' => (float)($m['network_out'] ?? 0),
+            'network_in_total' => (float)($m['network_in_total'] ?? 0),
+            'network_out_total' => (float)($m['network_out_total'] ?? 0),
+            'load_avg' => round((float)($m['load_avg'] ?? 0), 2),
+            'swap_percent' => (float)($m['swap_percent'] ?? 0),
+            'cpu_count' => (int)($m['cpu_count'] ?? 0),
+            'memory_used' => (int)($m['memory_used'] ?? 0),
+            'memory_total' => (int)($m['memory_total'] ?? 0),
+            'disk_used' => (int)($m['disk_used'] ?? 0),
+            'disk_total' => (int)($m['disk_total'] ?? 0),
+            'last_seen' => $node['last_seen'] ?? null,
+        ];
+    }
+
+    usort($out, static function (array $a, array $b): int {
+        $aOff = ($a['status'] ?? '') === 'online' ? 1 : 0;
+        $bOff = ($b['status'] ?? '') === 'online' ? 1 : 0;
+        if ($aOff !== $bOff) {
+            return $aOff - $bOff;
+        }
+        return (int)(($b['cpu_usage'] ?? 0) - ($a['cpu_usage'] ?? 0));
+    });
+
+    return array_slice($out, 0, $limit);
+}
+
+function dashboard_charts_bucket_seconds(int $from, int $to, int $limit): int
+{
+    $span = max(60, $to - $from);
+    $limit = max(20, min($limit, 800));
+    return (int)max(60, (int)ceil($span / $limit));
+}
+
+function dashboard_charts(PDO $pdo, string $range = '1h'): array
+{
+    $ranges = ['15m' => 900, '1h' => 3600, '6h' => 21600, '24h' => 86400];
+    $seconds = $ranges[$range] ?? 3600;
+    $from = time() - $seconds;
+    $to = time();
+    $limit = $range === '24h' ? 160 : ($range === '6h' ? 120 : 80);
+    $bucket = dashboard_charts_bucket_seconds($from, $to, $limit);
+
+    $select = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(timestamp) / {$bucket}) * {$bucket}) AS ts,
+               AVG(cpu_percent) AS cpu,
+               AVG(memory_percent) AS ram,
+               AVG(disk_percent) AS disk,
+               AVG(network_in) AS network_in,
+               AVG(network_out) AS network_out,
+               AVG(load_avg) AS load_avg";
+
+    $sql = "SELECT {$select}
+            FROM metrics
+            WHERE timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+            GROUP BY 1
+            ORDER BY ts ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$from, $to]);
+    $metrics = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $data = array_map(static function (array $m): array {
+        return [
+            'ts' => $m['ts'],
+            'cpu' => (float)($m['cpu'] ?? 0),
+            'ram' => (float)($m['ram'] ?? 0),
+            'memory' => (float)($m['ram'] ?? 0),
+            'disk' => (float)($m['disk'] ?? 0),
+            'network_in' => (float)($m['network_in'] ?? 0),
+            'network_out' => (float)($m['network_out'] ?? 0),
+            'load_avg' => (float)($m['load_avg'] ?? 0),
+        ];
+    }, $metrics);
+
+    return ['range' => $range, 'data' => $data];
+}
+
+function dashboard_charts_per_node(PDO $pdo, string $range = '1h', int $topN = 5): array
+{
+    $ranges = ['15m' => 900, '1h' => 3600, '6h' => 21600, '24h' => 86400];
+    $seconds = $ranges[$range] ?? 3600;
+    $from = time() - $seconds;
+    $to = time();
+    $limit = $range === '24h' ? 160 : ($range === '6h' ? 120 : 80);
+    $bucket = dashboard_charts_bucket_seconds($from, $to, $limit);
+
+    $topNodes = $pdo->query(
+        "SELECT n.id, n.name FROM nodes n
+         INNER JOIN (
+             SELECT node_id, MAX(timestamp) AS ts FROM metrics
+             WHERE timestamp >= FROM_UNIXTIME(" . ($from) . ")
+             GROUP BY node_id
+         ) last ON last.node_id = n.id
+         LEFT JOIN metrics m ON m.node_id = n.id AND m.timestamp = last.ts
+         ORDER BY m.cpu_percent DESC
+         LIMIT {$topN}"
+    )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $result = ['nodes' => [], 'data' => []];
+    if (!$topNodes) {
+        return $result;
+    }
+
+    foreach ($topNodes as $node) {
+        $nid = (int)$node['id'];
+        $stmt = $pdo->prepare(
+            "SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(timestamp) / {$bucket}) * {$bucket}) AS ts,
+                    AVG(cpu_percent) AS cpu, AVG(memory_percent) AS ram
+             FROM metrics WHERE node_id = ? AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+             GROUP BY 1 ORDER BY ts ASC"
+        );
+        $stmt->execute([$nid, $from, $to]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $result['nodes'][] = ['id' => $nid, 'name' => (string)($node['name'] ?? "Node {$nid}")];
+        $result['data'][$nid] = array_map(static function (array $r): array {
+            return ['ts' => $r['ts'], 'cpu' => (float)($r['cpu'] ?? 0), 'ram' => (float)($r['ram'] ?? 0)];
+        }, $rows);
+    }
+
+    return $result;
+}
+
+function dashboard_network_per_node(PDO $pdo, string $range = '1h', int $topN = 5): array
+{
+    $ranges = ['15m' => 900, '1h' => 3600, '6h' => 21600, '24h' => 86400];
+    $seconds = $ranges[$range] ?? 3600;
+    $from = time() - $seconds;
+    $to = time();
+    $limit = $range === '24h' ? 160 : ($range === '6h' ? 120 : 80);
+    $bucket = dashboard_charts_bucket_seconds($from, $to, $limit);
+
+    $topNodes = $pdo->query(
+        "SELECT n.id, n.name FROM nodes n
+         INNER JOIN (
+             SELECT node_id, MAX(timestamp) AS ts FROM metrics
+             WHERE timestamp >= FROM_UNIXTIME({$from})
+             GROUP BY node_id
+         ) last ON last.node_id = n.id
+         LEFT JOIN metrics m ON m.node_id = n.id AND m.timestamp = last.ts
+         ORDER BY (COALESCE(m.network_in, 0) + COALESCE(m.network_out, 0)) DESC
+         LIMIT {$topN}"
+    )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $labels = [];
+    $series = [];
+    $nodeNames = [];
+
+    foreach ($topNodes as $node) {
+        $nid = (int)$node['id'];
+        $name = (string)($node['name'] ?? "Node {$nid}");
+        $nodeNames[$nid] = $name;
+        $stmt = $pdo->prepare(
+            "SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(timestamp) / {$bucket}) * {$bucket}) AS ts,
+                    AVG(network_in) AS net_in, AVG(network_out) AS net_out
+             FROM metrics WHERE node_id = ? AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+             GROUP BY 1 ORDER BY ts ASC"
+        );
+        $stmt->execute([$nid, $from, $to]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $series[$nid] = [];
+        foreach ($rows as $r) {
+            $ts = $r['ts'];
+            if (!in_array($ts, $labels, true)) {
+                $labels[] = $ts;
+            }
+            $series[$nid][$ts] = ['net_in' => (float)($r['net_in'] ?? 0), 'net_out' => (float)($r['net_out'] ?? 0)];
+        }
+    }
+    sort($labels);
+
+    return [
+        'labels' => $labels,
+        'nodes' => $nodeNames,
+        'series' => $series,
+    ];
+}
+
+function dashboard_overview(PDO $pdo, int $listLimit = 6): array
+{
+    return [
+        'summary' => dashboard_summary($pdo),
+        'nodes' => dashboard_nodes_light($pdo, $listLimit),
+        'alerts' => dashboard_alerts($pdo, $listLimit),
+        'ts' => time(),
+    ];
+}

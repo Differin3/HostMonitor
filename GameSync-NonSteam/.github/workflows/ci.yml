@@ -1,0 +1,136 @@
+name: CI - Build and Package GameSync NonSteam
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend checks (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linters
+        run: python -m pip install --upgrade pip pyflakes==3.2.0
+
+      - name: Syntax check (compileall)
+        run: python -m compileall -q backend main.py
+
+      - name: Static analysis (pyflakes)
+        run: python -m pyflakes backend main.py
+
+  frontend:
+    name: Frontend checks (lint + build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+  package:
+    name: Package Decky plugin (zip)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Package plugin
+        run: |
+          set -e
+          PLUGIN_DIR="gamesync-nonsteam"
+
+          rm -rf "$PLUGIN_DIR"
+          mkdir -p "$PLUGIN_DIR/dist"
+
+          # Frontend bundle
+          cp dist/index.js "$PLUGIN_DIR/dist/index.js"
+          if [ -d "dist/assets" ]; then
+            cp -r dist/assets "$PLUGIN_DIR/assets"
+          fi
+
+          # Backend and metadata
+          cp -r backend "$PLUGIN_DIR/backend"
+          cp main.py plugin.json package.json requirements.txt LICENSE "$PLUGIN_DIR"/
+          if [ -f "install_plugin.sh" ]; then
+            cp install_plugin.sh "$PLUGIN_DIR"/
+          fi
+
+          # Не тащим кэш Python в архив
+          find "$PLUGIN_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
+
+          zip -r "${PLUGIN_DIR}.zip" "$PLUGIN_DIR"
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamesync-nonsteam-${{ github.sha }}
+          path: gamesync-nonsteam.zip
+
+      - name: Commit built plugin into repository
+        if: github.event_name == 'push'
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Обновляем распакованную копию плагина в репозитории
+          rm -rf dist-plugin/gamesync-nonsteam
+          mkdir -p dist-plugin
+          unzip -oq gamesync-nonsteam.zip -d dist-plugin
+
+          # -f, потому что dist/ внутри dist-plugin/ игнорируется .gitignore
+          git add -f gamesync-nonsteam.zip dist-plugin
+
+          if git diff --cached --quiet; then
+            echo "Нет изменений для коммита"
+          else
+            git commit -m "chore: update built plugin [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

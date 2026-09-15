@@ -1,0 +1,7 @@
+{
+  "name": "GameSync NonSteam",
+  "main": "dist/index.js",
+  "author": "GameSync Team",
+  "flags": [],
+  "api_version": 1
+}
