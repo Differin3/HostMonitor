@@ -49,7 +49,8 @@ function db_config_load(): array
 {
     $file = [];
     $path = db_config_path();
-    if (is_file($path)) {
+    $fromFile = is_file($path);
+    if ($fromFile) {
         $loaded = include $path;
         if (is_array($loaded)) {
             $file = $loaded;
@@ -62,37 +63,65 @@ function db_config_load(): array
         $replicaEnabledDefault = true;
     }
 
+    // Основной источник параметров — monitoring/data/db.local.php: его пишет сама панель
+    // (Настройки → База данных, db_config_save()). DB_* переменные окружения
+    // (systemd/web-сервер) НЕ должны перекрывать сохранённые в панели значения —
+    // иначе изменения в настройках не применяются, а форма откатывается на env-значения.
+    // Env остаётся только как fallback, когда файл ещё не создан (первый запуск).
+    if ($fromFile) {
+        return [
+            'host' => (string)($file['host'] ?? 'localhost'),
+            'port' => (string)($file['port'] ?? '3306'),
+            'name' => (string)($file['name'] ?? 'monitoring'),
+            'user' => (string)($file['user'] ?? 'root'),
+            'password' => (string)($file['password'] ?? ''),
+            'replica_enabled' => (bool)($file['replica_enabled'] ?? $replicaEnabledDefault),
+            'replica_failback' => (bool)($file['replica_failback'] ?? true),
+            'replica' => [
+                'host' => (string)($replicaFile['host'] ?? ''),
+                'port' => (string)($replicaFile['port'] ?? '3306'),
+                'name' => (string)($replicaFile['name'] ?? ''),
+                'user' => (string)($replicaFile['user'] ?? ''),
+                'password' => (string)($replicaFile['password'] ?? ''),
+                'ssl' => (bool)($replicaFile['ssl'] ?? false),
+                'ssl_verify' => (bool)($replicaFile['ssl_verify'] ?? false),
+                'ssl_ca' => (string)($replicaFile['ssl_ca'] ?? ''),
+            ],
+            'from_file' => true,
+            'from_env' => false,
+        ];
+    }
+
+    // Файл отсутствует — берём параметры из окружения (docker/systemd/k8s) или дефолты.
     return [
-        'host' => (string)(getenv('DB_HOST') ?: ($file['host'] ?? 'localhost')),
-        'port' => (string)(getenv('DB_PORT') ?: ($file['port'] ?? '3306')),
-        'name' => (string)(getenv('DB_NAME') ?: ($file['name'] ?? 'monitoring')),
-        'user' => (string)(getenv('DB_USER') ?: ($file['user'] ?? 'root')),
+        'host' => (string)(getenv('DB_HOST') ?: 'localhost'),
+        'port' => (string)(getenv('DB_PORT') ?: '3306'),
+        'name' => (string)(getenv('DB_NAME') ?: 'monitoring'),
+        'user' => (string)(getenv('DB_USER') ?: 'root'),
         'password' => (string)(getenv('DB_PASSWORD') !== false && getenv('DB_PASSWORD') !== ''
             ? getenv('DB_PASSWORD')
-            : ($file['password'] ?? '')),
+            : ''),
         'replica_enabled' => db_env_flag(
             getenv('DB_REPLICA_ENABLED') !== false ? (string)getenv('DB_REPLICA_ENABLED') : null,
             $replicaEnabledDefault
         ),
         'replica_failback' => db_env_flag(
             getenv('DB_REPLICA_FAILBACK') !== false ? (string)getenv('DB_REPLICA_FAILBACK') : null,
-            (bool)($file['replica_failback'] ?? true)
+            true
         ),
         'replica' => [
-            'host' => (string)($envReplicaHost !== false && $envReplicaHost !== ''
-                ? $envReplicaHost
-                : ($replicaFile['host'] ?? '')),
-            'port' => (string)(getenv('DB_REPLICA_PORT') ?: ($replicaFile['port'] ?? '3306')),
-            'name' => (string)(getenv('DB_REPLICA_NAME') ?: ($replicaFile['name'] ?? '')),
-            'user' => (string)(getenv('DB_REPLICA_USER') ?: ($replicaFile['user'] ?? '')),
+            'host' => (string)($envReplicaHost !== false && $envReplicaHost !== '' ? $envReplicaHost : ''),
+            'port' => (string)(getenv('DB_REPLICA_PORT') ?: '3306'),
+            'name' => (string)(getenv('DB_REPLICA_NAME') ?: ''),
+            'user' => (string)(getenv('DB_REPLICA_USER') ?: ''),
             'password' => (string)(getenv('DB_REPLICA_PASSWORD') !== false && getenv('DB_REPLICA_PASSWORD') !== ''
                 ? getenv('DB_REPLICA_PASSWORD')
-                : ($replicaFile['password'] ?? '')),
-            'ssl' => (bool)($replicaFile['ssl'] ?? false),
-            'ssl_verify' => (bool)($replicaFile['ssl_verify'] ?? false),
-            'ssl_ca' => (string)($replicaFile['ssl_ca'] ?? ''),
+                : ''),
+            'ssl' => false,
+            'ssl_verify' => false,
+            'ssl_ca' => '',
         ],
-        'from_file' => is_file($path),
+        'from_file' => false,
         'from_env' => (bool)(getenv('DB_NAME') || getenv('DB_USER') || getenv('DB_HOST')),
     ];
 }
