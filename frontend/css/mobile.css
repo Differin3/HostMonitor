@@ -1,0 +1,624 @@
+/* ==========================================================================
+   HostMonitor — мобильная адаптация
+   Подключается последней, перекрывает десктопную вёрстку на узких экранах.
+   ========================================================================== */
+
+/* Кнопка-гамбургер и подложка drawer по умолчанию скрыты (десктоп) */
+.hm-mobile-nav {
+    display: none;
+}
+
+.nav-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    z-index: 1100;
+}
+
+body.hm-nav-locked {
+    overflow: hidden;
+}
+
+@media (max-width: 820px) {
+
+    /* ——— База: убираем горизонтальный скролл ——— */
+    html,
+    body {
+        overflow-x: hidden;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .app-shell {
+        min-height: 100dvh;
+    }
+
+    /* ——— Топбар: компактный ——— */
+    .topbar {
+        height: 54px;
+        padding: 0 10px;
+        gap: 8px;
+    }
+
+    .topbar-left,
+    .topbar-right {
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .topbar-left {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .topbar-center {
+        display: none !important;
+    }
+
+    .brand span:last-child {
+        display: none;
+    }
+
+    .brand-mark {
+        width: 34px;
+        height: 34px;
+    }
+
+    .view-pill span,
+    .view-pill > svg:last-child {
+        display: none;
+    }
+
+    .view-pill {
+        padding: 0 10px;
+        height: 34px;
+    }
+
+    .username {
+        display: none;
+    }
+
+    .user-menu {
+        padding: 0 6px 0 4px;
+        height: 34px;
+        gap: 4px;
+    }
+
+    .user-menu > svg {
+        display: none;
+    }
+
+    .panel-update-actions {
+        gap: 4px;
+    }
+
+    /* ——— Гамбургер ——— */
+    .hm-mobile-nav {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: var(--glass);
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+
+    .hm-mobile-nav svg,
+    .hm-mobile-nav i {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* ——— Меню: off-canvas drawer ——— */
+    .app-shell > .container {
+        flex-direction: row;
+        height: calc(100dvh - 54px);
+        padding: 0 10px 10px;
+        gap: 0;
+    }
+
+    .sidebar,
+    .sidebar.collapsed {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(86vw, 320px);
+        max-width: 320px;
+        height: 100dvh;
+        max-height: 100dvh;
+        margin: 0;
+        border-radius: 0 18px 18px 0;
+        border-left: 0;
+        transform: translateX(-105%);
+        transition: transform 0.26s cubic-bezier(0.22, 0.61, 0.36, 1);
+        z-index: 1200;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .app-shell.nav-open .sidebar {
+        transform: translateX(0);
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .app-shell.nav-open .nav-backdrop {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    /* В drawer всегда показываем полное меню и логотип */
+    .sidebar .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px 6px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .sidebar .sidebar-toggle {
+        display: none !important;
+    }
+
+    .sidebar.collapsed .menu a span,
+    .sidebar.collapsed .menu a .chevron,
+    .sidebar.collapsed .menu-group-header span,
+    .sidebar.collapsed .menu-group-header .chevron {
+        display: inline !important;
+    }
+
+    .sidebar.collapsed .menu-submenu {
+        display: block !important;
+    }
+
+    .menu {
+        padding: 8px 10px 16px;
+    }
+
+    .menu a,
+    .menu-group-header {
+        padding: 12px 14px;
+        font-size: 15px;
+    }
+
+    .menu a i,
+    .menu a svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .sidebar-footer {
+        padding: 12px;
+    }
+
+    /* ——— Контент ——— */
+    .content {
+        width: 100%;
+        min-width: 0;
+        padding: 0 2px 16px;
+        overflow-x: hidden;
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .header-title h1 {
+        font-size: 22px;
+        padding-right: 0;
+        line-height: 1.2;
+    }
+
+    .header-subtitle {
+        font-size: 13px;
+    }
+
+    .header-right {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+
+    .header-actions {
+        width: 100%;
+        gap: 8px;
+    }
+
+    .header-actions button,
+    .header-actions .primary,
+    .header-actions .btn-outline {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 42px;
+        padding: 0 12px;
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    .db-ha-banner {
+        margin: 0 10px 8px;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    /* ——— Сетки: одна колонка ——— */
+    .grid-2,
+    .grid-3,
+    .stats-grid,
+    .stats-grid-dash,
+    .form-grid,
+    .ha-grid,
+    .setup-grid,
+    .containers-grid,
+    .dbmon-grid,
+    .charts,
+    .mk-stats {
+        grid-template-columns: 1fr !important;
+    }
+
+    .dash-board {
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+    }
+
+    .dash-widget,
+    .dash-widget[data-span="3"],
+    .dash-widget[data-span="6"],
+    .dash-widget[data-span="12"] {
+        grid-column: 1 / -1 !important;
+    }
+
+    .gear-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .ha-grid .ha-span-2,
+    .grid-2 .full,
+    .form-grid .full {
+        grid-column: auto !important;
+    }
+
+    /* ——— Карточки/поверхности ——— */
+    .card,
+    .stat-card,
+    .chart-card,
+    .container-card,
+    .gear-card,
+    .dbmon-card {
+        border-radius: 14px;
+        padding: 14px;
+    }
+
+    .card-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .stat-card {
+        gap: 12px;
+    }
+
+    .stat-value {
+        font-size: 22px;
+    }
+
+    /* ——— Панели управления/фильтры: переносим и растягиваем ——— */
+    .page-controls,
+    .compact-filters,
+    .toolbar,
+    .filters,
+    .table-toolbar {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .page-controls > *,
+    .compact-filters > *,
+    .search-control,
+    .compact-search,
+    .sort-control,
+    .compact-select {
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .search-box input {
+        width: 100%;
+    }
+
+    /* ——— Таблицы: горизонтальный скролл, без наложения ——— */
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 14px;
+    }
+
+    .table-container table {
+        min-width: 560px;
+        width: 100%;
+    }
+
+    .table-container th,
+    .table-container td {
+        white-space: nowrap;
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    /* ——— Формы: крупные поля, без зума на iOS ——— */
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+        font-size: 16px !important;
+        min-height: 46px;
+    }
+
+    textarea {
+        min-height: 96px;
+    }
+
+    .form-field {
+        margin-bottom: 16px;
+    }
+
+    .form-label {
+        font-size: 14px;
+    }
+
+    .hm-select-btn {
+        height: 46px !important;
+        font-size: 15px !important;
+    }
+
+    .input-with-icon input,
+    .input-with-icon select {
+        padding-left: 42px;
+    }
+
+    .secret-key-input {
+        font-size: 12px;
+    }
+
+    /* ——— Кнопки: удобные для пальца ——— */
+    button,
+    .btn,
+    .btn-outline,
+    .primary,
+    .btn-copy,
+    .btn-refresh,
+    .icon-btn {
+        min-height: 40px;
+    }
+
+    .btn-copy,
+    .btn-refresh {
+        width: 46px;
+        height: 46px;
+    }
+
+    /* ——— Модалки: почти на весь экран ——— */
+    .modal,
+    .confirm-modal {
+        padding: 8px !important;
+        align-items: flex-end !important;
+    }
+
+    .modal-dialog,
+    .modal-content,
+    .confirm-dialog {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 92dvh !important;
+        margin: 0 !important;
+        border-radius: 18px 18px 12px 12px !important;
+        overflow: hidden;
+    }
+
+    .modal-body {
+        max-height: calc(92dvh - 120px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .modal-header h2,
+    .modal-header h3 {
+        font-size: 17px;
+    }
+
+    .modal-actions {
+        flex-direction: column-reverse;
+        gap: 8px;
+    }
+
+    .modal-actions button,
+    .modal-actions .btn {
+        width: 100%;
+    }
+
+    /* ——— Выпадающие меню/поповеры: не выходят за экран ——— */
+    .hm-menu,
+    .user-dropdown,
+    .context-menu,
+    .date-picker-panel,
+    .history-range-panel {
+        max-width: 92vw !important;
+        min-width: 0 !important;
+    }
+
+    .user-dropdown {
+        right: 0 !important;
+        left: auto !important;
+    }
+
+    .history-range-panel {
+        right: auto !important;
+        left: 0 !important;
+        min-width: 0 !important;
+        width: 92vw;
+    }
+
+    /* ——— Карта сети ——— */
+    .netmap {
+        min-height: calc(100dvh - 210px);
+        border-radius: 16px;
+    }
+
+    .netmap-stage {
+        inset: 0 !important;
+    }
+
+    .netmap-tools {
+        left: 8px;
+        top: 8px;
+        width: 48px;
+        padding: 6px;
+        gap: 4px;
+        border-radius: 16px;
+    }
+
+    .netmap-tool {
+        width: 36px;
+        height: 36px;
+    }
+
+    .netmap-panel {
+        top: auto;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: auto;
+        max-height: 48dvh;
+        border-radius: 18px;
+        padding: 12px;
+    }
+
+    .netmap-panel.is-collapsed {
+        max-height: none;
+    }
+
+    .netmap-node,
+    .netmap-hub {
+        width: 88px;
+    }
+
+    .netmap-panel,
+    .netmap-controls {
+        max-width: 100%;
+    }
+
+    .netmap-toolbar {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    /* ——— Toasts ——— */
+    .toast-host {
+        left: 10px !important;
+        right: 10px !important;
+        bottom: 10px !important;
+        width: auto !important;
+        max-width: none !important;
+    }
+
+    .toast {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    /* ——— Прочее ——— */
+    .breadcrumb,
+    .page-breadcrumb {
+        flex-wrap: wrap;
+        font-size: 12px;
+    }
+
+    .tab-btn {
+        padding: 10px 12px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    .tabs,
+    .processes-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+    }
+}
+
+/* ——— Логин/регистрация ——— */
+@media (max-width: 820px) {
+    .login-container {
+        width: 100%;
+        max-width: 100%;
+        padding: 16px;
+    }
+
+    .login-card {
+        width: 100%;
+        max-width: 100%;
+        padding: 24px 18px !important;
+        border-radius: 16px;
+    }
+
+    .login-header h1 {
+        font-size: 22px;
+    }
+
+    .login-form .form-field {
+        margin-bottom: 14px;
+    }
+
+    .login-form button {
+        min-height: 48px;
+        font-size: 16px;
+    }
+}
+
+/* ——— Очень узкие экраны ——— */
+@media (max-width: 400px) {
+    .header-title h1 {
+        font-size: 20px;
+    }
+
+    .stat-value {
+        font-size: 20px;
+    }
+
+    .content {
+        padding: 0 0 12px;
+    }
+
+    .card,
+    .stat-card,
+    .chart-card {
+        padding: 12px;
+    }
+
+    .table-container table {
+        min-width: 480px;
+    }
+}
+
+/* ——— Ландшафт на телефоне ——— */
+@media (max-width: 820px) and (orientation: landscape) and (max-height: 480px) {
+    .sidebar,
+    .sidebar.collapsed {
+        width: min(70vw, 320px);
+    }
+}

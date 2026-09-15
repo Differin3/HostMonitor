@@ -1,0 +1,383 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+require_once __DIR__ . '/../includes/database.php';
+require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/retention.php';
+
+header('Content-Type: application/json; charset=utf-8');
+
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$pdo = getDbConnection();
+
+$nodeInfo = null;
+if ($method === 'GET') {
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Unauthorized']);
+        exit;
+    }
+    session_write_close();
+} else {
+    $auth = require_api_auth($pdo);
+    $nodeInfo = $auth['node'];
+}
+
+function metrics_ensure_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('metrics')) {
+        $done = true;
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
+    foreach ([
+        "ALTER TABLE metrics ADD COLUMN memory_used BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN memory_total BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN disk_used BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN disk_total BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN swap_percent FLOAT NULL",
+        "ALTER TABLE metrics ADD COLUMN load_avg FLOAT NULL",
+        "ALTER TABLE metrics ADD COLUMN cpu_count SMALLINT NULL",
+        "ALTER TABLE metrics ADD COLUMN network_in_total BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN network_out_total BIGINT NULL",
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Exception $e) {
+            // column exists
+        }
+    }
+    // Платформенные колонки в nodes ( TrueNAS, Proxmox, FreeBSD и т.д.)
+    if (function_exists('nodes_ensure_agent_columns')) {
+        nodes_ensure_agent_columns($pdo);
+    }
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('metrics');
+    }
+    $done = true;
+}
+
+function metrics_bucket_seconds(int $from, int $to, int $limit): int
+{
+    $span = max(60, $to - $from);
+    $limit = max(20, min($limit, 800));
+    return (int)max(60, (int)ceil($span / $limit));
+}
+
+try {
+    metrics_ensure_schema($pdo);
+    switch ($method) {
+        case 'GET':
+            handleGet($pdo);
+            break;
+        case 'POST':
+            handlePost($pdo);
+            break;
+        default:
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+    }
+} catch (Exception $e) {
+    error_log('metrics.php error: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'Internal server error']);
+}
+
+function handleGetGpu($pdo) {
+    $nodeId = $_GET['node_id'] ?? null;
+    try {
+        $sql = "SELECT gm.node_id, n.name AS node_name, gm.gpu_index, gm.gpu_name, gm.vendor,
+                       gm.utilization, gm.memory_used, gm.memory_total, gm.temperature, gm.timestamp
+                FROM gpu_metrics gm
+                LEFT JOIN nodes n ON n.id = gm.node_id
+                INNER JOIN (
+                    SELECT node_id, MAX(timestamp) AS ts
+                    FROM gpu_metrics
+                    GROUP BY node_id
+                ) last ON last.node_id = gm.node_id AND last.ts = gm.timestamp";
+        $params = [];
+        if ($nodeId) {
+            $sql .= " WHERE gm.node_id = ?";
+            $params[] = $nodeId;
+        }
+        $sql .= " ORDER BY gm.node_id ASC, gm.gpu_index ASC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Exception $e) {
+        $rows = [];
+    }
+    $gpu = array_map(static function (array $r): array {
+        return [
+            'node_id' => (int)($r['node_id'] ?? 0),
+            'node_name' => (string)($r['node_name'] ?? ''),
+            'index' => (int)($r['gpu_index'] ?? 0),
+            'name' => (string)($r['gpu_name'] ?? 'GPU'),
+            'vendor' => (string)($r['vendor'] ?? ''),
+            'utilization' => (float)($r['utilization'] ?? 0),
+            'memory_used' => (float)($r['memory_used'] ?? 0),
+            'memory_total' => (float)($r['memory_total'] ?? 0),
+            'temperature' => (float)($r['temperature'] ?? 0),
+            'timestamp' => $r['timestamp'] ?? null,
+        ];
+    }, $rows);
+    echo json_encode(['gpu' => $gpu]);
+}
+
+function handleGet($pdo) {
+    if (!empty($_GET['gpu'])) {
+        handleGetGpu($pdo);
+        return;
+    }
+    $nodeId = $_GET['node_id'] ?? null;
+    $range = $_GET['range'] ?? '1h';
+    $limit = (int)($_GET['limit'] ?? 400);
+    $limit = max(20, min($limit, 800));
+    $from = isset($_GET['from']) ? (int)$_GET['from'] : null;
+    $to = isset($_GET['to']) ? (int)$_GET['to'] : null;
+
+    if ($from || $to) {
+        if (!$from) {
+            $base = $to ?: time();
+            $from = $base - 3600;
+        }
+        if (!$to) {
+            $to = time();
+        }
+    } else {
+        $timeRange = strtotime("-{$range}");
+        if (!$timeRange) {
+            $timeRange = strtotime('-1 hour');
+        }
+        $from = $timeRange;
+        $to = time();
+    }
+
+    $bucket = metrics_bucket_seconds((int)$from, (int)$to, $limit);
+    $select = "FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(timestamp) / {$bucket}) * {$bucket}) AS ts,
+               AVG(cpu_percent) AS cpu,
+               AVG(memory_percent) AS ram,
+               AVG(disk_percent) AS disk,
+               AVG(network_in) AS network_in,
+               AVG(network_out) AS network_out,
+               AVG(memory_used) AS memory_used,
+               AVG(memory_total) AS memory_total,
+               AVG(disk_used) AS disk_used,
+               AVG(disk_total) AS disk_total,
+               AVG(swap_percent) AS swap_percent,
+               AVG(load_avg) AS load_avg,
+               MAX(network_in_total) AS network_in_total,
+               MAX(network_out_total) AS network_out_total";
+
+    if ($nodeId) {
+        $sql = "SELECT {$select}
+                FROM metrics
+                WHERE node_id = ?
+                  AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+                GROUP BY 1
+                ORDER BY ts ASC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$nodeId, $from, $to]);
+    } else {
+        $sql = "SELECT {$select}
+                FROM metrics
+                WHERE timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+                GROUP BY 1
+                ORDER BY ts ASC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$from, $to]);
+    }
+    $metrics = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $data = array_map(function ($m) {
+        return [
+            'ts' => $m['ts'],
+            'cpu' => (float)($m['cpu'] ?? 0),
+            'ram' => (float)($m['ram'] ?? 0),
+            'memory' => (float)($m['ram'] ?? 0),
+            'disk' => (float)($m['disk'] ?? 0),
+            'network_in' => (float)($m['network_in'] ?? 0),
+            'network_out' => (float)($m['network_out'] ?? 0),
+            'memory_used' => (float)($m['memory_used'] ?? 0),
+            'memory_total' => (float)($m['memory_total'] ?? 0),
+            'disk_used' => (float)($m['disk_used'] ?? 0),
+            'disk_total' => (float)($m['disk_total'] ?? 0),
+            'swap_percent' => (float)($m['swap_percent'] ?? 0),
+            'load_avg' => (float)($m['load_avg'] ?? 0),
+            'network_in_total' => (float)($m['network_in_total'] ?? 0),
+            'network_out_total' => (float)($m['network_out_total'] ?? 0),
+        ];
+    }, $metrics);
+
+    echo json_encode(['data' => $data]);
+}
+
+function handlePost($pdo) {
+    global $nodeInfo;
+
+    $data = json_decode(file_get_contents('php://input'), true);
+
+    if (!$data) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid JSON']);
+        return;
+    }
+
+    $nodeId = $nodeInfo ? $nodeInfo['id'] : ($data['node_id'] ?? null);
+    $nodeName = null;
+    $gpuInfo = null;
+
+    if (isset($data['metrics'])) {
+        $metrics = $data['metrics'];
+        $nodeName = $metrics['node_name'] ?? null;
+        $cycleId = $metrics['cycle_id'] ?? null;
+        if (!$nodeId && $nodeName) {
+            $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name = ?");
+            $stmt->execute([$nodeName]);
+            $node = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($node) {
+                $nodeId = $node['id'];
+            } else {
+                error_log("[metrics.php] Node not found by name: {$nodeName}");
+            }
+        }
+        $row = $metrics;
+        $gpuInfo = $metrics['gpu'] ?? null;
+    } else {
+        $row = $data;
+        $gpuInfo = $data['gpu'] ?? null;
+        $cycleId = $data['cycle_id'] ?? null;
+    }
+
+    if (!$nodeId) {
+        error_log("[metrics.php] node_id is required. nodeInfo: " . json_encode($nodeInfo) . ", node_name: " . ($nodeName ?? 'null'));
+        http_response_code(400);
+        echo json_encode(['error' => 'node_id is required. Check node_token or provide node_name in metrics.']);
+        return;
+    }
+
+    // Idempotency: если cycle_id уже есть для этой ноды — пропускаем INSERT
+    if ($cycleId !== null) {
+        // Проверяем, есть ли уже свежая запись для этой ноды за последние 30 сек
+        // (агент отправляет раз в ~60 сек, поэтому 30 сек — безопасное окно для дубликатов)
+        $dupCheck = $pdo->prepare("SELECT 1 FROM metrics WHERE node_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 30 SECOND) LIMIT 1");
+        $dupCheck->execute([$nodeId]);
+        if ($dupCheck->fetch()) {
+            $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = ? WHERE id = ?")->execute([date('Y-m-d H:i:s'), $nodeId]);
+            http_response_code(200);
+            echo json_encode(['message' => 'Duplicate skipped', 'cycle_id' => $cycleId]);
+            return;
+        }
+    }
+
+    $updateStmt = $pdo->prepare("UPDATE nodes SET status = 'online', last_seen = ? WHERE id = ?");
+    $updateStmt->execute([date('Y-m-d H:i:s'), $nodeId]);
+
+    // Обновляем платформу (os_name, arch, is_truenas и т.д.) — приходит с каждой метрикой
+    $platformFields = ['os_name', 'os_family', 'os_version', 'arch', 'kernel',
+                       'is_truenas', 'is_proxmox', 'is_synology', 'is_freebsd', 'has_zfs'];
+    $platformUpdate = [];
+    $platformValues = [];
+    foreach ($platformFields as $field) {
+        if (array_key_exists($field, $row)) {
+            $platformUpdate[] = "{$field} = ?";
+            $platformValues[] = $field === 'arch' || $field === 'kernel' || $field === 'os_name'
+                || $field === 'os_family' || $field === 'os_version'
+                ? ($row[$field] ?? null)
+                : (int)($row[$field] ?? 0);
+        }
+    }
+    if ($platformUpdate) {
+        $platformValues[] = $nodeId;
+        $platformSql = "UPDATE nodes SET " . implode(', ', $platformUpdate) . " WHERE id = ?";
+        try {
+            $pdo->prepare($platformSql)->execute($platformValues);
+        } catch (Exception $e) {
+            error_log("[metrics.php] Platform update error: " . $e->getMessage());
+        }
+    }
+
+    if (isset($row['boot_time']) || isset($row['uptime_sec'])) {
+        $boot = $row['boot_time'] ?? null;
+        if (($boot === null || $boot === '' || $boot === 0) && !empty($row['uptime_sec'])) {
+            $boot = time() - (int)$row['uptime_sec'];
+        }
+        nodes_store_boot_time($pdo, (int)$nodeId, $boot);
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO metrics
+            (node_id, cpu_percent, memory_percent, disk_percent, network_in, network_out,
+             memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count,
+             network_in_total, network_out_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->execute([
+        $nodeId,
+        $row['cpu_percent'] ?? null,
+        $row['memory_percent'] ?? null,
+        $row['disk_percent'] ?? null,
+        $row['network_in'] ?? null,
+        $row['network_out'] ?? null,
+        $row['memory_used'] ?? null,
+        $row['memory_total'] ?? null,
+        $row['disk_used'] ?? null,
+        $row['disk_total'] ?? null,
+        $row['swap_percent'] ?? null,
+        $row['load_avg'] ?? null,
+        $row['cpu_count'] ?? null,
+        $row['network_in_total'] ?? null,
+        $row['network_out_total'] ?? null,
+    ]);
+    $id = $pdo->lastInsertId();
+    retention_maybe_tick($pdo);
+
+    if ($gpuInfo && is_array($gpuInfo)) {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS gpu_metrics (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                node_id INT,
+                gpu_index INT,
+                gpu_name VARCHAR(255),
+                vendor VARCHAR(20),
+                utilization FLOAT,
+                memory_used BIGINT,
+                memory_total BIGINT,
+                temperature FLOAT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_node_id (node_id),
+                INDEX idx_timestamp (timestamp)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Exception $e) {
+            error_log("Error creating gpu_metrics table: " . $e->getMessage());
+        }
+
+        $deleteGpuStmt = $pdo->prepare("DELETE FROM gpu_metrics WHERE node_id = ?");
+        $deleteGpuStmt->execute([$nodeId]);
+
+        $gpuStmt = $pdo->prepare("INSERT INTO gpu_metrics (node_id, gpu_index, gpu_name, vendor, utilization, memory_used, memory_total, temperature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        foreach ($gpuInfo as $gpu) {
+            $gpuStmt->execute([
+                $nodeId,
+                $gpu['index'] ?? 0,
+                $gpu['name'] ?? 'Unknown',
+                $gpu['vendor'] ?? 'unknown',
+                $gpu['utilization'] ?? 0,
+                $gpu['memory_used'] ?? 0,
+                $gpu['memory_total'] ?? 0,
+                $gpu['temperature'] ?? 0
+            ]);
+        }
+    }
+
+    http_response_code(201);
+    echo json_encode(['id' => $id, 'message' => 'Metric created']);
+}

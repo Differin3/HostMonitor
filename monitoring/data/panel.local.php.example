@@ -1,0 +1,11 @@
+<?php
+// Скопируйте в panel.local.php и настройте под сервер.
+// Сгенерировано install_panel.sh при установке через git.
+return [
+    // Каталог с .git (обычно /opt/monitoring)
+    'repo_root' => '/opt/monitoring',
+    // Скрипт panel_git.sh — PHP вызывает его через sudo от www-data
+    'git_wrapper' => '/opt/monitoring/scripts/panel_git.sh',
+    // Пользователь для sudo (владелец репозитория)
+    'git_sudo_user' => 'monitoring',
+];
