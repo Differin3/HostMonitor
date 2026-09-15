@@ -68,7 +68,18 @@ render_layout_start('Метрики нод', 'nodes-metrics');
                         <h3>Статус</h3>
                         <div class="stat-value" id="node-status">—</div>
                         <p class="stat-subtitle" id="node-net">сеть —</p>
+                        <p class="stat-subtitle" id="node-uptime">аптайм —</p>
                         <p class="stat-subtitle" id="metrics-staleness" style="display:none; font-size:0.75rem; color:#94a3b8;"></p>
+                    </div>
+                </div>
+                <div class="stat-card" id="metric-traffic">
+                    <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
+                        <i data-lucide="database-backup"></i>
+                    </div>
+                    <div class="stat-card-content">
+                        <h3>Оборот трафика</h3>
+                        <div class="stat-value" id="traffic-total">0 Б</div>
+                        <p class="stat-subtitle" id="traffic-sub">↓ — · ↑ —</p>
                     </div>
                 </div>
                 <div class="stat-card" id="metric-gpu" style="display:none;">
@@ -113,6 +124,16 @@ render_layout_start('Метрики нод', 'nodes-metrics');
                     <div class="chart-body">
                         <canvas id="metrics-load-chart"></canvas>
                         <p class="metrics-chart-empty hidden" id="empty-load">Нет истории за выбранный период</p>
+                    </div>
+                </article>
+                <article class="chart-card metrics-chart-wide">
+                    <div class="chart-header">
+                        <h3>Оборот трафика</h3>
+                        <span class="chart-range" id="range-cum">вход · выход · накопительно</span>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="metrics-cum-chart"></canvas>
+                        <p class="metrics-chart-empty hidden" id="empty-cum">Нет истории за выбранный период</p>
                     </div>
                 </article>
             </div>

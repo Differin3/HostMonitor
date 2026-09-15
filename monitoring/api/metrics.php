@@ -46,6 +46,8 @@ function metrics_ensure_schema(PDO $pdo): void
         "ALTER TABLE metrics ADD COLUMN swap_percent FLOAT NULL",
         "ALTER TABLE metrics ADD COLUMN load_avg FLOAT NULL",
         "ALTER TABLE metrics ADD COLUMN cpu_count SMALLINT NULL",
+        "ALTER TABLE metrics ADD COLUMN network_in_total BIGINT NULL",
+        "ALTER TABLE metrics ADD COLUMN network_out_total BIGINT NULL",
     ] as $sql) {
         try {
             $pdo->exec($sql);
@@ -89,7 +91,52 @@ try {
     echo json_encode(['error' => 'Internal server error']);
 }
 
+function handleGetGpu($pdo) {
+    $nodeId = $_GET['node_id'] ?? null;
+    try {
+        $sql = "SELECT gm.node_id, n.name AS node_name, gm.gpu_index, gm.gpu_name, gm.vendor,
+                       gm.utilization, gm.memory_used, gm.memory_total, gm.temperature, gm.timestamp
+                FROM gpu_metrics gm
+                LEFT JOIN nodes n ON n.id = gm.node_id
+                INNER JOIN (
+                    SELECT node_id, MAX(timestamp) AS ts
+                    FROM gpu_metrics
+                    GROUP BY node_id
+                ) last ON last.node_id = gm.node_id AND last.ts = gm.timestamp";
+        $params = [];
+        if ($nodeId) {
+            $sql .= " WHERE gm.node_id = ?";
+            $params[] = $nodeId;
+        }
+        $sql .= " ORDER BY gm.node_id ASC, gm.gpu_index ASC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Exception $e) {
+        $rows = [];
+    }
+    $gpu = array_map(static function (array $r): array {
+        return [
+            'node_id' => (int)($r['node_id'] ?? 0),
+            'node_name' => (string)($r['node_name'] ?? ''),
+            'index' => (int)($r['gpu_index'] ?? 0),
+            'name' => (string)($r['gpu_name'] ?? 'GPU'),
+            'vendor' => (string)($r['vendor'] ?? ''),
+            'utilization' => (float)($r['utilization'] ?? 0),
+            'memory_used' => (float)($r['memory_used'] ?? 0),
+            'memory_total' => (float)($r['memory_total'] ?? 0),
+            'temperature' => (float)($r['temperature'] ?? 0),
+            'timestamp' => $r['timestamp'] ?? null,
+        ];
+    }, $rows);
+    echo json_encode(['gpu' => $gpu]);
+}
+
 function handleGet($pdo) {
+    if (!empty($_GET['gpu'])) {
+        handleGetGpu($pdo);
+        return;
+    }
     $nodeId = $_GET['node_id'] ?? null;
     $range = $_GET['range'] ?? '1h';
     $limit = (int)($_GET['limit'] ?? 400);
@@ -126,7 +173,9 @@ function handleGet($pdo) {
                AVG(disk_used) AS disk_used,
                AVG(disk_total) AS disk_total,
                AVG(swap_percent) AS swap_percent,
-               AVG(load_avg) AS load_avg";
+               AVG(load_avg) AS load_avg,
+               MAX(network_in_total) AS network_in_total,
+               MAX(network_out_total) AS network_out_total";
 
     if ($nodeId) {
         $sql = "SELECT {$select}
@@ -163,6 +212,8 @@ function handleGet($pdo) {
             'disk_total' => (float)($m['disk_total'] ?? 0),
             'swap_percent' => (float)($m['swap_percent'] ?? 0),
             'load_avg' => (float)($m['load_avg'] ?? 0),
+            'network_in_total' => (float)($m['network_in_total'] ?? 0),
+            'network_out_total' => (float)($m['network_out_total'] ?? 0),
         ];
     }, $metrics);
 
@@ -265,8 +316,9 @@ function handlePost($pdo) {
     $stmt = $pdo->prepare(
         "INSERT INTO metrics
             (node_id, cpu_percent, memory_percent, disk_percent, network_in, network_out,
-             memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count,
+             network_in_total, network_out_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $stmt->execute([
         $nodeId,
@@ -282,6 +334,8 @@ function handlePost($pdo) {
         $row['swap_percent'] ?? null,
         $row['load_avg'] ?? null,
         $row['cpu_count'] ?? null,
+        $row['network_in_total'] ?? null,
+        $row['network_out_total'] ?? null,
     ]);
     $id = $pdo->lastInsertId();
     retention_maybe_tick($pdo);

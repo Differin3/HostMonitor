@@ -173,6 +173,17 @@ HTML;
                     <p class="stat-subtitle" id="net-sub">вход · выход</p>
                 </div>
             </article>
+            <article class="dash-widget stat-card" id="stat-traffic" data-widget="stat-traffic" data-span="3" data-title="Оборот трафика">
+                <?= $chrome() ?>
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
+                    <i data-lucide="database-backup"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Оборот трафика</h3>
+                    <div class="stat-value" id="traffic-total">0 Б</div>
+                    <p class="stat-subtitle" id="traffic-sub">↓ — · ↑ —</p>
+                </div>
+            </article>
 
             <article class="dash-widget chart-card" data-widget="chart-res" data-span="6" data-title="Ресурсы">
                 <?= $chrome() ?>
@@ -212,6 +223,7 @@ HTML;
                         <button type="button" class="top-tab active" data-sort="cpu">CPU</button>
                         <button type="button" class="top-tab" data-sort="ram">RAM</button>
                         <button type="button" class="top-tab" data-sort="disk">Диск</button>
+                        <button type="button" class="top-tab" data-sort="net">Сеть</button>
                     </div>
                 </div>
                 <div class="top-nodes-body" id="top-nodes-body">

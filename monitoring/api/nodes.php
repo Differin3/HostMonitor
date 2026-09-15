@@ -247,7 +247,8 @@ function handleGet($pdo) {
         
         // Получаем последние метрики из таблицы metrics
         $metricsStmt = $pdo->prepare("SELECT cpu_percent, memory_percent, disk_percent, network_in, network_out,
-                                            memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count
+                                            memory_used, memory_total, disk_used, disk_total, swap_percent, load_avg, cpu_count,
+                                            network_in_total, network_out_total
                                      FROM metrics
                                      WHERE node_id = ?
                                      ORDER BY timestamp DESC
@@ -306,6 +307,8 @@ function handleGet($pdo) {
             $node['swap_percent'] = (float)($metrics['swap_percent'] ?? 0);
             $node['load_avg'] = (float)($metrics['load_avg'] ?? 0);
             $node['cpu_count'] = (int)($metrics['cpu_count'] ?? 0);
+            $node['network_in_total'] = (float)($metrics['network_in_total'] ?? 0);
+            $node['network_out_total'] = (float)($metrics['network_out_total'] ?? 0);
             $node['metrics_timestamp'] = $metrics['timestamp'] ?? null;
         } else {
             $node['cpu_usage'] = 0;
@@ -320,6 +323,8 @@ function handleGet($pdo) {
             $node['swap_percent'] = 0;
             $node['load_avg'] = 0;
             $node['cpu_count'] = 0;
+            $node['network_in_total'] = 0;
+            $node['network_out_total'] = 0;
         }
         
         echo json_encode(['node' => $node]);
@@ -365,7 +370,9 @@ function handleGet($pdo) {
                        m.disk_total,
                        m.swap_percent,
                        m.load_avg,
-                       m.cpu_count
+                       m.cpu_count,
+                       m.network_in_total,
+                       m.network_out_total
                 FROM metrics m
                 INNER JOIN (
                     SELECT node_id, MAX(timestamp) AS ts
@@ -441,6 +448,8 @@ function handleGet($pdo) {
                 $node['swap_percent'] = (float)($m['swap_percent'] ?? 0);
                 $node['load_avg'] = (float)($m['load_avg'] ?? 0);
                 $node['cpu_count'] = (int)($m['cpu_count'] ?? 0);
+                $node['network_in_total'] = (float)($m['network_in_total'] ?? 0);
+                $node['network_out_total'] = (float)($m['network_out_total'] ?? 0);
             } else {
                 $node['cpu_usage'] = 0.0;
                 $node['memory_usage'] = 0.0;
@@ -454,6 +463,8 @@ function handleGet($pdo) {
                 $node['swap_percent'] = 0.0;
                 $node['load_avg'] = 0.0;
                 $node['cpu_count'] = 0;
+                $node['network_in_total'] = 0.0;
+                $node['network_out_total'] = 0.0;
             }
             
             // Получаем GPU метрики для каждой ноды

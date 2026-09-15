@@ -195,25 +195,78 @@ function closeModal() {
 
 const emptyRow = (colspan, text) => `<tr><td colspan="${colspan}" class="text-muted">${text}</td></tr>`;
 
+const KIND_META = {
+    router: { icon: 'router', label: 'Роутер' },
+    core: { icon: 'git-fork', label: 'Ядро сети' },
+    switch: { icon: 'network', label: 'Коммутатор' },
+    ap: { icon: 'wifi', label: 'Точка доступа' },
+    printer: { icon: 'printer', label: 'Принтер' },
+    media: { icon: 'tv', label: 'Медиа' },
+    device: { icon: 'radio', label: 'Устройство' },
+};
+
+const kindMeta = (kind) => KIND_META[kind] || KIND_META.device;
+
+const factHtml = (icon, label, value) => (!value || value === '—') ? '' : `
+    <div class="upnp-dev-fact">
+        <span class="upnp-dev-fact-label"><i data-lucide="${icon}"></i>${escapeHtml(label)}</span>
+        <b class="upnp-dev-fact-value">${escapeHtml(value)}</b>
+    </div>`;
+
+const sectionHtml = (icon, title, count, headHtml, bodyHtml, colspan, empty) => `
+    <section class="upnp-dev-section">
+        <div class="upnp-dev-section-head">
+            <i data-lucide="${icon}"></i>
+            <h4>${title}</h4>
+            <span class="upnp-dev-count">${count}</span>
+        </div>
+        <div class="table-container compact-table">
+            <table>
+                <thead>${headHtml}</thead>
+                <tbody>${bodyHtml || emptyRow(colspan, empty)}</tbody>
+            </table>
+        </div>
+    </section>`;
+
 function openDetails(d) {
     if (!els.detailsModal || !els.detailsBody) return;
-    els.detailsTitle.textContent = d.friendly_name || d.model_name || d.udn || 'Устройство';
 
-    const vendor = window.HostMonitorGear ? HostMonitorGear.detectVendor(d) : '';
-    const kind = window.HostMonitorGear ? HostMonitorGear.detectKind(d) : '';
-    const online = d.online;
+    const kind = window.HostMonitorGear ? HostMonitorGear.detectKind(d) : 'device';
+    const meta = kindMeta(kind);
+    const online = !!d.online;
+
+    const title = d.friendly_name || d.model_name || d.udn || 'Устройство';
+    const model = (d.model_name && d.model_name !== d.friendly_name) ? d.model_name : (d.model_number || '');
+    const desc = String(d.model_description || '').trim();
+    const subtitle = [d.manufacturer, model].filter(Boolean).join(' · ');
+    const nodeName = d.node_name || '';
+
     const ports = Array.isArray(d.ports) ? d.ports : [];
     const services = d.services || [];
     const maps = d.port_mappings || [];
     const extra = (d.extra && typeof d.extra === 'object') ? d.extra : {};
     const cdp = Array.isArray(extra.cdp) ? extra.cdp : [];
 
-    const statusBadge = `<span class="status ${online ? 'status-online' : 'status-offline'}">${online ? 'online' : 'offline'}</span>`;
-    const model = (d.model_name && d.model_name !== d.friendly_name) ? d.model_name : (d.model_number || '');
-    const desc = String(d.model_description || '').trim();
+    els.detailsTitle.textContent = title;
 
-    const kv = (label, value) => (value && value !== '—') ? `<div><span>${label}</span><b>${escapeHtml(value)}</b></div>` : '';
-    const kvHtml = (label, html) => `<div><span>${label}</span><b>${html}</b></div>`;
+    const badges = [
+        `<span class="upnp-dev-badge ${online ? 'is-online' : 'is-offline'}"><i data-lucide="activity"></i>${online ? 'online' : 'offline'}</span>`,
+        `<span class="upnp-dev-badge"><i data-lucide="${meta.icon}"></i>${meta.label}</span>`,
+        nodeName ? `<span class="upnp-dev-badge"><i data-lucide="server"></i>${escapeHtml(nodeName)}</span>` : '',
+    ].join('');
+
+    const facts = [
+        factHtml('globe', 'Хост / IP', d.host),
+        factHtml('network', 'WAN', d.wan_ip),
+        factHtml('cpu', 'Производитель', d.manufacturer),
+        factHtml('box', 'Модель', model),
+        factHtml('hash', 'Serial', d.serial_number),
+        factHtml('layers', 'ПО', d.software),
+        factHtml('hard-drive', 'HW', d.hardware_version),
+        factHtml('clock', 'Uptime', formatUptime(d.uptime)),
+        factHtml('link-2', 'Соединение', d.connection_status),
+        factHtml('server', 'Нода-источник', nodeName),
+    ].join('');
 
     const portRows = ports.map((p) => `
         <tr>
@@ -248,44 +301,30 @@ function openDetails(d) {
             <td>${escapeHtml(m.description || '')}</td>
         </tr>`).join('');
 
-    const section = (title, headHtml, bodyHtml, colspan, empty) => `
-        <h4>${title}</h4>
-        <div class="table-container compact-table">
-            <table>
-                <thead>${headHtml}</thead>
-                <tbody>${bodyHtml || emptyRow(colspan, empty)}</tbody>
-            </table>
-        </div>`;
-
     els.detailsBody.innerHTML = `
-        <div class="upnp-details-kv">
-            ${kvHtml('Статус', statusBadge)}
-            ${kv('Тип', kind)}
-            ${kv('Вендор', vendor)}
-            ${kv('Производитель', d.manufacturer)}
-            ${kv('Модель', model)}
-            ${kv('Serial', d.serial_number)}
-            ${kv('Хост', d.host)}
-            ${kv('WAN', d.wan_ip)}
-            ${kv('Соединение', d.connection_status)}
-            ${kv('Uptime', formatUptime(d.uptime))}
-            ${kv('ПО', d.software)}
-            ${kv('HW', d.hardware_version)}
-            ${kv('Нода-источник', d.node_name)}
+        <div class="upnp-dev">
+            <div class="upnp-dev-hero kind-${kind}">
+                <div class="upnp-dev-avatar"><i data-lucide="${meta.icon}"></i></div>
+                <div class="upnp-dev-ident">
+                    ${subtitle ? `<div class="upnp-dev-sub">${escapeHtml(subtitle)}</div>` : ''}
+                    <div class="upnp-dev-badges">${badges}</div>
+                </div>
+            </div>
+            ${facts ? `<div class="upnp-dev-facts">${facts}</div>` : ''}
+            ${desc ? `<div class="upnp-dev-desc">${escapeHtml(desc)}</div>` : ''}
+            ${sectionHtml('plug', 'Порты', ports.length,
+                `<tr><th>Порт</th><th>Тип</th><th>Статус</th><th>Скорость</th><th>↓</th><th>↑</th></tr>`,
+                portRows, 6, 'нет данных по портам')}
+            ${cdp.length ? sectionHtml('git-branch', 'Соседи (CDP)', cdp.length,
+                `<tr><th>Устройство</th><th>Локальный порт</th><th>Порт соседа</th><th>Платформа</th><th>IP</th></tr>`,
+                cdpRows, 5, 'нет соседей') : ''}
+            ${services.length ? sectionHtml('server-cog', 'Сервисы', services.length,
+                `<tr><th>Тип сервиса</th><th>Control URL</th></tr>`,
+                svcRows, 2, 'нет сервисов') : ''}
+            ${maps.length ? sectionHtml('arrow-left-right', 'Проброс портов', maps.length,
+                `<tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th></tr>`,
+                mapRows, 4, 'Нет port mapping') : ''}
         </div>
-        ${desc ? `<div class="upnp-detail-desc">${escapeHtml(desc)}</div>` : ''}
-        ${section('Порты',
-            `<tr><th>Порт</th><th>Тип</th><th>Статус</th><th>Скорость</th><th>↓</th><th>↑</th></tr>`,
-            portRows, 6, 'нет данных по портам')}
-        ${cdpRows ? section('Соседи (CDP)',
-            `<tr><th>Устройство</th><th>Локальный порт</th><th>Порт соседа</th><th>Платформа</th><th>IP</th></tr>`,
-            cdpRows, 5, 'нет соседей') : ''}
-        ${svcRows ? section('Сервисы',
-            `<tr><th>Тип сервиса</th><th>Control URL</th></tr>`,
-            svcRows, 2, 'нет сервисов') : ''}
-        ${mapRows ? section('Проброс портов',
-            `<tr><th>Proto</th><th>Ext</th><th>Internal</th><th>Desc</th></tr>`,
-            mapRows, 4, 'Нет port mapping') : ''}
     `;
 
     els.detailsModal.classList.remove('hidden');

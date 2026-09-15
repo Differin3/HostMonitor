@@ -2119,6 +2119,7 @@ select optgroup {
 .hm-meter-ram > span { background: #34d399; }
 .hm-meter-swap > span { background: #fb923c; }
 .hm-meter-gpu > span { background: #c084fc; }
+.hm-meter-net > span { background: #38bdf8; }
 
 .top-nodes-tabs {
     display: flex;
@@ -2307,6 +2308,69 @@ select optgroup {
 
 .traffic-split span:first-child { background: #38bdf8; }
 .traffic-split span:last-child { background: #818cf8; }
+
+.traffic-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+    gap: 16px;
+    align-items: start;
+    margin-top: 4px;
+}
+
+.traffic-tops {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.traffic-top-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.traffic-top-name {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.traffic-top-value {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.traffic-top-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.traffic-top-in { background: linear-gradient(90deg, #0ea5e9, #38bdf8); }
+.traffic-top-out { background: linear-gradient(90deg, #6366f1, #818cf8); }
+
+.traffic-top-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1100px) {
+    .traffic-layout {
+        grid-template-columns: 1fr;
+    }
+}
 
 #history-tab .card {
     margin-top: 0;

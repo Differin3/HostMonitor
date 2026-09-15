@@ -22,6 +22,7 @@ const METRIC_OPTIONS = {
     gpu: { label: 'GPU %', icon: 'monitor', unit: '%', max: 100, color: '#c084fc', summaryKey: 'gpu_avg' },
     net_in: { label: 'Сеть ↓', icon: 'download', unit: '/s', max: null, color: '#38bdf8', summaryKey: 'network_in_avg', format: 'bytes' },
     net_out: { label: 'Сеть ↑', icon: 'upload', unit: '/s', max: null, color: '#818cf8', summaryKey: 'network_out_avg', format: 'bytes' },
+    traffic: { label: 'Оборот трафика', icon: 'database-backup', unit: '', max: null, color: '#fbbf24', summaryKey: 'traffic_total', format: 'bytes' },
     nodes: { label: 'Ноды', icon: 'server', unit: '', max: null, color: '#34d399', summaryKey: 'nodes_online' },
     alerts: { label: 'Алерты', icon: 'bell', unit: '', max: null, color: '#fbbf24', summaryKey: 'alerts_count' },
     containers: { label: 'Контейнеры', icon: 'box', unit: '', max: null, color: '#38bdf8', summaryKey: 'containers_running' },
@@ -32,11 +33,11 @@ const METRIC_OPTIONS = {
 const WIDGET_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#c084fc', '#38bdf8', '#818cf8', '#ef4444', '#22c55e'];
 
 const DEFAULT_LAYOUT = {
-    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'stat-load', 'stat-swap', 'stat-gpu', 'stat-net', 'chart-res', 'chart-net', 'chart-net-nodes', 'top-nodes', 'list-nodes', 'list-alerts'],
+    order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'stat-load', 'stat-swap', 'stat-gpu', 'stat-net', 'stat-traffic', 'chart-res', 'chart-net', 'chart-net-nodes', 'top-nodes', 'list-nodes', 'list-alerts'],
     hidden: ['stat-proc', 'stat-ct', 'stat-db'],
     spans: {
         'stat-nodes': 3, 'stat-alerts': 3, 'stat-cpu': 3, 'stat-ram': 3,
-        'stat-disk': 3, 'stat-load': 3, 'stat-swap': 3, 'stat-gpu': 3, 'stat-net': 3,
+        'stat-disk': 3, 'stat-load': 3, 'stat-swap': 3, 'stat-gpu': 3, 'stat-net': 3, 'stat-traffic': 3,
         'stat-proc': 3, 'stat-ct': 3, 'stat-db': 3,
         'chart-res': 6, 'chart-net': 6, 'chart-net-nodes': 6, 'top-nodes': 6,
         'list-nodes': 6, 'list-alerts': 6,
@@ -66,6 +67,7 @@ const elements = {
     gpuAvg: document.getElementById('gpu-avg'),
     gpuMeter: document.getElementById('gpu-meter'),
     netTotal: document.getElementById('net-total'),
+    trafficTotal: document.getElementById('traffic-total'),
     nodesList: document.getElementById('nodes-list'),
     alertsList: document.getElementById('alerts-list'),
     topNodesBody: document.getElementById('top-nodes-body'),
@@ -642,6 +644,9 @@ const updateStats = (summary) => {
     const gpuCount = summary.gpu_count ?? 0;
     const netIn = summary.network_in_avg ?? 0;
     const netOut = summary.network_out_avg ?? 0;
+    const trafficTotal = summary.traffic_total ?? 0;
+    const trafficIn = summary.traffic_in_total ?? 0;
+    const trafficOut = summary.traffic_out_total ?? 0;
 
     setText(elements.nodesCount, online);
     setText(elements.nodesTotal, total);
@@ -657,6 +662,7 @@ const updateStats = (summary) => {
     setText(elements.swapAvg, `${swapAvg}%`);
     setText(elements.gpuAvg, gpuCount > 0 ? `${gpuAvg}%` : '—');
     if (elements.netTotal) elements.netTotal.textContent = `${formatBytes(netIn)}/s ↓ ${formatBytes(netOut)}/s ↑`;
+    if (elements.trafficTotal) elements.trafficTotal.textContent = formatBytes(trafficTotal);
     setMeter(elements.cpuMeter, cpu);
     setMeter(elements.ramMeter, ram);
     setMeter(elements.diskMeter, disk);
@@ -675,6 +681,7 @@ const updateStats = (summary) => {
     const swapSub = document.getElementById('swap-sub');
     const gpuSub = document.getElementById('gpu-sub');
     const netSub = document.getElementById('net-sub');
+    const trafficSub = document.getElementById('traffic-sub');
 
     if (nodesSub) {
         nodesSub.innerHTML = offline > 0
@@ -709,6 +716,7 @@ const updateStats = (summary) => {
     if (swapSub) swapSub.textContent = swapMax > 0 ? `макс ${swapMax}%` : 'не используется';
     if (gpuSub) gpuSub.textContent = gpuCount > 0 ? `${gpuCount} GPU · макс ${gpuMax}%` : 'не обнаружены';
     if (netSub) netSub.textContent = `↓${formatBytes(netIn)}/s ↑${formatBytes(netOut)}/s`;
+    if (trafficSub) trafficSub.textContent = `↓ ${formatBytes(trafficIn)} · ↑ ${formatBytes(trafficOut)}`;
 
     setTone('stat-nodes', online === 0 && total > 0 ? 'bad' : (online < total ? 'warn' : 'ok'));
     setTone('stat-alerts', alerts === 0 ? 'ok' : (alerts >= 5 || alertsCrit > 0 ? 'bad' : 'warn'));
@@ -722,6 +730,7 @@ const updateStats = (summary) => {
     setTone('stat-swap', toneForPct(swapMax));
     setTone('stat-gpu', gpuCount > 0 ? toneForPct(gpuMax) : 'ok');
     setTone('stat-net', 'ok');
+    setTone('stat-traffic', 'ok');
 };
 
 const meterHtml = (value, kind) => {
@@ -784,18 +793,26 @@ const renderTopNodes = (nodes) => {
         elements.topNodesBody.innerHTML = '<div class="list-empty">Нет онлайн нод</div>';
         return;
     }
+    const isNet = topNodesSort === 'net';
     const key = topNodesSort === 'cpu' ? 'cpu_usage' : (topNodesSort === 'ram' ? 'memory_usage' : 'disk_usage');
-    sorted.sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0));
+    const valueOf = (n) => isNet
+        ? (Number(n.network_in) || 0) + (Number(n.network_out) || 0)
+        : (Number(n[key]) || 0);
+    sorted.sort((a, b) => valueOf(b) - valueOf(a));
     const top5 = sorted.slice(0, 5);
+    const maxVal = Math.max(...top5.map(valueOf), 1);
     elements.topNodesBody.innerHTML = top5.map((n) => {
-        const val = Number(n[key]) || 0;
-        const tone = toneForPct(val);
+        const val = valueOf(n);
+        const widthPct = isNet ? Math.min(100, (val / maxVal) * 100) : Math.min(100, val);
+        const tone = isNet ? 'ok' : toneForPct(val);
+        const label = isNet ? `${formatBytes(val)}/s` : `${val.toFixed(1)}%`;
+        const meterKind = isNet ? 'net' : topNodesSort;
         return `<div class="top-node-row" data-href="nodes.php">
             <div class="top-node-info">
                 <span class="top-node-name">${esc(n.name || n.host || '—')}</span>
-                <span class="top-node-val">${val.toFixed(1)}%</span>
+                <span class="top-node-val">${label}</span>
             </div>
-            <div class="hm-meter hm-meter-${esc(topNodesSort)}" data-tone="${esc(tone)}"><span style="width:${val}%"></span></div>
+            <div class="hm-meter hm-meter-${esc(meterKind)}" data-tone="${esc(tone)}"><span style="width:${widthPct}%"></span></div>
         </div>`;
     }).join('');
 };

@@ -124,6 +124,12 @@ function dashboard_summary(PDO $pdo): array
         usort($byRam, static fn($a, $b) => (float)($b['memory_percent'] ?? 0) <=> (float)($a['memory_percent'] ?? 0));
         $byDisk = $latest;
         usort($byDisk, static fn($a, $b) => (float)($b['disk_percent'] ?? 0) <=> (float)($a['disk_percent'] ?? 0));
+        $byNet = $latest;
+        usort($byNet, static function ($a, $b) {
+            $av = (float)($a['network_in'] ?? 0) + (float)($a['network_out'] ?? 0);
+            $bv = (float)($b['network_in'] ?? 0) + (float)($b['network_out'] ?? 0);
+            return $bv <=> $av;
+        });
 
         $mapTop = static function (array $rows, string $key): array {
             $out = [];
@@ -145,10 +151,25 @@ function dashboard_summary(PDO $pdo): array
         $topCpu = $mapTop($byCpu, 'cpu_percent');
         $topRam = $mapTop($byRam, 'memory_percent');
         $topDisk = $mapTop($byDisk, 'disk_percent');
+        $topNet = [];
+        foreach (array_slice($byNet, 0, 8) as $row) {
+            $netIn = (float)($row['network_in'] ?? 0);
+            $netOut = (float)($row['network_out'] ?? 0);
+            $topNet[] = [
+                'id' => (int)$row['id'],
+                'name' => (string)($row['name'] ?? ''),
+                'host' => (string)($row['host'] ?? ''),
+                'status' => (string)($row['status'] ?? 'offline'),
+                'net_in' => round($netIn, 1),
+                'net_out' => round($netOut, 1),
+                'value' => round($netIn + $netOut, 1),
+            ];
+        }
     } catch (Throwable $e) {
         $topCpu = [];
         $topRam = [];
         $topDisk = [];
+        $topNet = [];
     }
 
     $nodesTotal = (int)($nodesStats['total'] ?? 0);
@@ -174,6 +195,24 @@ function dashboard_summary(PDO $pdo): array
     } catch (Throwable $e) {
     }
 
+    $trafficInTotal = 0;
+    $trafficOutTotal = 0;
+    try {
+        $trafficRow = $pdo->query(
+            "SELECT SUM(m.network_in_total) AS in_total, SUM(m.network_out_total) AS out_total
+             FROM nodes n
+             INNER JOIN metrics m ON m.node_id = n.id
+             INNER JOIN (
+                 SELECT node_id, MAX(timestamp) AS ts FROM metrics GROUP BY node_id
+             ) last ON last.node_id = m.node_id AND last.ts = m.timestamp"
+        )->fetch(PDO::FETCH_ASSOC);
+        $trafficInTotal = (float)($trafficRow['in_total'] ?? 0);
+        $trafficOutTotal = (float)($trafficRow['out_total'] ?? 0);
+    } catch (Throwable $e) {
+        $trafficInTotal = 0;
+        $trafficOutTotal = 0;
+    }
+
     return [
         'nodes_total' => $nodesTotal,
         'nodes_online' => $nodesOnline,
@@ -194,12 +233,16 @@ function dashboard_summary(PDO $pdo): array
         'gpu_count' => $gpuCount,
         'network_in_avg' => round((float)($cpuStats['avg_net_in'] ?? 0), 1),
         'network_out_avg' => round((float)($cpuStats['avg_net_out'] ?? 0), 1),
+        'traffic_in_total' => $trafficInTotal,
+        'traffic_out_total' => $trafficOutTotal,
+        'traffic_total' => $trafficInTotal + $trafficOutTotal,
         'cpu_hot' => dashboard_hot_entry($topCpu[0] ?? null, 'value'),
         'ram_hot' => dashboard_hot_entry($topRam[0] ?? null, 'value'),
         'disk_hot' => dashboard_hot_entry($topDisk[0] ?? null, 'value'),
         'top_cpu' => $topCpu,
         'top_ram' => $topRam,
         'top_disk' => $topDisk,
+        'top_net' => $topNet,
         'alerts_count' => $alertsCount,
         'alerts_critical' => $alertsCritical,
         'databases_total' => $dbTotal,
@@ -253,6 +296,7 @@ function dashboard_nodes_light(PDO $pdo, int $limit = 6): array
         SELECT m.node_id, m.cpu_percent, m.memory_percent, m.disk_percent,
                m.network_in, m.network_out, m.load_avg, m.swap_percent,
                m.cpu_count, m.memory_used, m.memory_total, m.disk_used, m.disk_total,
+               m.network_in_total, m.network_out_total,
                m.timestamp
         FROM metrics m
         INNER JOIN (
@@ -301,6 +345,8 @@ function dashboard_nodes_light(PDO $pdo, int $limit = 6): array
             'disk_usage' => (float)($m['disk_percent'] ?? 0),
             'network_in' => (float)($m['network_in'] ?? 0),
             'network_out' => (float)($m['network_out'] ?? 0),
+            'network_in_total' => (float)($m['network_in_total'] ?? 0),
+            'network_out_total' => (float)($m['network_out_total'] ?? 0),
             'load_avg' => round((float)($m['load_avg'] ?? 0), 2),
             'swap_percent' => (float)($m['swap_percent'] ?? 0),
             'cpu_count' => (int)($m['cpu_count'] ?? 0),

@@ -44,6 +44,36 @@ render_layout_start('Статистика нод', 'nodes-stats');
                 <p class="stat-subtitle">среднее по парку</p>
             </div>
         </div>
+        <div class="stat-card" id="stat-ram">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
+                <i data-lucide="memory-stick"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>RAM</h3>
+                <div class="stat-value" id="avg-ram-stat">0%</div>
+                <p class="stat-subtitle">среднее по парку</p>
+            </div>
+        </div>
+        <div class="stat-card" id="stat-disk">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #f59e0b, #b45309);">
+                <i data-lucide="hard-drive"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>Диск</h3>
+                <div class="stat-value" id="avg-disk-stat">0%</div>
+                <p class="stat-subtitle">среднее по парку</p>
+            </div>
+        </div>
+        <div class="stat-card" id="stat-traffic">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);">
+                <i data-lucide="database-backup"></i>
+            </div>
+            <div class="stat-card-content">
+                <h3>Оборот трафика</h3>
+                <div class="stat-value" id="traffic-total-stat">0 Б</div>
+                <p class="stat-subtitle">накопительно по парку</p>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -78,10 +108,12 @@ render_layout_start('Статистика нод', 'nodes-stats');
                             <th>RAM</th>
                             <th>Диск</th>
                             <th>Сеть</th>
+                            <th>Swap</th>
+                            <th>Оборот</th>
                         </tr>
                     </thead>
                     <tbody id="stats-tbody">
-                        <tr><td colspan="6" class="text-center">Нет данных</td></tr>
+                        <tr><td colspan="8" class="text-center">Нет данных</td></tr>
                     </tbody>
                 </table>
             </div>

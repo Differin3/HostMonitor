@@ -28,16 +28,30 @@ const loadStats = async (silent = false) => { // загрузка агрегир
         const avgCpu = nodes.length > 0 // средняя загрузка CPU
             ? Math.round(nodes.reduce((sum, n) => sum + (parseFloat(n.cpu_usage) || 0), 0) / nodes.length)
             : 0;
+        const avgRam = nodes.length > 0
+            ? Math.round(nodes.reduce((sum, n) => sum + (parseFloat(n.memory_usage) || 0), 0) / nodes.length)
+            : 0;
+        const avgDisk = nodes.length > 0
+            ? Math.round(nodes.reduce((sum, n) => sum + (parseFloat(n.disk_usage) || 0), 0) / nodes.length)
+            : 0;
+        const totalTraffic = nodes.reduce((sum, n) => sum + (parseFloat(n.network_in_total) || 0) + (parseFloat(n.network_out_total) || 0), 0);
         document.getElementById('total-nodes').textContent = total;
         document.getElementById('online-nodes').textContent = online;
         document.getElementById('offline-nodes').textContent = offline;
         document.getElementById('avg-load').textContent = avgCpu + '%';
+        document.getElementById('avg-ram-stat').textContent = avgRam + '%';
+        document.getElementById('avg-disk-stat').textContent = avgDisk + '%';
+        document.getElementById('traffic-total-stat').textContent = formatBytes(totalTraffic);
         const onlineCard = document.getElementById('stat-online');
         const offlineCard = document.getElementById('stat-offline');
         const loadCard = document.getElementById('stat-load');
+        const ramCard = document.getElementById('stat-ram');
+        const diskCard = document.getElementById('stat-disk');
         if (onlineCard) onlineCard.dataset.tone = (offline > 0 && online === 0) ? 'bad' : 'ok';
         if (offlineCard) offlineCard.dataset.tone = offline === 0 ? 'ok' : (offline > 2 ? 'bad' : 'warn');
         if (loadCard) loadCard.dataset.tone = avgCpu >= 90 ? 'bad' : (avgCpu >= 75 ? 'warn' : 'ok');
+        if (ramCard) ramCard.dataset.tone = avgRam >= 90 ? 'bad' : (avgRam >= 75 ? 'warn' : 'ok');
+        if (diskCard) diskCard.dataset.tone = avgDisk >= 90 ? 'bad' : (avgDisk >= 75 ? 'warn' : 'ok');
         renderStatsTable(nodes);
     } catch (error) {
         console.error('Ошибка загрузки статистики:', error); // лог ошибки
@@ -45,6 +59,9 @@ const loadStats = async (silent = false) => { // загрузка агрегир
         document.getElementById('online-nodes').textContent = '0';
         document.getElementById('offline-nodes').textContent = '0';
         document.getElementById('avg-load').textContent = '0%';
+        document.getElementById('avg-ram-stat').textContent = '0%';
+        document.getElementById('avg-disk-stat').textContent = '0%';
+        document.getElementById('traffic-total-stat').textContent = '0 Б';
         renderStatsTable([]); // очищаем таблицу
     } finally {
         if (!silent && window.toggleTableLoader) window.toggleTableLoader('stats-tbody', false); // скрываем лоадер
@@ -67,9 +84,9 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
         }
     });
     
-    if (nodes.length === 0) { // если данных нет
+        if (nodes.length === 0) { // если данных нет
         if (tbody.children.length === 0 || !tbody.querySelector('.text-center')) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">Нет данных</td></tr>';
         }
         return; // выходим
     }
@@ -93,6 +110,8 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
         const cpu = parseFloat(node.cpu_usage) || 0;
         const ram = parseFloat(node.memory_usage) || 0;
         const disk = parseFloat(node.disk_usage) || 0;
+        const swap = parseFloat(node.swap_percent) || 0;
+        const cumulative = (parseFloat(node.network_in_total) || 0) + (parseFloat(node.network_out_total) || 0);
         const tone = (v) => v >= 90 ? 'bad' : (v >= 75 ? 'warn' : 'ok');
         const meter = (v, kind) => `<div class="hm-meter hm-meter-${kind}" data-tone="${tone(v)}"><span style="width:${Math.min(100, v)}%"></span></div><small class="meter-label">${v.toFixed(0)}%</small>`;
         // Платформа
@@ -111,6 +130,8 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
             <td class="meter-cell">${meter(ram, 'ram')}</td>
             <td class="meter-cell">${meter(disk, 'disk')}</td>
             <td>${formatBytes(node.network_in || 0)}/с / ${formatBytes(node.network_out || 0)}/с</td>
+            <td class="meter-cell">${meter(swap, 'swap')}</td>
+            <td>${cumulative > 0 ? formatBytes(cumulative) : '—'}</td>
         `;
     });
     
@@ -120,7 +141,7 @@ const renderStatsTable = (nodes) => { // рендер таблицы по нод
 const formatBytes = (bytes) => { // форматирование байтов в читаемый вид
     if (!bytes) return '0 Б'; // если 0 байт
     const k = 1024; // основание
-    const sizes = ['Б', 'КБ', 'МБ', 'ГБ']; // единицы
+    const sizes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ', 'ПБ']; // единицы
     const i = Math.floor(Math.log(bytes) / Math.log(k)); // индекс единицы
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]; // возвращаем строку
 };

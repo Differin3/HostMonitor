@@ -107,12 +107,12 @@ render_layout_start(
     </div>
 
     <div class="modal hidden" id="upnp-details-modal">
-        <div class="modal-dialog" style="max-width: 680px;">
+        <div class="modal-dialog upnp-dev-dialog" style="max-width: 780px;">
             <div class="modal-header">
                 <h2 id="upnp-details-title">Устройство</h2>
                 <button class="modal-close" type="button" id="upnp-details-close"><i data-lucide="x"></i></button>
             </div>
-            <div class="modal-body" id="upnp-details-body"></div>
+            <div class="modal-body upnp-dev-body" id="upnp-details-body"></div>
         </div>
     </div>
 <?php
