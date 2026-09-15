@@ -159,6 +159,22 @@ render_layout_start('Профиль', 'profile');
                 </div>
             </div>
         </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <div class="card-header">
+                <div class="card-title">
+                    <i data-lucide="monitor-smartphone"></i>
+                    <span>Активные сессии</span>
+                </div>
+                <div class="card-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn-outline" id="sessions-revoke-others">Завершить другие</button>
+                    <button type="button" class="btn-outline" id="sessions-revoke-all">Выйти везде</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="sessions-list" style="display: flex; flex-direction: column; gap: 8px; color: var(--text-muted);">Загрузка…</div>
+            </div>
+        </div>
     </div>
 <?php
 render_layout_end(['/frontend/js/profile.js']);

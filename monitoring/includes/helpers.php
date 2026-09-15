@@ -806,3 +806,116 @@ if (!function_exists('trusted_device_cookie_options')) {
         ];
     }
 }
+
+// ================== Активные сессии пользователя ==================
+
+if (!function_exists('user_sessions_ensure_table')) {
+    function user_sessions_ensure_table(PDO $pdo): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS user_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                session_hash VARCHAR(64) NOT NULL,
+                user_agent VARCHAR(255) NULL,
+                ip VARCHAR(45) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_session (session_hash),
+                INDEX idx_user (user_id),
+                INDEX idx_last (last_activity)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Throwable $e) {
+            error_log('[user_sessions_ensure_table] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('current_session_hash')) {
+    function current_session_hash(): string
+    {
+        return hash('sha256', (string)session_id());
+    }
+}
+
+if (!function_exists('session_register')) {
+    function session_register(PDO $pdo, int $userId): void
+    {
+        try {
+            user_sessions_ensure_table($pdo);
+            $hash = current_session_hash();
+            if ($hash === hash('sha256', '')) {
+                return;
+            }
+            $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+            $ip = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+            $now = date('Y-m-d H:i:s');
+            $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, session_hash, user_agent, ip, created_at, last_activity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), user_agent = VALUES(user_agent), ip = VALUES(ip), last_activity = VALUES(last_activity)");
+            $stmt->execute([$userId, $hash, $ua, $ip, $now, $now]);
+        } catch (Throwable $e) {
+            error_log('[session_register] ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('session_touch')) {
+    /** Обновляет активность текущей сессии. false = сессия отозвана/неизвестна. */
+    function session_touch(PDO $pdo, int $userId): bool
+    {
+        try {
+            user_sessions_ensure_table($pdo);
+            $hash = current_session_hash();
+            $chk = $pdo->prepare("SELECT 1 FROM user_sessions WHERE session_hash = ? AND user_id = ? LIMIT 1");
+            $chk->execute([$hash, $userId]);
+            if (!$chk->fetchColumn()) {
+                return false;
+            }
+            $pdo->prepare("UPDATE user_sessions SET last_activity = ? WHERE session_hash = ? AND user_id = ?")
+                ->execute([date('Y-m-d H:i:s'), $hash, $userId]);
+            return true;
+        } catch (Throwable $e) {
+            return true; // при ошибке БД не выкидываем пользователя
+        }
+    }
+}
+
+if (!function_exists('session_list')) {
+    function session_list(PDO $pdo, int $userId): array
+    {
+        user_sessions_ensure_table($pdo);
+        $stmt = $pdo->prepare("SELECT id, session_hash, user_agent, ip, created_at, last_activity FROM user_sessions WHERE user_id = ? ORDER BY last_activity DESC");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+if (!function_exists('session_revoke')) {
+    function session_revoke(PDO $pdo, int $userId, int $id): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE id = ? AND user_id = ?")->execute([$id, $userId]);
+    }
+}
+
+if (!function_exists('session_revoke_others')) {
+    function session_revoke_others(PDO $pdo, int $userId): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ? AND session_hash <> ?")->execute([$userId, current_session_hash()]);
+    }
+}
+
+if (!function_exists('session_revoke_all')) {
+    function session_revoke_all(PDO $pdo, int $userId): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ?")->execute([$userId]);
+    }
+}

@@ -70,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role'] = $pending['role'];
                 $_SESSION['last_activity'] = time();
                 unset($_SESSION['pending_2fa']);
+                session_register($pdo, (int)$pending['id']);
                 if (!empty($_POST['remember_device'])) {
                     $token = trusted_device_issue($pdo, (int)$pending['id']);
                     setcookie('hm_trusted', $token, trusted_device_cookie_options(30));
@@ -133,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['username'] = $user['username'];
                     $_SESSION['role'] = $user['role'];
                     $_SESSION['last_activity'] = time();
+                    session_register($pdo, (int)$user['id']);
 
                     // Clear attempts on success
                     unset($attempts[$clientIp]);

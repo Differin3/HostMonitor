@@ -320,3 +320,102 @@ document.getElementById('totp-devices-list')?.addEventListener('click', (e) => {
 document.getElementById('totp-revoke-all')?.addEventListener('click', totpRevokeAll);
 
 document.addEventListener('DOMContentLoaded', totpLoadStatus);
+
+// ——— Активные сессии ———
+const SESSIONS_API = (window.MONITORING_API_BASE || '/api') + '/sessions.php';
+
+function sessionLabel(ua) {
+    const s = (ua || '').toLowerCase();
+    let os = 'Устройство';
+    if (/windows/.test(s)) os = 'Windows';
+    else if (/iphone|ipad|ios/.test(s)) os = 'iOS';
+    else if (/android/.test(s)) os = 'Android';
+    else if (/mac os|macintosh/.test(s)) os = 'macOS';
+    else if (/linux/.test(s)) os = 'Linux';
+    let br = '';
+    if (/edg\//.test(s)) br = 'Edge';
+    else if (/opr\//.test(s)) br = 'Opera';
+    else if (/chrome\//.test(s)) br = 'Chrome';
+    else if (/firefox\//.test(s)) br = 'Firefox';
+    else if (/safari\//.test(s)) br = 'Safari';
+    return [os, br].filter(Boolean).join(' · ');
+}
+
+function timeAgo(ts) {
+    if (!ts) return '';
+    const d = new Date(String(ts).replace(' ', 'T'));
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return 'только что';
+    if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
+    return `${Math.floor(diff / 86400)} дн назад`;
+}
+
+async function sessionsLoad() {
+    const list = document.getElementById('sessions-list');
+    if (!list) return;
+    try {
+        const res = await fetch(SESSIONS_API + '?action=list', { credentials: 'include' });
+        const data = await res.json();
+        const items = data.sessions || [];
+        if (!items.length) {
+            list.innerHTML = '<div>Нет активных сессий</div>';
+            return;
+        }
+        list.innerHTML = items.map((s) => `
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid rgba(148,163,184,0.12); border-radius:10px;">
+                <div style="min-width:0;">
+                    <div style="color:var(--text-primary);">${sessionLabel(s.user_agent)}${s.current ? ' <span class="status status-online" style="margin-left:6px;">эта сессия</span>' : ''}</div>
+                    <div style="font-size:12px; color:var(--text-muted);">${s.ip || ''} · активна ${timeAgo(s.last_activity)} · вход ${s.created_at || ''}</div>
+                </div>
+                ${s.current ? '' : `<button type="button" class="btn-outline" data-revoke-session="${s.id}">Завершить</button>`}
+            </div>`).join('');
+    } catch (e) {
+        list.innerHTML = '<div>Не удалось загрузить сессии</div>';
+    }
+}
+
+async function sessionsRevoke(id) {
+    try {
+        await fetch(SESSIONS_API + '?action=revoke', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: Number(id) }),
+        });
+        sessionsLoad();
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+}
+
+document.getElementById('sessions-list')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-revoke-session]');
+    if (b) sessionsRevoke(b.getAttribute('data-revoke-session'));
+});
+document.getElementById('sessions-revoke-others')?.addEventListener('click', async () => {
+    const ok = await window.showConfirm?.('Завершить все другие сессии?', 'Сессии', 'warning');
+    if (!ok) return;
+    try {
+        await fetch(SESSIONS_API + '?action=revoke-others', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        window.showToast?.('Другие сессии завершены', 'success');
+        sessionsLoad();
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+});
+document.getElementById('sessions-revoke-all')?.addEventListener('click', async () => {
+    const ok = await window.showConfirm?.('Выйти на всех устройствах? Текущая сессия тоже будет завершена.', 'Сессии', 'danger');
+    if (!ok) return;
+    try {
+        const res = await fetch(SESSIONS_API + '?action=revoke-all', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (data.logout) {
+            window.location.href = 'login.php';
+            return;
+        }
+    } catch (e) {
+        window.showToast?.(e.message, 'error');
+    }
+});
+document.addEventListener('DOMContentLoaded', sessionsLoad);

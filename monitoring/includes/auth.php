@@ -68,6 +68,27 @@ if ((time() - $last) > ($timeoutMin * 60)) {
     exit;
 }
 $_SESSION['last_activity'] = time();
+
+// Проверяем/обновляем запись сессии в БД (список сессий и «Выйти везде»)
+if (function_exists('session_touch')) {
+    try {
+        $pdoSess = getDbConnection();
+        if ($pdoSess && !session_touch($pdoSess, (int)$_SESSION['user_id'])) {
+            // Сессия отозвана (например, «Выйти везде» с другого устройства)
+            $_SESSION = [];
+            if (ini_get('session.use_cookies')) {
+                $p = session_get_cookie_params();
+                setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], (bool)$p['secure'], (bool)$p['httponly']);
+            }
+            session_destroy();
+            header('Location: login.php?expired=1');
+            exit;
+        }
+    } catch (Throwable $e) {
+        // БД недоступна — не выкидываем пользователя
+    }
+}
+
 // Важно: отпускаем file-lock сессии, иначе параллельные API/вкладки ждут до CGI timeout
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
