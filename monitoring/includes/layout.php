@@ -32,6 +32,7 @@ $menuItems = [
     ],
     ['slug' => 'smart', 'label' => 'SMART', 'href' => 'smart.php', 'icon' => 'hard-drive'],
     ['slug' => 'logs', 'label' => 'Логи', 'href' => 'logs.php', 'icon' => 'file-text'],
+    ['slug' => 'security', 'label' => 'Безопасность', 'href' => 'auth_logs.php', 'icon' => 'shield-check'],
     ['slug' => 'updates', 'label' => 'Обновления', 'href' => 'updates.php', 'icon' => 'package'],
 ];
 
@@ -301,6 +302,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                                 'nodes-traffic' => 'Вход и выход по нодам',
                                 'nodes-billing' => 'Сроки и платежи',
                                 'updates' => 'Пакеты и безопасность',
+                                'security' => 'Журнал входов и событий безопасности',
                             ];
                             echo $subtitles[$activeSlug] ?? 'Панель управления';
                         ?></p>
