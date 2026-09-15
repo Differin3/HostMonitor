@@ -129,7 +129,7 @@ if (!function_exists('log_auth_event')) {
                 INDEX idx_ip_address (ip_address)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
             
-            $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+            $ipAddress = client_ip() ?: 'unknown';
             $stmt = $pdo->prepare("INSERT INTO auth_logs (user_id, username, ip_address, event_type, success, message) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$userId, $username, $ipAddress, $eventType, $success ? 1 : 0, $message]);
         } catch (Exception $e) {
@@ -755,7 +755,7 @@ if (!function_exists('trusted_device_issue')) {
         $hash = hash('sha256', $token);
         $expires = date('Y-m-d H:i:s', time() + max(1, $days) * 86400);
         $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
-        $ip = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+        $ip = substr(client_ip(), 0, 45);
         $stmt = $pdo->prepare("INSERT INTO trusted_devices (user_id, token_hash, user_agent, ip, expires_at) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$userId, $hash, $ua, $ip, $expires]);
         return $token;
@@ -853,7 +853,7 @@ if (!function_exists('session_register')) {
                 return;
             }
             $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
-            $ip = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+            $ip = substr(client_ip(), 0, 45);
             $now = date('Y-m-d H:i:s');
             $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, session_hash, user_agent, ip, created_at, last_activity)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -917,5 +917,32 @@ if (!function_exists('session_revoke_all')) {
     {
         user_sessions_ensure_table($pdo);
         $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ?")->execute([$userId]);
+    }
+}
+
+if (!function_exists('client_ip')) {
+    /** Реальный IP клиента с учётом обратного прокси (NPM/nginx/Cloudflare). */
+    function client_ip(): string
+    {
+        $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        // Доверяем X-Forwarded-* только если прямое соединение от прокси (loopback/приватный/локальный)
+        $isTrustedProxy = ($remote === '')
+            || ($remote === '127.0.0.1')
+            || ($remote === '::1')
+            || (filter_var($remote, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false);
+        if ($isTrustedProxy) {
+            foreach (['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP'] as $key) {
+                $val = (string)($_SERVER[$key] ?? '');
+                if ($val === '') {
+                    continue;
+                }
+                foreach (array_map('trim', explode(',', $val)) as $cand) {
+                    if ($cand !== '' && filter_var($cand, FILTER_VALIDATE_IP)) {
+                        return $cand;
+                    }
+                }
+            }
+        }
+        return $remote;
     }
 }

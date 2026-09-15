@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // ——— Шаг 1: логин + пароль ———
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
-        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $clientIp = client_ip() ?: '0.0.0.0';
 
         // Brute-force rate limiting: max 5 attempts per 15 minutes per IP
         $rlFile = __DIR__ . '/data/login_attempts.json';
