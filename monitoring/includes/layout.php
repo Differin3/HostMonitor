@@ -55,6 +55,9 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token_generate()) ?>">
         <title><?= htmlspecialchars($title) ?> · <?= htmlspecialchars($brandName) ?></title>
+        <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(monitoring_asset('/frontend/favicon.svg')) ?>">
+        <link rel="apple-touch-icon" href="<?= htmlspecialchars(monitoring_asset('/frontend/favicon.svg')) ?>">
+        <meta name="theme-color" content="#2563eb">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">

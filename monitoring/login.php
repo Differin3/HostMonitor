@@ -176,6 +176,7 @@ $totpStep = !empty($_SESSION['pending_2fa']) || isset($_GET['totp']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход · HostMonitor</title>
+    <link rel="icon" type="image/svg+xml" href="<?= htmlspecialchars(monitoring_asset('/frontend/favicon.svg')) ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
