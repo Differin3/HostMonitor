@@ -954,6 +954,26 @@ body.light .table-container thead th {
     gap: 6px;
 }
 
+.panel-update-branch {
+    max-width: 230px;
+    padding: 5px 26px 5px 8px;
+    border: 1px solid rgba(148, 163, 142, 0.3);
+    border-radius: 6px;
+    background: var(--panel-bg, #0d0e1a) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b93a6' stroke-width='2'%3E%3Cpath d='m6 9 6 6-6 6'/%3E%3C/svg%3E") no-repeat right 8px center;
+    color: var(--panel-text, #d4d6e4);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+.panel-update-branch:hover { border-color: rgba(148, 163, 142, 0.55); }
+.panel-update-branch:focus-visible {
+    outline: 2px solid rgba(99, 102, 222, 0.6);
+    outline-offset: 1px;
+}
+
+
 .panel-update-check.panel-update-pending {
     color: #fbbf24;
     border-color: rgba(245, 158, 11, 0.45);

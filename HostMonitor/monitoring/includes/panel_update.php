@@ -18,6 +18,7 @@ function panel_config_load(): array
         'git_wrapper' => '',
         'git_sudo_user' => '',
         'web_root' => '',
+        'update_branch' => '',
     ];
     $path = panel_config_path();
     if (is_file($path)) {
@@ -365,6 +366,26 @@ function panel_git_branch(string $root): string
     return $branch;
 }
 
+/**
+ * Список remote-веток (origin/*) для выбора канала обновления (main — стабильная, dev — разработка).
+ */
+function panel_git_branch_list(string $root): array
+{
+    $r = panel_git($root, 'for-each-ref --format=%(refname:short) refs/remotes/origin', 10);
+    $branches = [];
+    if (!$r['ok'] || $r['output'] === '') {
+        return $branches;
+    }
+    foreach (preg_split('/\r?\n/', $r['output']) ?: [] as $line) {
+        $line = trim($line);
+        if (preg_match('#^origin/([A-Za-z0-9._\/-]+)$#', $line, $m)) {
+            $branches[] = $m[1];
+        }
+    }
+    sort($branches, SORT_STRING);
+    return $branches;
+}
+
 function panel_git_remote_url(string $root): string
 {
     $r = panel_git($root, 'remote get-url origin', 10);
@@ -430,7 +451,7 @@ function panel_sync_web_from_repo(string $repoRoot): array
     return ['ok' => false, 'message' => 'rsync не найден — установите rsync для синхронизации после git pull'];
 }
 
-function panel_update_check(bool $fetch = true): array
+function panel_update_check(bool $fetch = true, string $targetBranch = ''): array
 {
     $root = panel_repo_root();
     if ($root === null) {
@@ -470,20 +491,40 @@ function panel_update_check(bool $fetch = true): array
     }
 
     $branch = panel_git_branch($root);
+    if ($updateBranch !== '' && $updateBranch !== $branch) {
+        $rev = panel_git($root, 'rev-parse --verify --quiet origin/' . $updateBranch, 10);
+        if (!$rev['ok']) {
+            return [
+                'available' => false,
+                'error' => 'Ветка ' . $updateBranch . ' не найдена на origin.',
+                'current_commit' => $local['output'] ?? '',
+                'remote_commit' => '',
+                'branch' => $updateBranch,
+                'branches' => panel_git_branch_list($root),
+                'selected_branch' => $updateBranch,
+                'commits' => [],
+                'repo_url' => panel_git_remote_url($root),
+                'repo_root' => $root,
+            ];
+        }
+        $branch = $updateBranch;
+    }
     $local = panel_git($root, 'rev-parse HEAD', 10);
     $remote = panel_git($root, 'rev-parse origin/' . $branch, 10);
     if (!$local['ok'] || !$remote['ok']) {
-        return [
-            'available' => false,
-            'error' => 'Не удалось определить версию: ' . ($local['output'] ?: $remote['output']),
-            'current_commit' => $local['output'] ?? '',
-            'remote_commit' => $remote['output'] ?? '',
-            'branch' => $branch,
-            'commits' => [],
-            'repo_url' => panel_git_remote_url($root),
-            'repo_root' => $root,
-        ];
-    }
+    return [
+        'available' => $available,
+        'error' => null,
+        'current_commit' => $local['output'],
+        'remote_commit' => $remote['output'],
+        'branch' => $branch,
+        'selected_branch' => $updateBranch !== '' ? $updateBranch : $branch,
+        'branches' => panel_git_branch_list($root),
+        'commits' => $commits,
+        'repo_url' => panel_git_remote_url($root),
+        'repo_root' => $root,
+    ];
+}
 
     $available = $local['output'] !== $remote['output'];
     $commits = [];
@@ -509,6 +550,8 @@ function panel_update_check(bool $fetch = true): array
         'current_commit' => $local['output'],
         'remote_commit' => $remote['output'],
         'branch' => $branch,
+        'selected_branch' => $updateBranch,
+        'branches' => panel_git_branch_list($root),
         'commits' => $commits,
         'repo_url' => panel_git_remote_url($root),
         'repo_root' => $root,
@@ -550,7 +593,7 @@ function panel_update_hint(string $output): string
 /**
  * @param bool $discardLocal сбросить локальные правки (git reset --hard) перед pull
  */
-function panel_update_apply(bool $discardLocal = false): array
+function panel_update_apply(bool $discardLocal = false, string $targetBranch = ''): array
 {
     $root = panel_repo_root();
     if ($root === null) {
@@ -635,15 +678,24 @@ function panel_update_apply(bool $discardLocal = false): array
         }
     }
 
-    $check = panel_update_check(true);
+    $check = panel_update_check(true, $targetBranch);
     if (!empty($check['error'])) {
         return ['success' => false, 'error' => $check['error']];
     }
-    if (!$check['available']) {
+    // Смена ветки = всегда «доступно обновление» (pull выполнит pull origin <target>)
+    if (!$check['available'] && $targetBranch === '') {
         return ['success' => true, 'message' => 'Панель уже актуальна', 'already_up_to_date' => true];
     }
 
     $branch = $check['branch'];
+    if ($targetBranch !== '' && $targetBranch !== $branch) {
+        // Ветка может не существовать локально — создаём с tracking на origin (без reset)
+        $co = panel_git($root, 'checkout -B ' . $targetBranch . ' --track origin/' . $targetBranch, 60);
+        if (!$co['ok']) {
+            return ['success' => false, 'error' => 'git checkout: ' . $co['output'] . panel_update_hint($co['output'])];
+        }
+        $branch = $targetBranch;
+    }
     $pull = panel_git($root, 'pull --ff-only origin ' . $branch, 180);
     if (!$pull['ok']) {
         return ['success' => false, 'error' => 'git pull: ' . $pull['output'] . panel_update_hint($pull['output'])];
@@ -683,6 +735,7 @@ function panel_config_save(array $cfg): void
         'git_wrapper' => (string)($cfg['git_wrapper'] ?? '/opt/monitoring/scripts/panel_git.sh'),
         'git_sudo_user' => (string)($cfg['git_sudo_user'] ?? 'monitoring'),
         'web_root' => (string)($cfg['web_root'] ?? ''),
+        'update_branch' => (string)($cfg['update_branch'] ?? ''),
     ], true);
     $php = "<?php\n// Сгенерировано установщиком. Не коммить.\nreturn {$export};\n";
     if (file_put_contents(panel_config_path(), $php, LOCK_EX) === false) {

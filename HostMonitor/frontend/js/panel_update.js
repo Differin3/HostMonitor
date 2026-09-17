@@ -9,6 +9,13 @@
 
     const checkBtn = () => document.getElementById('panelUpdateCheckBtn');
     const applyBtn = () => document.getElementById('panelUpdateApplyBtn');
+    const branchSel = () => document.getElementById('panelUpdateBranch');
+    const actions = () => document.getElementById('panelUpdateActions');
+
+    const selectedBranch = () => {
+        const sel = branchSel();
+        return sel ? sel.value : '';
+    };
 
     const toast = (msg, type = 'info') => {
         if (window.showToast) window.showToast(msg, type);
@@ -69,9 +76,12 @@
         if (!silent) setBtnLoading(btn, true, 'refresh-cw');
 
         try {
-            // Silent (каждая вкладка): только local compare — без git fetch (иначе CGI 20–60с).
-            // Кнопка «Проверить»: полный fetch с origin.
-            const qs = silent ? '?action=check&local=1' : '?action=check';
+            const branch = (branchSel()?.value || '').trim();
+            // Короткий таймаут: UI CGI ~20с; длинный fetch вешал каждую вкладку админа.
+            // Кнопка «Проверить»: полный fetch + выбор ветки из select.
+            const qs = silent
+                ? `?action=check&local=1${branch !== '' ? '&branch=' + encodeURIComponent(branch) : ''}`
+                : `?action=check${branch !== '' ? '&branch=' + encodeURIComponent(branch) : ''}`;
             const data = await fetchJson(`${API}${qs}`);
             if (data.error && !data.available) {
                 console.warn('[panel-update]', data.error);
@@ -80,6 +90,7 @@
                 return;
             }
             setUpdateAvailable(!!data.available);
+            populateBranchSelect(data);
             if (!silent) {
                 if (data.available) {
                     const n = (data.commits || []).length;
