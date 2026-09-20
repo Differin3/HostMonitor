@@ -371,19 +371,32 @@ function panel_git_branch(string $root): string
  */
 function panel_git_branch_list(string $root): array
 {
+    $names = [];
+    // 1) локальные refs refs/remotes/origin/* — быстрые, видны после fetch
     $r = panel_git($root, 'for-each-ref --format=%(refname:short) refs/remotes/origin', 10);
-    $branches = [];
-    if (!$r['ok'] || $r['output'] === '') {
-        return $branches;
-    }
-    foreach (preg_split('/\r?\n/', $r['output']) ?: [] as $line) {
-        $line = trim($line);
-        if (preg_match('#^origin/([A-Za-z0-9._\/-]+)$#', $line, $m)) {
-            $branches[] = $m[1];
+    if ($r['ok'] && $r['output'] !== '') {
+        foreach (preg_split('/\r?\n/', $r['output']) ?: [] as $line) {
+            $line = trim($line);
+            if (preg_match('#^origin/([A-Za-z0-9._\/-]+)$#', $line, $m)) {
+                $names[] = $m[1];
+            }
         }
     }
-    sort($branches, SORT_STRING);
-    return $branches;
+    // 2) fallback: живой список удалённых веток через ls-remote (не требует локального fetch)
+    if ($names === []) {
+        $lr = panel_git($root, 'ls-remote --heads origin', 15);
+        if ($lr['ok'] && $lr['output'] !== '') {
+            foreach (preg_split('/\r?\n/', $lr['output']) ?: [] as $line) {
+                $line = trim($line);
+                if (preg_match('/refs\/heads\/([A-Za-z0-9._\/-]+)$/', $line, $m)) {
+                    $names[] = $m[1];
+                }
+            }
+        }
+    }
+    $names = array_values(array_unique($names));
+    sort($names, SORT_STRING);
+    return $names;
 }
 
 function panel_git_remote_url(string $root): string
