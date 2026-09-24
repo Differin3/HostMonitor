@@ -177,10 +177,13 @@ try {
         }
 
         $probe = isset($_GET['probe']);
+        header('X-Accel-Buffering: no');
+        @ini_set('zlib.output_compression', '0');
+        @set_time_limit(55);
         if ($probe) {
-            dbmon_probe_all($pdo, false);
+            dbmon_probe_all($pdo, false, 90, 35.0);
         } else {
-            dbmon_probe_all($pdo, true, 90);
+            dbmon_probe_all($pdo, true, 90, 35.0);
         }
 
         $rows = $pdo->query("SELECT * FROM monitored_databases ORDER BY FIELD(kind, 'panel', 'replica', 'custom'), name")->fetchAll(PDO::FETCH_ASSOC);
@@ -198,6 +201,7 @@ try {
         }
         echo json_encode([
             'ok' => true,
+            'db_probe_timed_out' => dbmon_probe_timed_out(),
             'databases' => $list,
             'stats' => [
                 'total' => count($list),

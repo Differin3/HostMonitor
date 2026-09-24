@@ -424,10 +424,11 @@ function dbmon_status_alert(PDO $pdo, array $row, string $old, string $now, stri
     }
 }
 
-function dbmon_probe_all(PDO $pdo, bool $onlyStale = false, int $staleSec = 90): array
+function dbmon_probe_all(PDO $pdo, bool $onlyStale = false, int $staleSec = 90, ?float $budgetSec = null): array
 {
     dbmon_ensure_tables($pdo);
     $rows = $pdo->query("SELECT * FROM monitored_databases WHERE enabled = 1 ORDER BY kind <> 'panel', id")->fetchAll(PDO::FETCH_ASSOC);
+    $started = microtime(true);
     $out = [];
     foreach ($rows as $row) {
         $seen = (string)($row['last_seen'] ?? '');
@@ -436,9 +437,21 @@ function dbmon_probe_all(PDO $pdo, bool $onlyStale = false, int $staleSec = 90):
             $out[] = $row;
             continue;
         }
+        if ($budgetSec !== null && microtime(true) - $started > $budgetSec) {
+            $GLOBALS['DBMON_PROBE_TIMED_OUT'] = true;
+            $row['status'] = 'pending';
+            $row['metrics'] = null;
+            $out[] = $row;
+            continue;
+        }
         $out[] = dbmon_probe_one($pdo, $row);
     }
     return $out;
+}
+
+function dbmon_probe_timed_out(): bool
+{
+    return !empty($GLOBALS['DBMON_PROBE_TIMED_OUT']);
 }
 
 function dbmon_public(array $row, ?array $metrics = null): array
