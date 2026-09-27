@@ -328,16 +328,18 @@ export COLLECT_INTERVAL=60
 
 ### <img src="frontend/icons/lucide/database.svg" width="20" height="20" alt="Database"> Конфигурация базы данных
 
-Настроить через переменные окружения:
+Настроить через переменные окружения (используется, пока нет `db.local.php`):
 ```bash
 export DB_HOST=localhost
 export DB_PORT=3306
 export DB_NAME=monitoring
 export DB_USER=monitoring
-export DB_PASSWORD=password
+export DB_PASSWORD=<пароль>
 ```
 
-Или отредактировать `monitoring/includes/database.php`.
+Либо задать параметры в веб-интерфейсе: **Настройки → База данных** — панель
+сохранит их в `monitoring/data/db.local.php`, и этот файл будет иметь приоритет
+над `DB_*` из окружения.
 
 ### <img src="frontend/icons/lucide/globe.svg" width="20" height="20" alt="Globe"> Конфигурация веб-сервера
 
@@ -413,14 +415,24 @@ sudo systemctl enable --now monitoring-agent</code></pre>
 
 ### 🐳 Docker
 
-Запуск через Docker Compose:
-
 ```bash
 cd docker
-docker-compose up -d
+cp .env.example .env      # заполнить DB_PASSWORD и DB_ROOT_PASSWORD
+docker compose up -d --build
 ```
 
-**<img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Примечание:** В Docker Compose веб-интерфейс доступен на порту **8080** (маппинг `8080:80`).
+Панель: **http://localhost:8080** (порт меняется через `WEB_PORT` в `.env`).
+При первом входе откроется мастер настройки — создайте администратора.
+
+Секреты берутся из `docker/.env` (файл в `.gitignore`). Пока не создан
+`monitoring/data/db.local.php`, панель читает параметры БД из переменных
+`DB_*`; после сохранения настроек в веб-интерфейсе приоритет получает файл.
+
+Схема применяется автоматически при старте через `scripts/init_db.php` — это
+DDL + сиды `settings`/`providers`, **без демо-нод** (в отличие от прямого
+`mysql < database/schema_mysql.sql`).
+
+**<img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Примечание:** Порт MySQL наружу не публикуется — доступ к БД только изнутри сети compose. Нужен доступ с хоста — раскомментируйте блок `ports` в `docker/docker-compose.yml` (с привязкой к `127.0.0.1`).
 
 ---
 

@@ -22,7 +22,11 @@ monitoring/data/*.php
 monitoring/data/retention.last
 monitoring/data/login_attempts.json
 monitoring/data/ssl/*.pem
+monitoring/data/.agent_columns_ok_v2
+monitoring/data/.schema_*_ok
+monitoring/frontend
 .db-credentials
+docker/.env
 /NA
 *.bekap.sql
 database/monitoring_bekap.sql
