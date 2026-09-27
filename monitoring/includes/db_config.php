@@ -336,8 +336,48 @@ function db_tcp_preflight(string $host, int $port, float $timeoutSec): void
     fclose($fp);
 }
 
+/**
+ * Плейсхолдеры, которые могли остаться от установки/шаблона.
+ * Подключаться с ними нельзя: MySQL отвергнет, но пользователь увидит
+ * невнятную ошибку доступа вместо подсказки. Пустая строка — не плейсхолдер,
+ * а осмысленный выбор (unix-сокет / trust-аутентификация), её пропускаем.
+ */
+function db_placeholder_values(): array
+{
+    // Список приводим к нижнему регистру — сравнение идёт со strtolower($password),
+    // иначе запись в верхнем регистре (CHANGE_ME) никогда не совпадёт.
+    return array_map('strtolower', [
+        'password', 'CHANGE_ME', 'changeme', 'rootpassword',
+        'adminpassword', 'your-password', 'secret', 'PASSWORD',
+    ]);
+}
+
+/**
+ * @throws RuntimeException если в конфиге остался плейсхолдер вместо пароля
+ */
+function db_assert_configured(array $cfg): void
+{
+    $password = (string)($cfg['password'] ?? '');
+    if ($password === '') {
+        return;
+    }
+    if (!in_array(strtolower($password), db_placeholder_values(), true)) {
+        return;
+    }
+    $fromFile = !empty($cfg['from_file']);
+    $where = $fromFile ? 'monitoring/data/db.local.php' : 'переменные окружения DB_*';
+    throw new RuntimeException(
+        "В $where вместо пароля БД остался плейсхолдер «{$password}». "
+        . ($fromFile
+            ? 'Укажите реальный пароль в панели: Настройки → База данных.'
+            : 'Задайте реальный пароль в DB_PASSWORD (например, в systemd-юните monitoring-web.service) '
+              . 'либо в monitoring/data/db.local.php.')
+    );
+}
+
 function db_pdo(array $cfg, ?string $dbname = null, int $timeout = 3): PDO
 {
+    db_assert_configured($cfg);
     $host = $cfg['host'] ?: 'localhost';
     $port = (int)($cfg['port'] ?: 3306);
     $timeout = max(1, min($timeout, 8));

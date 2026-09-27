@@ -481,7 +481,15 @@ EOF
     if [[ -n "${LLDP_IFACE}" ]]; then
         echo "LLDP_LISTEN_INTERFACE=\"${LLDP_IFACE}\"" | sudo tee -a "${NODE_CONF}" >/dev/null
     fi
-    echo "TLS_VERIFY=false" | sudo tee -a "${NODE_CONF}" >/dev/null
+    # Проверку TLS отключаем только когда панель реально на plain HTTP — иначе
+    # оставляем штатную проверку сертификата (иначе токен ноды и метрики
+    # идут по сети без защиты от MITM).
+    if [[ "${MASTER_URL}" == http://* ]]; then
+        echo "TLS_VERIFY=false" | sudo tee -a "${NODE_CONF}" >/dev/null
+        echo "[install_agent] Панель на HTTP — TLS_VERIFY=false (для https:// оставьте проверку сертификата)"
+    else
+        echo "TLS_VERIFY=true" | sudo tee -a "${NODE_CONF}" >/dev/null
+    fi
     sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${NODE_CONF}"
     sudo chmod 640 "${NODE_CONF}"
     echo "[install_agent] Конфиг создан: ${NODE_CONF}"

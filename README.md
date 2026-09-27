@@ -256,8 +256,10 @@ bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/sc
    NODE_NAME="node-1"
    NODE_TOKEN="your-node-token"
    COLLECT_INTERVAL=60
-   TLS_VERIFY=false
+   TLS_VERIFY=true
    ```
+
+   <img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> Отключайте `TLS_VERIFY` только если панель на plain HTTP — иначе токен ноды и метрики идут без защиты от MITM. Для самоподписанного сертификата укажите `TLS_CERT_PATH`.
 
 3. **<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Запустите агента:**
    ```bash
@@ -294,7 +296,7 @@ NODE_NAME="node-1"
 NODE_TOKEN="your-node-token"
 COLLECT_INTERVAL=60
 HEARTBEAT_INTERVAL=15
-TLS_VERIFY=false
+TLS_VERIFY=true
 TLS_CERT_PATH=""
 ```
 
