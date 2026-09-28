@@ -1,0 +1,681 @@
+{
+    "declared": [
+        "db_active_role",
+        "db_apply_schema",
+        "db_assert_configured",
+        "db_config_load",
+        "db_config_path",
+        "db_config_save",
+        "db_connection_editable",
+        "db_connection_status",
+        "db_copy_database",
+        "db_copy_table",
+        "db_copy_table_chunk",
+        "db_copy_table_schema",
+        "db_endpoint",
+        "db_endpoint_same",
+        "db_ensure_database",
+        "db_env_flag",
+        "db_ha_state_load",
+        "db_ha_state_path",
+        "db_ha_state_save",
+        "db_has_users",
+        "db_ident",
+        "db_insert_batch",
+        "db_is_configured",
+        "db_list_base_tables",
+        "db_needs_setup",
+        "db_pdo",
+        "db_pdo_ssl_opts",
+        "db_ping_endpoint",
+        "db_placeholder_values",
+        "db_public_endpoint",
+        "db_quote_ident",
+        "db_render_error_page",
+        "db_replica_enabled",
+        "db_reset_pdo",
+        "db_schema_path",
+        "db_ssl_ca_absolute",
+        "db_ssl_ca_info",
+        "db_ssl_ca_relative",
+        "db_ssl_ca_remove",
+        "db_ssl_ca_resolve",
+        "db_ssl_ca_save",
+        "db_ssl_data_dir",
+        "db_ssl_validate_pem",
+        "db_strip_foreign_keys",
+        "db_sync_endpoints",
+        "db_sync_restore_checks",
+        "db_sync_timezone",
+        "db_table_approx_rows",
+        "db_table_pk_column",
+        "db_tcp_preflight",
+        "db_try_connect",
+        "setting_get",
+        "settings_defaults",
+        "settings_load_map",
+        "settings_normalize",
+        "settings_public",
+        "settings_secret_keys",
+        "settings_upsert",
+        "str_contains",
+        "str_ends_with",
+        "str_starts_with",
+        "web_config_load",
+        "web_config_path",
+        "web_config_save"
+    ],
+    "signatures": {
+        "db_active_role": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_apply_schema": {
+            "params": [
+                "PDO $pdo"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_assert_configured": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_config_load": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_config_path": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_config_save": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_connection_editable": {
+            "params": [
+                "array $status"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_connection_status": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_copy_database": {
+            "params": [
+                "PDO $src",
+                "PDO $dst"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_copy_table": {
+            "params": [
+                "PDO $src",
+                "PDO $dst",
+                "string $table"
+            ],
+            "return": "int",
+            "by_ref_return": false
+        },
+        "db_copy_table_chunk": {
+            "params": [
+                "PDO $src",
+                "PDO $dst",
+                "string $table",
+                "int $offset = 0",
+                "?string $cursor = NULL",
+                "int $limit = 200",
+                "float $maxSeconds = 5.0"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_copy_table_schema": {
+            "params": [
+                "PDO $src",
+                "PDO $dst",
+                "string $table"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_endpoint": {
+            "params": [
+                "array $cfg",
+                "string $role"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_endpoint_same": {
+            "params": [
+                "array $a",
+                "array $b"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_ensure_database": {
+            "params": [
+                "array $ep"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_env_flag": {
+            "params": [
+                "?string $value",
+                "bool $default"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_ha_state_load": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_ha_state_path": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ha_state_save": {
+            "params": [
+                "string $role",
+                "string $reason",
+                "?int $lastPrimaryTry = NULL"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_has_users": {
+            "params": [
+                "PDO $pdo"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_ident": {
+            "params": [
+                "string $name"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_insert_batch": {
+            "params": [
+                "PDO $pdo",
+                "string $table",
+                "array $cols",
+                "array $rows"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_is_configured": {
+            "params": [],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_list_base_tables": {
+            "params": [
+                "PDO $pdo"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_needs_setup": {
+            "params": [],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_pdo": {
+            "params": [
+                "array $cfg",
+                "?string $dbname = NULL",
+                "int $timeout = 3"
+            ],
+            "return": "PDO",
+            "by_ref_return": false
+        },
+        "db_pdo_ssl_opts": {
+            "params": [
+                "array $ep"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_ping_endpoint": {
+            "params": [
+                "array $ep",
+                "int $timeout = 3"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_placeholder_values": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_public_endpoint": {
+            "params": [
+                "array $ep"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_quote_ident": {
+            "params": [
+                "string $name"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_render_error_page": {
+            "params": [
+                "array $status"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_replica_enabled": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_reset_pdo": {
+            "params": [],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_schema_path": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_absolute": {
+            "params": [
+                "?string $relative = NULL"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_info": {
+            "params": [
+                "?string $configured = NULL",
+                "bool $allowReplicaDefault = true"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_relative": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_remove": {
+            "params": [
+                "?string $relative = NULL"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_resolve": {
+            "params": [
+                "?string $configured",
+                "bool $allowReplicaDefault = true"
+            ],
+            "return": "?string",
+            "by_ref_return": false
+        },
+        "db_ssl_ca_save": {
+            "params": [
+                "string $pem",
+                "?string $relative = NULL"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ssl_data_dir": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_ssl_validate_pem": {
+            "params": [
+                "string $pem"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_strip_foreign_keys": {
+            "params": [
+                "string $ddl"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "db_sync_endpoints": {
+            "params": [
+                "string $direction"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "db_sync_restore_checks": {
+            "params": [
+                "PDO $dst"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_sync_timezone": {
+            "params": [
+                "PDO $pdo"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_table_approx_rows": {
+            "params": [
+                "PDO $pdo",
+                "string $table"
+            ],
+            "return": "int",
+            "by_ref_return": false
+        },
+        "db_table_pk_column": {
+            "params": [
+                "PDO $pdo",
+                "string $table"
+            ],
+            "return": "?string",
+            "by_ref_return": false
+        },
+        "db_tcp_preflight": {
+            "params": [
+                "string $host",
+                "int $port",
+                "float $timeoutSec"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "db_try_connect": {
+            "params": [
+                "array $ep",
+                "int $timeout = 3"
+            ],
+            "return": "PDO",
+            "by_ref_return": false
+        },
+        "setting_get": {
+            "params": [
+                "string $key",
+                "?string $default = NULL"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "settings_defaults": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "settings_load_map": {
+            "params": [
+                "bool $reload = false"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "settings_normalize": {
+            "params": [
+                "string $key",
+                "$value"
+            ],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "settings_public": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "settings_secret_keys": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "settings_upsert": {
+            "params": [
+                "PDO $pdo",
+                "array $pairs"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "web_config_load": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "web_config_path": {
+            "params": [],
+            "return": "string",
+            "by_ref_return": false
+        },
+        "web_config_save": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        }
+    },
+    "calls": {
+        "db_active_role": [
+            "db_config_load",
+            "db_ha_state_load",
+            "db_replica_enabled"
+        ],
+        "db_apply_schema": [
+            "db_schema_path"
+        ],
+        "db_assert_configured": [
+            "db_placeholder_values"
+        ],
+        "db_config_load": [
+            "db_config_path",
+            "db_config_save",
+            "db_env_flag"
+        ],
+        "db_config_path": [],
+        "db_config_save": [
+            "db_config_path"
+        ],
+        "db_connection_editable": [],
+        "db_connection_status": [
+            "db_active_role",
+            "db_config_load",
+            "db_endpoint",
+            "db_is_configured",
+            "db_ping_endpoint",
+            "db_replica_enabled"
+        ],
+        "db_copy_database": [
+            "db_copy_table",
+            "db_list_base_tables",
+            "db_sync_restore_checks"
+        ],
+        "db_copy_table": [
+            "db_copy_table_chunk",
+            "db_copy_table_schema"
+        ],
+        "db_copy_table_chunk": [
+            "db_insert_batch",
+            "db_quote_ident",
+            "db_table_pk_column"
+        ],
+        "db_copy_table_schema": [
+            "db_quote_ident",
+            "db_strip_foreign_keys"
+        ],
+        "db_endpoint": [],
+        "db_endpoint_same": [],
+        "db_ensure_database": [
+            "db_ident",
+            "db_pdo"
+        ],
+        "db_env_flag": [],
+        "db_ha_state_load": [
+            "db_ha_state_path"
+        ],
+        "db_ha_state_path": [],
+        "db_ha_state_save": [
+            "db_ha_state_load",
+            "db_ha_state_path"
+        ],
+        "db_has_users": [],
+        "db_ident": [],
+        "db_insert_batch": [
+            "db_quote_ident"
+        ],
+        "db_is_configured": [
+            "db_config_load"
+        ],
+        "db_list_base_tables": [],
+        "db_needs_setup": [
+            "db_has_users",
+            "db_is_configured"
+        ],
+        "db_pdo": [
+            "db_assert_configured",
+            "db_pdo_ssl_opts",
+            "db_tcp_preflight"
+        ],
+        "db_pdo_ssl_opts": [
+            "db_ssl_ca_resolve"
+        ],
+        "db_ping_endpoint": [
+            "db_try_connect"
+        ],
+        "db_placeholder_values": [],
+        "db_public_endpoint": [
+            "db_ssl_ca_info"
+        ],
+        "db_quote_ident": [],
+        "db_render_error_page": [
+            "db_connection_editable"
+        ],
+        "db_replica_enabled": [],
+        "db_reset_pdo": [],
+        "db_schema_path": [],
+        "db_ssl_ca_absolute": [
+            "db_ssl_ca_relative",
+            "str_contains"
+        ],
+        "db_ssl_ca_info": [
+            "db_ssl_ca_relative",
+            "db_ssl_ca_resolve",
+            "db_ssl_validate_pem"
+        ],
+        "db_ssl_ca_relative": [],
+        "db_ssl_ca_remove": [
+            "db_ssl_ca_absolute"
+        ],
+        "db_ssl_ca_resolve": [
+            "db_ssl_ca_absolute",
+            "db_ssl_ca_relative"
+        ],
+        "db_ssl_ca_save": [
+            "db_ssl_ca_absolute",
+            "db_ssl_ca_relative",
+            "db_ssl_data_dir",
+            "db_ssl_validate_pem"
+        ],
+        "db_ssl_data_dir": [],
+        "db_ssl_validate_pem": [
+            "str_contains"
+        ],
+        "db_strip_foreign_keys": [],
+        "db_sync_endpoints": [
+            "db_config_load",
+            "db_endpoint",
+            "db_endpoint_same",
+            "db_replica_enabled"
+        ],
+        "db_sync_restore_checks": [],
+        "db_sync_timezone": [],
+        "db_table_approx_rows": [
+            "db_quote_ident"
+        ],
+        "db_table_pk_column": [
+            "db_quote_ident"
+        ],
+        "db_tcp_preflight": [],
+        "db_try_connect": [
+            "db_pdo",
+            "db_sync_timezone"
+        ],
+        "setting_get": [
+            "settings_defaults",
+            "settings_load_map"
+        ],
+        "settings_defaults": [
+            "web_config_load"
+        ],
+        "settings_load_map": [
+            "settings_defaults"
+        ],
+        "settings_normalize": [],
+        "settings_public": [
+            "settings_defaults",
+            "settings_load_map",
+            "settings_secret_keys"
+        ],
+        "settings_secret_keys": [],
+        "settings_upsert": [
+            "settings_defaults",
+            "settings_load_map",
+            "settings_normalize",
+            "settings_secret_keys",
+            "web_config_load",
+            "web_config_save"
+        ],
+        "str_contains": [],
+        "str_ends_with": [],
+        "str_starts_with": [],
+        "web_config_load": [
+            "web_config_path"
+        ],
+        "web_config_path": [],
+        "web_config_save": [
+            "web_config_path"
+        ]
+    },
+    "polyfilled_at_runtime": [
+        "str_contains",
+        "str_ends_with",
+        "str_starts_with"
+    ],
+    "included_files": 1
+}
