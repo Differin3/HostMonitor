@@ -2,7 +2,6 @@
     if (window.__HOSTMONITOR_LOGS_INIT) return;
     window.__HOSTMONITOR_LOGS_INIT = true;
 
-const API_BASE = window.MONITORING_API_BASE || '/api';
 let logsPaused = false;
 let autoScroll = true;
 let selectedNodeId = null;
@@ -16,13 +15,6 @@ let authLogsTotal = 0;
 let sshLogsPage = 1;
 let sshLogsPerPage = 100;
 let sshLogsTotal = 0;
-
-function escapeHtml(text) {
-    if (text == null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-}
 
 const showToast = (message, type = 'info') => {
     if (typeof window.showToast === 'function') window.showToast(message, type);

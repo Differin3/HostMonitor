@@ -1,5 +1,4 @@
 // JavaScript для системы обновлений
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 
 let updatesData = [];

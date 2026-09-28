@@ -1,4 +1,3 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const STORAGE_KEY = 'hm-dashboard-v2';
 const WIDGET_CONFIG_KEY = 'hm-widget-configs';
 const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400 };
@@ -86,12 +85,6 @@ let lastSummary = null;
 let lastNodes = [];
 let lastAlerts = [];
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
-
-const esc = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 
 const setText = (el, value) => {
     if (el) el.textContent = value;

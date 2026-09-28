@@ -1,0 +1,18 @@
+FROM php:8.2-apache
+
+# В php:8.2-apache уже собраны: mbstring, simplexml, curl, hash, json, session, openssl, iconv.
+# Не хватает pdo_mysql — без него нет PDO к MySQL/MariaDB. Собирается поверх встроенного mysqlnd,
+# дополнительные системные библиотеки не нужны.
+RUN set -eux; \
+    docker-php-ext-install -j"$(nproc)" pdo_mysql; \
+    a2enmod rewrite headers; \
+    echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf; \
+    a2enconf servername.conf; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY docker/apache-panel.conf /etc/apache2/sites-available/000-default.conf
+COPY docker/entrypoint.sh /usr/local/bin/hm-entrypoint.sh
+RUN chmod +x /usr/local/bin/hm-entrypoint.sh
+
+ENTRYPOINT ["hm-entrypoint.sh"]
+CMD ["apache2-foreground"]

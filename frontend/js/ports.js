@@ -1,9 +1,7 @@
 // Управление портами
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 let allPorts = [];
 let allNodes = [];
-const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function loadNodes() {
     const select = document.getElementById('nodeFilter');

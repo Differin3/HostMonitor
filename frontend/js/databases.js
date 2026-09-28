@@ -1,4 +1,3 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 
 let allDatabases = [];
 let chart = null;
@@ -17,12 +16,6 @@ const els = {
     form: document.getElementById('dbmon-form'),
     chartTarget: document.getElementById('dbmon-chart-target'),
 };
-
-const esc = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 
 const formatBytes = (n) => {
     const v = Number(n) || 0;

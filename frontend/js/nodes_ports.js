@@ -1,7 +1,5 @@
 // JavaScript для страницы портов нод
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
-const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function loadPorts(silent = false) {
     const select = document.getElementById('nodeFilter');

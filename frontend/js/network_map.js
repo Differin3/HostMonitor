@@ -3,7 +3,6 @@ if (window.__HOSTMONITOR_NETMAP_INIT) {
 } else {
 window.__HOSTMONITOR_NETMAP_INIT = true;
 
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const POS_KEY = 'hostmonitor.netmap.positions';
 
 const state = {
@@ -93,12 +92,6 @@ const formatUptime = (seconds) => {
     if (hours > 0) return `${hours}ч ${minutes}м`;
     return `${minutes}м`;
 };
-
-const escapeHtml = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 
 const fetchTopology = async () => {
     if (window.NETMAP_TOPOLOGY) {

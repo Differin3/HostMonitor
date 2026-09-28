@@ -1,7 +1,5 @@
 // JavaScript для управления нодами
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
-const esc = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 // Глобальные переменные
 let nodesState = [];

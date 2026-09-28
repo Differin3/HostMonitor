@@ -1,0 +1,706 @@
+{
+  "collectors": {
+    "collect_default_gateways": {
+      "__list__": 2,
+      "sample": [
+        {
+          "vmbr0": "192.168.10.1"
+        },
+        {}
+      ]
+    },
+    "collect_docker_networks": {
+      "__list__": 0,
+      "sample": [
+        {
+          "containers": {
+            "__list__": 0,
+            "sample": []
+          },
+          "driver": "bridge",
+          "gateway": "172.17.0.1",
+          "name": "bridge",
+          "network_id": "2bb0935e4cb53ea940ef1689e08a2ea7e7446c924515b7ce99d4aef259fb10d9",
+          "scope": "local",
+          "subnet": "172.17.0.0/16"
+        },
+        {
+          "containers": {
+            "__list__": 0,
+            "sample": []
+          },
+          "driver": "host",
+          "gateway": "",
+          "name": "host",
+          "network_id": "f5cdf5205144c8aab84c08173d6004bdf41ccaf79985514c7168ed97d27cab49",
+          "scope": "local",
+          "subnet": ""
+        },
+        {
+          "containers": {
+            "__list__": 0,
+            "sample": []
+          },
+          "driver": "null",
+          "gateway": "",
+          "name": "none",
+          "network_id": "7d2698a857a2c6ea2f5625f434fff12d893701f47ce178f3c86815eefa39d40e",
+          "scope": "local",
+          "subnet": ""
+        }
+      ]
+    },
+    "collect_docker_snapshot": {
+      "containers": {
+        "__list__": 0,
+        "sample": []
+      },
+      "networks": {
+        "__list__": 3,
+        "sample": [
+          {
+            "containers": {
+              "__list__": 0,
+              "sample": []
+            },
+            "driver": "bridge",
+            "gateway": "172.17.0.1",
+            "name": "bridge",
+            "network_id": "2bb0935e4cb53ea940ef1689e08a2ea7e7446c924515b7ce99d4aef259fb10d9",
+            "scope": "local",
+            "subnet": "172.17.0.0/16"
+          },
+          {
+            "containers": {
+              "__list__": 0,
+              "sample": []
+            },
+            "driver": "host",
+            "gateway": "",
+            "name": "host",
+            "network_id": "f5cdf5205144c8aab84c08173d6004bdf41ccaf79985514c7168ed97d27cab49",
+            "scope": "local",
+            "subnet": ""
+          },
+          {
+            "containers": {
+              "__list__": 0,
+              "sample": []
+            },
+            "driver": "null",
+            "gateway": "",
+            "name": "none",
+            "network_id": "7d2698a857a2c6ea2f5625f434fff12d893701f47ce178f3c86815eefa39d40e",
+            "scope": "local",
+            "subnet": ""
+          }
+        ]
+      }
+    },
+    "collect_logs": {
+      "__type__": "list"
+    },
+    "collect_metrics": {
+      "arch": "x86_64",
+      "boot_time": 1790533958,
+      "cpu_count": 24,
+      "cpu_percent": "<VAR>",
+      "disk_mount": "/",
+      "disk_percent": 78.8,
+      "disk_total": 41489260544,
+      "disk_used": "<VAR>",
+      "has_zfs": false,
+      "is_freebsd": false,
+      "is_proxmox": true,
+      "is_synology": false,
+      "is_truenas": false,
+      "kernel": "6.8.12-39-pve",
+      "load_avg": "<VAR>",
+      "memory_percent": "<VAR>",
+      "memory_total": 33693360128,
+      "memory_used": "<VAR>",
+      "network_in": "<VAR>",
+      "network_in_total": "<VAR>",
+      "network_out": "<VAR>",
+      "network_out_total": "<VAR>",
+      "node_name": "fingerprint-node",
+      "os_family": "unknown",
+      "os_name": "debian",
+      "os_version": "12",
+      "swap_percent": 1.7,
+      "timestamp": "<TS>",
+      "uptime_sec": "<VAR>"
+    },
+    "collect_neighbors": {
+      "__list__": 0,
+      "sample": [
+        {
+          "family": 4,
+          "iface": "vmbr0",
+          "ip": "192.168.10.1",
+          "mac": "80:af:ca:d7:c3:5e"
+        },
+        {
+          "family": 4,
+          "iface": "vmbr0",
+          "ip": "192.168.10.20",
+          "mac": "00:25:90:6e:34:1b"
+        },
+        {
+          "family": 6,
+          "iface": "vmbr0",
+          "ip": "fe80::5cde:6cff:fec2:df0f",
+          "mac": "5e:de:6c:c2:df:0f"
+        }
+      ]
+    },
+    "collect_network_interfaces": {
+      "__list__": 0,
+      "sample": [
+        {
+          "gateway": "",
+          "gateway6": "",
+          "ip": "N/A",
+          "ipv6": "",
+          "ipv6_netmask": "",
+          "name": "nic0",
+          "netmask": "N/A",
+          "rx_bytes": "<VAR>",
+          "speed": 1000,
+          "status": "up",
+          "tx_bytes": "<VAR>"
+        },
+        {
+          "gateway": "",
+          "gateway6": "",
+          "ip": "N/A",
+          "ipv6": "",
+          "ipv6_netmask": "",
+          "name": "nic1",
+          "netmask": "N/A",
+          "rx_bytes": "<VAR>",
+          "speed": 0,
+          "status": "down",
+          "tx_bytes": "<VAR>"
+        },
+        {
+          "gateway": "192.168.10.1",
+          "gateway6": "",
+          "ip": "192.168.10.2",
+          "ipv6": "fe80::225:90ff:fe64:2c32",
+          "ipv6_netmask": "ffff:ffff:ffff:ffff::",
+          "name": "vmbr0",
+          "netmask": "255.255.255.0",
+          "rx_bytes": "<VAR>",
+          "speed": 10000,
+          "status": "up",
+          "tx_bytes": "<VAR>"
+        }
+      ]
+    },
+    "collect_ports": {
+      "__list__": 10,
+      "sample": [
+        {
+          "pid": "<PID>",
+          "port": 111,
+          "process_name": "rpcbind",
+          "status": "open",
+          "type": "tcp"
+        },
+        {
+          "pid": "<PID>",
+          "port": 111,
+          "process_name": "rpcbind",
+          "status": "open",
+          "type": "tcp"
+        },
+        {
+          "pid": "<PID>",
+          "port": 22,
+          "process_name": "sshd",
+          "status": "open",
+          "type": "tcp"
+        }
+      ]
+    },
+    "collect_processes": {
+      "__list__": 80,
+      "sample": [
+        {
+          "cpu_percent": "<VAR>",
+          "memory_percent": "<VAR>",
+          "name": "ceph-crash",
+          "pid": "<PID>",
+          "status": "sleeping"
+        },
+        {
+          "cpu_percent": "<VAR>",
+          "memory_percent": "<VAR>",
+          "name": "ceph-mon",
+          "pid": "<PID>",
+          "status": "sleeping"
+        },
+        {
+          "cpu_percent": "<VAR>",
+          "memory_percent": "<VAR>",
+          "name": "containerd",
+          "pid": "<PID>",
+          "status": "sleeping"
+        }
+      ]
+    },
+    "collect_smart": {
+      "__list__": 5,
+      "sample": [
+        {
+          "attributes": {
+            "__list__": 17,
+            "sample": [
+              {
+                "flags": "POSR-K ",
+                "id": 1,
+                "name": "Raw_Read_Error_Rate",
+                "raw": 9,
+                "threshold": 51,
+                "value": 200,
+                "worst": 200
+              },
+              {
+                "flags": "POS--K ",
+                "id": 3,
+                "name": "Spin_Up_Time",
+                "raw": 4583,
+                "threshold": 21,
+                "value": 168,
+                "worst": 165
+              },
+              {
+                "flags": "-O--CK ",
+                "id": 4,
+                "name": "Start_Stop_Count",
+                "raw": 302,
+                "threshold": 0,
+                "value": 100,
+                "worst": 100
+              }
+            ]
+          },
+          "bay": null,
+          "capacity": 1000204886016,
+          "device": "/dev/sda",
+          "firmware": "01.01V02",
+          "health": "unknown",
+          "interface": "",
+          "model": "WDC WD1003FBYX-18Y7B0",
+          "power_on_hours": "<VAR>",
+          "rotation_rate": 7200,
+          "sata_version": {
+            "string": "SATA 2.6",
+            "value": 30
+          },
+          "serial": "WD-WCAW34007451",
+          "temperature": 2890283
+        },
+        {
+          "attributes": {
+            "__list__": 20,
+            "sample": [
+              {
+                "flags": "POSR-K ",
+                "id": 1,
+                "name": "Raw_Read_Error_Rate",
+                "raw": 0,
+                "threshold": 51,
+                "value": 200,
+                "worst": 200
+              },
+              {
+                "flags": "POS--K ",
+                "id": 3,
+                "name": "Spin_Up_Time",
+                "raw": 2341,
+                "threshold": 21,
+                "value": 173,
+                "worst": 172
+              },
+              {
+                "flags": "-O--CK ",
+                "id": 4,
+                "name": "Start_Stop_Count",
+                "raw": 4536,
+                "threshold": 0,
+                "value": 96,
+                "worst": 96
+              }
+            ]
+          },
+          "bay": null,
+          "capacity": 1000204886016,
+          "device": "/dev/sdb",
+          "firmware": "13057113",
+          "health": "unknown",
+          "interface": "",
+          "model": "WDC WD10EZEX-75WN4A1",
+          "power_on_hours": "<VAR>",
+          "rotation_rate": 7200,
+          "sata_version": {
+            "string": "SATA 3.1",
+            "value": 126
+          },
+          "serial": "WD-WCC6Y6TTP4XP",
+          "temperature": 33
+        },
+        {
+          "attributes": {
+            "__list__": 24,
+            "sample": [
+              {
+                "flags": "POSR-- ",
+                "id": 1,
+                "name": "Raw_Read_Error_Rate",
+                "raw": 52544474,
+                "threshold": 44,
+                "value": 77,
+                "worst": 63
+              },
+              {
+                "flags": "PO---- ",
+                "id": 3,
+                "name": "Spin_Up_Time",
+                "raw": 0,
+                "threshold": 0,
+                "value": 77,
+                "worst": 70
+              },
+              {
+                "flags": "-O--CK ",
+                "id": 4,
+                "name": "Start_Stop_Count",
+                "raw": 242,
+                "threshold": 20,
+                "value": 100,
+                "worst": 100
+              }
+            ]
+          },
+          "bay": null,
+          "capacity": 1000204886016,
+          "device": "/dev/sdc",
+          "firmware": "KA05",
+          "health": "unknown",
+          "interface": "",
+          "model": "ST31000524NS",
+          "power_on_hours": "<VAR>",
+          "rotation_rate": 7200,
+          "sata_version": {
+            "string": "SATA 2.6",
+            "value": 16
+          },
+          "serial": "9WK359QX",
+          "temperature": 8589934624
+        }
+      ]
+    },
+    "collect_ssh_auth_logs": {
+      "__type__": "list"
+    },
+    "collect_system_logs": {
+      "__type__": "list"
+    },
+    "collect_upnp": {
+      "__list__": 0,
+      "sample": []
+    },
+    "get_os_info": {
+      "kernel_version": "6.8.12-39-pve",
+      "os_id_like": "debian",
+      "os_name": "Debian GNU/Linux",
+      "os_version": "12"
+    }
+  },
+  "errors": {},
+  "git_calls_blocked": [
+    [
+      "/root/HostMonitor"
+    ]
+  ],
+  "head_after": "<SHA>",
+  "head_before": "<SHA>",
+  "helpers": {
+    "_collapse_ssh_duplicates": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_collect_smart_drive": {
+      "attributes": {
+        "__list__": 17,
+        "sample": [
+          {
+            "flags": "POSR-K ",
+            "id": 1,
+            "name": "Raw_Read_Error_Rate",
+            "raw": 9,
+            "threshold": 51,
+            "value": 200,
+            "worst": 200
+          },
+          {
+            "flags": "POS--K ",
+            "id": 3,
+            "name": "Spin_Up_Time",
+            "raw": 4583,
+            "threshold": 21,
+            "value": 168,
+            "worst": 165
+          },
+          {
+            "flags": "-O--CK ",
+            "id": 4,
+            "name": "Start_Stop_Count",
+            "raw": 302,
+            "threshold": 0,
+            "value": 100,
+            "worst": 100
+          }
+        ]
+      },
+      "bay": null,
+      "capacity": 1000204886016,
+      "device": "/dev/sda",
+      "firmware": "01.01V02",
+      "health": "unknown",
+      "interface": "",
+      "model": "WDC WD1003FBYX-18Y7B0",
+      "power_on_hours": "<VAR>",
+      "rotation_rate": 7200,
+      "sata_version": {
+        "string": "SATA 2.6",
+        "value": 30
+      },
+      "serial": "WD-WCAW34007451",
+      "temperature": 2890283
+    },
+    "_collect_syslog_tail": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_commit_same": true,
+    "_detect_drive_bay": null,
+    "_detect_platform": {
+      "arch": "x86_64",
+      "has_docker": true,
+      "has_smartctl": true,
+      "has_zfs": false,
+      "is_freebsd": false,
+      "is_proxmox": true,
+      "is_synology": false,
+      "is_truenas": false,
+      "is_vm": true,
+      "kernel": "6.8.12-39-pve",
+      "os_family": "unknown",
+      "os_name": "debian",
+      "os_version": "12"
+    },
+    "_disk_usage_main": {
+      "mount": "/",
+      "percent": "<VAR>",
+      "total": "<VAR>",
+      "used": "<VAR>"
+    },
+    "_docker_inspect": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_docker_pct": 0.0,
+    "_ensure_git_runtime_env": null,
+    "_ensure_git_safe_directory": null,
+    "_evaluate_smart_health": "failed",
+    "_get_known_hosts": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_git_error_human": "Установка не git-репозиторий: /tmp/fingerprint-does-not-exist",
+    "_gpu_num": 0.0,
+    "_ipv6_rank": 1,
+    "_journalctl_lines": {
+      "__type__": "list"
+    },
+    "_load_log_cursors": {
+      "boot_sent": 1790533958,
+      "ssh_fp": "<TS>",
+      "ssh_since": "<TS>",
+      "system_fp": "<TS>",
+      "system_since": "<TS>"
+    },
+    "_log_cursor_path": "<PosixPath>",
+    "_log_level": "info",
+    "_norm_container_status": "running",
+    "_normalize_ipv6": "fe80::1",
+    "_only_new_logs": {
+      "__list__": 1,
+      "sample": [
+        {
+          "message": "hello",
+          "timestamp": "<TS>"
+        }
+      ]
+    },
+    "_parse_journal_iso": {
+      "__list__": 5,
+      "sample": [
+        "<TS>",
+        "<TS>",
+        "hello"
+      ]
+    },
+    "_parse_journal_short_iso": {
+      "level": "info",
+      "message": "hello",
+      "process": "proc",
+      "timestamp": "<TS>"
+    },
+    "_parse_syslog_line": {
+      "level": "info",
+      "message": "hello",
+      "pid": 0,
+      "process": "proc",
+      "timestamp": "<TS>",
+      "type": "process"
+    },
+    "_physical_net_bytes": {
+      "keys": [],
+      "types": []
+    },
+    "_poll_lldp_devices": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_save_log_cursors": null,
+    "_skip_virtual_iface": false,
+    "_smartctl_device_flags": {
+      "__list__": 0,
+      "sample": []
+    },
+    "_systemd_unit_for_pid": null,
+    "_try_fix_git_permissions": false,
+    "agent_version_info": {
+      "agent_branch": "main",
+      "agent_commit": "",
+      "agent_dirty": false,
+      "agent_version": "1.3.1",
+      "install_root": "/root/HostMonitor"
+    },
+    "collect_gpu_info": {
+      "__list__": 1,
+      "sample": [
+        {
+          "index": 0,
+          "memory_total": 7680,
+          "memory_used": "<VAR>",
+          "name": " Tesla P4",
+          "temperature": 47.0,
+          "utilization": 0.0,
+          "vendor": "nvidia"
+        }
+      ]
+    },
+    "collect_process_logs": {
+      "__list__": 0,
+      "sample": []
+    },
+    "install_root": "<PosixPath>",
+    "merge_devices": {
+      "__list__": 0,
+      "sample": []
+    }
+  },
+  "presence": [
+    "_collapse_ssh_duplicates",
+    "_collect_smart_drive",
+    "_collect_syslog_tail",
+    "_commit_same",
+    "_detect_drive_bay",
+    "_detect_platform",
+    "_disk_usage_main",
+    "_docker_inspect",
+    "_docker_pct",
+    "_ensure_git_runtime_env",
+    "_ensure_git_safe_directory",
+    "_evaluate_smart_health",
+    "_get_known_hosts",
+    "_git_cmd",
+    "_git_error_human",
+    "_git_fetch_origin",
+    "_gpu_collector_loop",
+    "_gpu_num",
+    "_ipv6_rank",
+    "_journalctl_lines",
+    "_load_log_cursors",
+    "_log_cursor_path",
+    "_log_level",
+    "_norm_container_status",
+    "_normalize_ipv6",
+    "_on_lldp_device",
+    "_on_upnp_event",
+    "_only_new_logs",
+    "_parse_journal_iso",
+    "_parse_journal_short_iso",
+    "_parse_syslog_line",
+    "_physical_net_bytes",
+    "_poll_lldp_devices",
+    "_save_log_cursors",
+    "_send_upnp_with_lldp",
+    "_skip_virtual_iface",
+    "_smartctl_device_flags",
+    "_start_command_heartbeat",
+    "_start_gpu_collector",
+    "_stop_command_heartbeat",
+    "_systemd_unit_for_pid",
+    "_try_fix_git_permissions",
+    "_upnp_refresh_quiet",
+    "agent_version_info",
+    "check_agent_update",
+    "check_commands",
+    "check_updates",
+    "collect_container_logs",
+    "collect_containers",
+    "collect_default_gateways",
+    "collect_docker_networks",
+    "collect_docker_snapshot",
+    "collect_gpu_info",
+    "collect_logs",
+    "collect_metrics",
+    "collect_neighbors",
+    "collect_network_interfaces",
+    "collect_ports",
+    "collect_process_logs",
+    "collect_processes",
+    "collect_smart",
+    "collect_ssh_auth_logs",
+    "collect_system_logs",
+    "collect_upnp",
+    "execute_command",
+    "get_os_info",
+    "handle_upnp_command",
+    "install_root",
+    "install_update",
+    "merge_devices",
+    "report_agent_update",
+    "report_command_status",
+    "report_update_result",
+    "run",
+    "run_pending_command",
+    "send_containers",
+    "send_data",
+    "send_heartbeat",
+    "send_logs",
+    "send_network_interfaces",
+    "send_ports",
+    "send_smart",
+    "send_updates",
+    "send_upnp",
+    "send_upnp_gone",
+    "update_agent"
+  ]
+}
