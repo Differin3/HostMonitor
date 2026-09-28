@@ -15,12 +15,6 @@ const AUTH_TYPE_LABELS = {
 
 const authState = { limit: 100, offset: 0, total: 0 };
 
-const authEscape = (v) => String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
 function authQuery() {
     const p = new URLSearchParams();
     const type = document.getElementById('auth-type')?.value || '';

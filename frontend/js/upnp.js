@@ -1,4 +1,3 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 
 let allDevices = [];
 let allNodes = [];
@@ -20,12 +19,6 @@ const els = {
     detailsTitle: document.getElementById('upnp-details-title'),
     detailsClose: document.getElementById('upnp-details-close'),
 };
-
-const escapeHtml = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 
 const formatBytes = (n) => {
     const v = Number(n) || 0;

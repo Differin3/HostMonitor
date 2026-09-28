@@ -71,6 +71,7 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
             window.MONITORING_BASE_PATH = <?= json_encode(monitoring_base_path(), JSON_UNESCAPED_SLASHES) ?>;
             window.MONITORING_API_BASE = <?= json_encode(monitoring_asset('/api'), JSON_UNESCAPED_SLASHES) ?>;
         </script>
+        <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/common.js')) ?>?v=<?= (string)@filemtime(dirname(__DIR__, 2) . '/frontend/js/common.js') ?: '1' ?>"></script>
         <script src="https://unpkg.com/lucide@latest"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
         <script>

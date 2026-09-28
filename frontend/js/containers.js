@@ -2,20 +2,12 @@
     if (window.__HOSTMONITOR_CONTAINERS_INIT) return;
     window.__HOSTMONITOR_CONTAINERS_INIT = true;
 
-const API_BASE = window.MONITORING_API_BASE || '/api';
 let selectedNodeId = null;
 let allContainers = [];
 let filteredContainers = [];
 const MAX_CONTAINER_LOGS = 400;
 const urlParams = new URLSearchParams(window.location.search);
 let currentTab = urlParams.get('tab') || 'containers';
-
-function escapeHtml(text) {
-    if (text == null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-}
 
 function num(value) {
     const n = Number(value);
