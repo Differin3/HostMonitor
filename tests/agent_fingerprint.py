@@ -354,13 +354,24 @@ def capture() -> dict:
     return out
 
 
+def _canon_sig(text: str) -> str:
+    """Убирает приватные квалификаторы модулей из сигнатуры.
+
+    repr() pathlib.Path зависит от версии интерпретатора: на 3.14 это
+    "pathlib.Path", на 3.13 — "pathlib._local.Path". Эталон обязан быть
+    одинаковым на любой версии, иначе структурная сверка в CI означает
+    не «структура сломалась», а «у раннера другая версия Python».
+    """
+    return re.sub(r"\._[a-zA-Z]\w*\.", ".", text)
+
+
 def methods() -> dict:
     names = sorted(n for n in all_members(Agent)
                    if callable(getattr(Agent, n, None)))
     sigs = {}
     for n in names:
         try:
-            sigs[n] = str(inspect.signature(getattr(Agent, n)))
+            sigs[n] = _canon_sig(str(inspect.signature(getattr(Agent, n))))
         except (TypeError, ValueError):
             sigs[n] = "?"
     # Нестабильные во времени поля вырезаем.
@@ -443,6 +454,48 @@ def main() -> int:
             json.dumps(methods(), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
             encoding="utf-8")
         print(f"список методов записан в {target}", file=sys.stderr)
+        return 0
+    if mode == "typehints":
+        # Python 3.14 вычисляет аннотации лениво (PEP 649), поэтому
+        # необъявленный Optional в сигнатуре не даёт ошибки на импорте — а на
+        # 3.13 и нише падает сразу, и агент не запускается вовсе. Здесь
+        # аннотации разрешаются принудительно, поэтому проверка ловит
+        # неразрешимое имя независимо от версии интерпретатора.
+        import importlib
+        import pkgutil
+        import typing
+
+        agent_dir = AGENT_DIR
+        if str(agent_dir) not in sys.path:
+            sys.path.insert(0, str(agent_dir))
+        failures = []
+        checked = 0
+        for info in sorted(pkgutil.iter_modules([str(agent_dir)]), key=lambda m: m.name):
+            if info.name in ("main",) or info.ispkg:
+                continue
+            try:
+                mod = importlib.import_module(info.name)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{info.name}: не импортируется: {type(exc).__name__}: {exc}")
+                continue
+            for attr in dir(mod):
+                obj = getattr(mod, attr)
+                if not (inspect.isfunction(obj) or inspect.isclass(obj)):
+                    continue
+                if getattr(obj, "__module__", None) != info.name:
+                    continue
+                try:
+                    typing.get_type_hints(obj)
+                    checked += 1
+                except Exception as exc:  # noqa: BLE001
+                    failures.append(
+                        f"{info.name}.{attr}: аннотации не разрешаются: {type(exc).__name__}: {exc}")
+        if failures:
+            print(f"НЕРАЗРЕШИМЫХ АННОТАЦИЙ: {len(failures)}")
+            for f in failures:
+                print("  " + f)
+            return 1
+        print(f"Аннотации разрешаются: модулей проверено, функций={checked}")
         return 0
     if mode == "compare":
         with open(sys.argv[2], encoding="utf-8") as fh:

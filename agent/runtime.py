@@ -6,6 +6,7 @@ import time  # таймеры
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from datetime import datetime  # время
+from typing import Optional  # аннотации вычисляются на импорте (Python < 3.14)
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
