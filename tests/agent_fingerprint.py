@@ -70,18 +70,25 @@ VOLATILE_KEYS = {
     "used", "available", "free", "percent", "usage", "uptime", "uptime_seconds",
     "uptime_sec", "total", "inodes", "disk_used", "disk_free", "speed_rx",
     "speed_tx", "memory_used", "network_in", "network_out",
-    "network_in_total", "network_out_total",
+    "network_in_total", "network_out_total", "power_on_hours",
 }
 
 # Методы, читающие системный журнал: содержимое зависит от того, что агент
 # сам же напечатал в stdout (в контейнере journald это видит), поэтому
 # сравниваем только форму, а не значения.
-SHAPE_ONLY = {"_journalctl_lines", "collect_system_logs", "collect_logs",
-              "collect_ssh_auth_logs", "_physical_net_bytes", "_disk_usage_main"}
+SHAPE_ONLY = {"_physical_net_bytes", "_disk_usage_main"}
+
+# Методы, читающие системный журнал: сравниваем только тип результата.
+JOURNAL_SHAPED = {"_journalctl_lines", "collect_system_logs", "collect_logs",
+                  "collect_ssh_auth_logs"}
 
 # Списки, состав которых зависит от текущей машины.
 LEN_VOLATILE = {"collect_ports", "collect_processes", "collect_network_interfaces",
                 "collect_neighbors", "collect_docker_snapshot", "collect_docker_networks"}
+
+
+def type_only(value):
+    return {"__type__": type(value).__name__}
 
 
 def shape_of(value) -> dict:
@@ -273,6 +280,21 @@ def time_limit(seconds: int):
         signal.signal(signal.SIGALRM, old)
 
 
+def all_members(cls):
+    """Все непубличные имена класса по всей MRO.
+
+    vars(cls) возвращает только собственные атрибуты, а после разбиения
+    main.py на mixin-модули методы лежат в базах — такой перебор молча
+    считал бы их потерянными.
+    """
+    names = set()
+    for klass in cls.__mro__:
+        if klass is object:
+            continue
+        names.update(n for n in vars(klass) if not n.startswith("__"))
+    return names
+
+
 def capture() -> dict:
     head_before = head_guard()
     agent = Agent(master_url="http://127.0.0.1:1", node_name="fingerprint-node",
@@ -287,17 +309,21 @@ def capture() -> dict:
         try:
             with time_limit(120):
                 raw = fn()
-            out["collectors"][name] = (shape_of(raw) if name in SHAPE_ONLY
-                                      else norm_sorted(raw, bucket_len=name in LEN_VOLATILE))
+            if name in JOURNAL_SHAPED:
+                out["collectors"][name] = type_only(raw)
+            elif name in SHAPE_ONLY:
+                out["collectors"][name] = shape_of(raw)
+            else:
+                out["collectors"][name] = norm_sorted(raw, bucket_len=name in LEN_VOLATILE)
         except Exception as exc:  # noqa: BLE001 - фиксируем и сравниваем и ошибки
             out["errors"][name] = type(exc).__name__
 
     # Полное покрытие: каждый метод обязан существовать, иначе рефакторинг
     # потерял кусок функциональности.
-    out["presence"] = sorted(n for n in vars(Agent) if not n.startswith("__"))
+    out["presence"] = sorted(all_members(Agent))
 
     called = set(COLLECTORS)
-    for name in sorted(vars(Agent)):
+    for name in sorted(all_members(Agent)):
         if name.startswith("__") or name in called or name in EXISTENCE_ONLY \
                 or name in SKIP_NOARG:
             continue
@@ -308,9 +334,12 @@ def capture() -> dict:
         try:
             with time_limit(30):
                 raw = fn(*build_args(fn))
-            out["helpers"][name] = (
-                shape_of(raw) if name in SHAPE_ONLY
-                else norm_sorted(raw, bucket_len=name in LEN_VOLATILE))
+            if name in JOURNAL_SHAPED:
+                out["helpers"][name] = type_only(raw)
+            elif name in SHAPE_ONLY:
+                out["helpers"][name] = shape_of(raw)
+            else:
+                out["helpers"][name] = norm_sorted(raw, bucket_len=name in LEN_VOLATILE)
         except _Timeout:
             out["helpers"][name] = "<TIMEOUT>"
         except Exception as exc:  # noqa: BLE001
@@ -326,8 +355,8 @@ def capture() -> dict:
 
 
 def methods() -> dict:
-    names = sorted(n for n, v in vars(Agent).items()
-                   if callable(v) and not n.startswith("__"))
+    names = sorted(n for n in all_members(Agent)
+                   if callable(getattr(Agent, n, None)))
     sigs = {}
     for n in names:
         try:

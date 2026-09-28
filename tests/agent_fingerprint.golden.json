@@ -98,8 +98,7 @@
       }
     },
     "collect_logs": {
-      "keys": [],
-      "types": []
+      "__type__": "list"
     },
     "collect_metrics": {
       "arch": "x86_64",
@@ -294,7 +293,7 @@
           "health": "unknown",
           "interface": "",
           "model": "WDC WD1003FBYX-18Y7B0",
-          "power_on_hours": 95421,
+          "power_on_hours": "<VAR>",
           "rotation_rate": 7200,
           "sata_version": {
             "string": "SATA 2.6",
@@ -343,7 +342,7 @@
           "health": "unknown",
           "interface": "",
           "model": "WDC WD10EZEX-75WN4A1",
-          "power_on_hours": 9694,
+          "power_on_hours": "<VAR>",
           "rotation_rate": 7200,
           "sata_version": {
             "string": "SATA 3.1",
@@ -392,7 +391,7 @@
           "health": "unknown",
           "interface": "",
           "model": "ST31000524NS",
-          "power_on_hours": 37450,
+          "power_on_hours": "<VAR>",
           "rotation_rate": 7200,
           "sata_version": {
             "string": "SATA 2.6",
@@ -404,19 +403,10 @@
       ]
     },
     "collect_ssh_auth_logs": {
-      "keys": [],
-      "types": []
+      "__type__": "list"
     },
     "collect_system_logs": {
-      "keys": [
-        "level",
-        "message",
-        "timestamp",
-        "type"
-      ],
-      "types": [
-        "str"
-      ]
+      "__type__": "list"
     },
     "collect_upnp": {
       "__list__": 0,
@@ -482,7 +472,7 @@
       "health": "unknown",
       "interface": "",
       "model": "WDC WD1003FBYX-18Y7B0",
-      "power_on_hours": 95421,
+      "power_on_hours": "<VAR>",
       "rotation_rate": 7200,
       "sata_version": {
         "string": "SATA 2.6",
@@ -534,15 +524,7 @@
     "_gpu_num": 0.0,
     "_ipv6_rank": 1,
     "_journalctl_lines": {
-      "keys": [
-        "level",
-        "message",
-        "process",
-        "timestamp"
-      ],
-      "types": [
-        "str"
-      ]
+      "__type__": "list"
     },
     "_load_log_cursors": {
       "boot_sent": 1790533958,

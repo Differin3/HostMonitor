@@ -1,5 +1,5 @@
 {
-  "count": 85,
+  "count": 86,
   "instance_attrs": [
     "_cdp_hosts",
     "_cycle_counter",
@@ -44,6 +44,7 @@
     "_git_fetch_origin",
     "_gpu_collector_loop",
     "_gpu_num",
+    "_ipv6_rank",
     "_journalctl_lines",
     "_load_log_cursors",
     "_log_cursor_path",
@@ -131,6 +132,7 @@
     "_git_fetch_origin": "(self, root: pathlib.Path) -> subprocess.CompletedProcess",
     "_gpu_collector_loop": "(self)",
     "_gpu_num": "(value, as_int=False)",
+    "_ipv6_rank": "(addr: str) -> int",
     "_journalctl_lines": "(self, query_args, limit=100, timeout=12)",
     "_load_log_cursors": "(self)",
     "_log_cursor_path": "(self)",
