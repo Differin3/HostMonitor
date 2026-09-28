@@ -1,8 +1,6 @@
 // JavaScript для страницы статистики нод
-const API_BASE = window.MONITORING_API_BASE || '/api'; // базовый URL API
 const API_URL = `${API_BASE}/nodes.php`; // эндпоинт статистики нод
 const METRICS_URL = `${API_BASE}/metrics.php`; // эндпоинт истории метрик
-const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 let nodesCpuChart = null; // график CPU по нодам
 let nodesUsageChart = null; // график RAM/диск

@@ -1,10 +1,7 @@
 // Биллинг система
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 const API_NODES = `${API_BASE}/nodes.php`;
 const API_PROVIDERS = `${API_BASE}/providers.php`;
-const esc = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const escHtmlAttr = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const API_PAYMENTS = `${API_BASE}/payments.php`;
 let selectedBillingNodes = new Set();
 let providersList = [];
@@ -1222,7 +1219,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // значения по умолчанию
     if (datePickers['payment-date']) datePickers['payment-date'].setDate(new Date());
 });
-
 
 function populateProviderSelects() {
     const selects = document.querySelectorAll('[data-provider-select="name"]');

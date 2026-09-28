@@ -1,4 +1,3 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const SETTINGS_API = `${API_BASE}/settings.php`;
 const DB_HA_API = `${API_BASE}/db_ha.php`;
 

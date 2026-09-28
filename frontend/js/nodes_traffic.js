@@ -1,6 +1,4 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
-const escapeHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 const formatBytes = (bytes) => {
     const n = Number(bytes) || 0;

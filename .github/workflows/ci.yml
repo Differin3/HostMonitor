@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+# Повторный пуш в ту же ветку отменяет предыдущий прогон: зачем ждать
+# результат коммита, который уже superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  panel:
+    name: Панель (PHP ${{ matrix.php }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.2'
+            # Ровно та версия, что стоит в docker/Dockerfile.web.
+            gate: true
+          - php: '7.4'
+            # Панель заявлена как работающая и на 7.4 — из-за этого в db/polyfill.php
+            # и лежат обёртки строковых функций. Лазер задуман как сигнал о
+            # расхождении с заявленной поддержкой, а не как блокирующая
+            # проверка: 7.4 в EOL, и в setup-php на свежих образах её всё реже.
+            gate: false
+    continue-on-error: ${{ !matrix.gate }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          # tokenizer обязателен: tests/db_config_api.php разбирает исходники
+          # через token_get_all(). extensions: none его вырезал, и слепок падал
+          # с "Call to undefined function token_get_all()". Сама панель
+          # tokenizer не использует — нужен только тестовому инструменту.
+          extensions: tokenizer
+          coverage: none
+
+      - name: Синтаксис всех PHP-файлов
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r -d '' f; do
+            php -l "$f" > /dev/null
+            count=$((count + 1))
+          done < <(find . -name '*.php' -not -path './.git/*' -print0)
+          echo "проверено файлов: $count"
+
+      - name: Тесты конфигурации БД
+        run: php tests/test_db_config.php
+
+      - name: Слепок API db_config
+        # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
+        # только чтения исходников, подключения к БД не нужно.
+        run: php tests/db_config_api.php compare tests/db_config_api.golden.json
+
+  frontend:
+    name: Фронтенд
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Синтаксис JS
+        run: |
+          set -euo pipefail
+          count=0
+          for f in frontend/js/*.js; do
+            node --check "$f"
+            count=$((count + 1))
+          done
+          echo "проверено файлов: $count"
+
+      - name: Тесты общего модуля
+        run: node tests/test_frontend_js.js
+
+  agent:
+    name: Агент (Python ${{ matrix.python }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14 вычисляет аннотации лениво (PEP 649), и необъявленный Optional
+        # в сигнатуре не даёт ошибки на импорте. На 3.13 и нише падает сразу,
+        # и агент не запускается вовсе. Ноды со старым Python — обычное дело,
+        # поэтому версии множатся, а latest не подставляется.
+        python: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Зависимости
+        run: python -m pip install --quiet --upgrade pip psutil requests
+
+      - name: Синтаксис всех модулей агента
+        run: |
+          set -euo pipefail
+          count=0
+          for f in agent/*.py; do
+            python -m py_compile "$f"
+            count=$((count + 1))
+          done
+          echo "проверено файлов: $count"
+
+      - name: Структурная сверка агента
+        # Полный поведенческий слепок с живыми данными (сеть, диски, SMART,
+        # журнал) машинно-зависим и на раннере всегда расходился бы с
+        # эталоном, снятым на другой машине. Поэтому в CI проверяется
+        # машинно-независимая часть: имена методов, сигнатуры и набор полей
+        # экземпляра. node.conf нужен для создания экземпляра агента; он в
+        # .gitignore, поэтому рабочее дерево после шага остаётся чистым.
+        run: |
+          set -euo pipefail
+          cat > agent/node.conf <<'EOF'
+          NODE_TOKEN="0000000000000000000000000000000000000000000000000000000000000000"
+          MASTER_URL="https://ci.invalid"
+          NODE_NAME="ci-runner"
+          EOF
+          python tests/agent_fingerprint.py typehints
+          python tests/agent_fingerprint.py methods --check tests/agent_methods.golden.json
+
+      - name: Рабочее дерево не пачкается
+        run: |
+          set -euo pipefail
+          # node.conf в .gitignore, поэтому его появление — норма, а status
+          # должен быть пуст. Пустой diff означает, что проверки ничего не
+          # писали в репозиторий.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "рабочее дерево изменено проверками:"
+            git status --porcelain
+            exit 1
+          fi
+
+  scripts:
+    name: Скрипты
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Синтаксис shell-скриптов
+        # Только разбор: install_panel.sh, update_agent.sh и прочие трогают
+        # systemd, MySQL и сеть, запускать их в CI нельзя. Полный
+        # post-deploy смоук — scripts/verify_post_deploy.sh — требует
+        # развёрнутой панели и выполняется вручную на стенде.
+        run: |
+          set -euo pipefail
+          count=0
+          for f in scripts/*.sh; do
+            bash -n "$f"
+            count=$((count + 1))
+          done
+          echo "проверено файлов: $count"

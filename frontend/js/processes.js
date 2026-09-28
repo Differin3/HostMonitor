@@ -1,5 +1,4 @@
 // Управление процессами
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = API_BASE;
 let allProcesses = [];
 let filteredProcesses = [];
@@ -98,13 +97,6 @@ function applyFilters() {
     });
     
     renderProcesses(filteredProcesses);
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 function renderProcesses(processes) {
@@ -444,7 +436,6 @@ function appendProcessLogs(logs, replace = false) {
         container.scrollTop = container.scrollHeight;
     }
 }
-
 
 function updateProcessPagination() {
     const totalPages = processLogsTotal > 0 ? Math.ceil(processLogsTotal / processLogsPerPage) : (processLogsPage || 1);

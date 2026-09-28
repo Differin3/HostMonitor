@@ -1,4 +1,3 @@
-const API_BASE = window.MONITORING_API_BASE || '/api';
 const API_URL = `${API_BASE}/nodes.php`;
 const METRICS_API = `${API_BASE}/metrics.php`;
 const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
