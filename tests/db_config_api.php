@@ -96,11 +96,37 @@ function db_api_is_ours(string $fn): bool
     return false;
 }
 
+/**
+ * Строковое представление типа, одинаковое на PHP 7.4 и 8.x.
+ *
+ * ReflectionType::__toString() версионно-зависим: на 8.x nullable-тип
+ * печатается как "?string", на 7.4 — как "string" с allowsNull() == true.
+ * Без нормализации эталон отражает версию PHP, а не форму кода, и сверка
+ * падает на 7.4 сама по себе.
+ */
+function db_api_type(?ReflectionType $type): ?string
+{
+    if ($type === null) {
+        return null;
+    }
+    $s = (string)$type;
+    if (!$type->allowsNull()) {
+        return $s;
+    }
+    // Уже nullable, либо нечего префиксовать: смешанный тип, сам null,
+    // объединение (в PHP 8 null входит в перечисление членов).
+    if (strpos($s, '?') === 0 || $s === 'mixed' || $s === 'null' || strpos($s, '|') !== false) {
+        return $s;
+    }
+    return '?' . $s;
+}
+
 function db_api_param(ReflectionParameter $p): string
 {
     $s = '';
-    if ($p->hasType()) {
-        $s .= (string)$p->getType() . ' ';
+    $t = db_api_type($p->getType());
+    if ($t !== null) {
+        $s .= $t . ' ';
     }
     if ($p->isPassedByReference()) {
         $s .= '&';
@@ -120,6 +146,54 @@ function db_api_param(ReflectionParameter $p): string
     return $s;
 }
 
+/**
+ * Функции, объявляемые условно: на PHP 8+ они нативные, на 7.4 их
+ * объявляет polyfill.php. Их наличие — свойство версии PHP, а не часть
+ * контракта db_config, поэтому в эталон они не попадают: иначе слепок
+ * проверял бы версию раннера, а не код. Взамен их поведение проверяется
+ * напрямую — и на 7.4, и на нативных 8.x.
+ */
+function db_api_conditional(): array
+{
+    return ['str_contains', 'str_starts_with', 'str_ends_with'];
+}
+
+/** Проверяет поведение полифилов на текущей версии PHP. */
+function db_api_assert_polyfills(): int
+{
+    $cases = [
+        'str_contains'    => [['foobar', 'oba', true], ['foobar', 'nope', false]],
+        'str_starts_with' => [['foobar', 'foo', true], ['foobar', 'bar', false]],
+        'str_ends_with'   => [['foobar', 'bar', true], ['foobar', 'foo', false]],
+    ];
+    $bad = 0;
+    foreach ($cases as $fn => $args) {
+        if (!function_exists($fn)) {
+            fwrite(STDERR, "ПОЛИФИЛ ОТСУТСТВУЕТ: {$fn}()\n");
+            $bad++;
+            continue;
+        }
+        foreach ($args as $i => $case) {
+            $got = $fn($case[0], $case[1]);
+            if ($got !== $case[2]) {
+                fwrite(STDERR, sprintf(
+                    "ПОЛИФИЛ ДАЁТ НЕВЕРНЫЙ РЕЗУЛЬТАТ: %s(%s, %s) = %s, ожидалось %s\n",
+                    $fn,
+                    var_export($case[0], true),
+                    var_export($case[1], true),
+                    var_export($got, true),
+                    var_export($case[2], true)
+                ));
+                $bad++;
+            }
+        }
+    }
+    if ($bad === 0) {
+        echo "Полифилы: нативные или корректные, проверено " . count($cases) . "\n";
+    }
+    return $bad;
+}
+
 function db_api_capture(string $entry): array
 {
     if (!is_file($entry)) {
@@ -132,28 +206,33 @@ function db_api_capture(string $entry): array
     $files = db_api_included_files($entry);
     $declared = db_api_declared($files);
 
-    $sigs = [];
-    $calls = [];
-    $native = [];
+  $sigs = [];
+  $calls = [];
+  $native = [];
+  $conditional = db_api_conditional();
 
-    foreach ($declared as $name) {
-        if (!function_exists($name)) {
-            continue; // нативная функция PHP 8, полифил не сработал
-        }
-        $rf = new ReflectionFunction($name);
-        if (!$rf->isInternal()) {
-            $params = [];
-            foreach ($rf->getParameters() as $p) {
-                $params[] = db_api_param($p);
-            }
-            $sigs[$name] = [
-                'params' => $params,
-                'return' => $rf->hasReturnType() ? (string)$rf->getReturnType() : null,
-                'by_ref_return' => $rf->returnsReference(),
-            ];
-        } else {
-            $native[] = $name;
-        }
+  foreach ($declared as $name) {
+      if (!function_exists($name)) {
+          continue; // нативная функция PHP 8, полифил не сработал
+      }
+      $rf = new ReflectionFunction($name);
+      if (in_array($name, $conditional, true)) {
+          // Наличие полифила — свойство версии, сигнатура в эталон не идёт.
+          // Граф вызовов ниже по-прежнему пишется: он одинаков на обеих
+          // версиях и реально защищает код вызывающей стороны.
+      } elseif (!$rf->isInternal()) {
+          $params = [];
+          foreach ($rf->getParameters() as $p) {
+              $params[] = db_api_param($p);
+          }
+          $sigs[$name] = [
+              'params' => $params,
+              'return' => db_api_type($rf->getReturnType()),
+              'by_ref_return' => $rf->returnsReference(),
+          ];
+      } else {
+          $native[] = $name;
+      }
 
         // Граф вызовов внутри тела функции
         $file = $rf->getFileName();
@@ -230,9 +309,11 @@ if ($cmd === 'compare') {
         fwrite(STDERR, "нет эталона: {$path}\n");
         exit(1);
     }
-    $want = json_decode((string)file_get_contents($path), true);
-    $got = db_api_capture($entry);
-    $bad = 0;
+      $want = json_decode((string)file_get_contents($path), true);
+      $got = db_api_capture($entry);
+      // Полифилы проверяются всегда и на любой версии: без этого их
+      // исключение из эталона оставило бы 7.4 без покрытия вовсе.
+      $bad = db_api_assert_polyfills();
 
     $a = $want['declared'] ?? [];
     $b = $got['declared'];
