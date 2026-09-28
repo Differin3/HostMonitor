@@ -396,12 +396,53 @@ def main() -> int:
         return 0
     if mode == "methods":
         if len(sys.argv) < 3:
-            print("usage: agent_fingerprint.py methods <outfile.json>", file=sys.stderr)
+            print("usage: agent_fingerprint.py methods [--check] <outfile.json|golden.json>",
+                  file=sys.stderr)
             return 2
-        Path(sys.argv[2]).write_text(
+        rest = sys.argv[2:]
+        check = "--check" in rest
+        args = [a for a in rest if a != "--check"]
+        if not args:
+            print("usage: agent_fingerprint.py methods [--check] <outfile.json|golden.json>",
+                  file=sys.stderr)
+            return 2
+        target = args[0]
+        if check:
+            # Машинно-независимая часть: имена, сигнатуры и набор полей
+            # экземпляра. Именно её имеет смысл проверять в CI, где нет ни
+            # Docker, ни SMART, ни того же набора сетевых интерфейсов, что и
+            # на машине, где снимался эталон.
+            with open(target, encoding="utf-8") as fh:
+                golden = json.load(fh)
+            current = methods()
+            diffs = []
+            for name in sorted(set(golden.get("names", [])) - set(current["names"])):
+                diffs.append(f"ПРОПАЛ метод: {name}")
+            for name in sorted(set(current["names"]) - set(golden.get("names", []))):
+                diffs.append(f"ПОЯВИЛСЯ метод: {name}")
+            for section in ("signatures", "instance_attrs"):
+                g = golden.get(section, {})
+                c = current.get(section)
+                if isinstance(c, dict):
+                    for name in sorted(set(g) | set(c)):
+                        if g.get(name) != c.get(name):
+                            diffs.append(f"{section}.{name}: было {g.get(name)} стало {c.get(name)}")
+                else:
+                    for name in sorted(set(g) - set(c)):
+                        diffs.append(f"{section}: пропало {name}")
+                    for name in sorted(set(c) - set(g)):
+                        diffs.append(f"{section}: появилось {name}")
+            if diffs:
+                print(f"РАСХОЖДЕНИЙ: {len(diffs)}")
+                for d in diffs:
+                    print("  " + d)
+                return 1
+            print(f"Совпадает: методов={current['count']} полей={len(current['instance_attrs'])}")
+            return 0
+        Path(target).write_text(
             json.dumps(methods(), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
             encoding="utf-8")
-        print(f"список методов записан в {sys.argv[2]}", file=sys.stderr)
+        print(f"список методов записан в {target}", file=sys.stderr)
         return 0
     if mode == "compare":
         with open(sys.argv[2], encoding="utf-8") as fh:
