@@ -185,7 +185,7 @@
     "install_update": "(self, package)",
     "merge_devices": "(upnp_list, lldp_list)",
     "report_agent_update": "(self, payload: dict) -> None",
-    "report_command_status": "(self, command, status)",
+    "report_command_status": "(self, command, status, result='')",
     "report_update_result": "(self, package, success, version=None, message=None)",
     "run": "(self)",
     "run_pending_command": "(self, quiet=False)",

@@ -462,6 +462,12 @@ class UpdaterMixin:
             }
         try:
             was_dirty = bool(checked.get('agent_dirty'))
+            # Коммит до обновления: если ниже что-то сломается, возвращаемся
+            # на него. Раньше отката не было вовсе: после reset --hard старый
+            # код уже недоступен, и битое обновление уводило юнит в
+            # crash-loop при StartLimitBurst=5.
+            rev = self._git_cmd(root, 'rev-parse', 'HEAD', timeout=10)
+            previous_commit = (rev.stdout or '').strip() if rev.returncode == 0 else ''
             reset = self._git_cmd(root, 'reset', '--hard', remote_ref, timeout=180)
             if reset.returncode != 0:
                 # fallback: pull --ff-only
@@ -480,10 +486,40 @@ class UpdaterMixin:
             if not pip.is_file():
                 pip = root / '.venv' / 'bin' / 'pip3'
             if pip.is_file() and req.is_file():
-                subprocess.run(
-                    [str(pip), 'install', '-q', '-r', str(req)],
-                    capture_output=True, text=True, timeout=300,
-                )
+                # returncode проверялся: раньше он игнорировался, и упавший pip
+                # молча проглатывался, а агент всё равно перезапускался.
+                try:
+                    pip_run = subprocess.run(
+                        [str(pip), 'install', '-q', '-r', str(req)],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                except Exception as exc:
+                    pip_run = None
+                    pip_err = f'{type(exc).__name__}: {exc}'
+                else:
+                    pip_err = (pip_run.stderr or pip_run.stdout or '').strip()
+                if pip_run is None or pip_run.returncode != 0:
+                    detail = (pip_err or 'без вывода')[-1500:]
+                    if previous_commit:
+                        back = self._git_cmd(root, 'reset', '--hard', previous_commit, timeout=120)
+                        _log(
+                            f'rollback after failed pip: rc={getattr(pip_run, "returncode", "exc")} '
+                            f'prev={previous_commit[:8]} back_rc={back.returncode}'
+                        )
+                        return {
+                            **checked,
+                            'ok': False,
+                            'updated': False,
+                            'rolled_back': back.returncode == 0,
+                            'error': 'Не удалось обновить зависимости, выполнен откат: ' + detail,
+                        }
+                    return {
+                        **checked,
+                        'ok': False,
+                        'updated': False,
+                        'rolled_back': False,
+                        'error': 'Не удалось обновить зависимости: ' + detail,
+                    }
             after = self.agent_version_info()
             self._exit_after_command = True
             msg = f"Обновлено {before} → {after.get('agent_commit')}"

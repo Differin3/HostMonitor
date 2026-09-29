@@ -155,10 +155,17 @@ class TransportMixin:
         _log(f"Command received: {command}")
         _log(f"Node: {self.node_name}")
         self._start_command_heartbeat()
+        # Причина неудачи: execute_command кладёт её в _command_error,
+        # иначе панель узнаёт только факт провала.
+        self._command_error = ''
         try:
             success = self.execute_command(command)
             _log(f"Command execution result: success={success}")
-            self.report_command_status(command, 'completed' if success else 'failed')
+            self.report_command_status(
+                command,
+                'completed' if success else 'failed',
+                '' if success else (getattr(self, '_command_error', '') or 'команда не выполнена'),
+            )
             _log(f"=== COMMAND EXECUTION COMPLETE ===")
             if getattr(self, '_exit_after_command', False):
                 _log('Exiting after agent update so systemd Restart=always picks up new code')
@@ -168,7 +175,7 @@ class TransportMixin:
             _log(f"ERROR executing command: {e}")
             import traceback
             _log(f"Traceback: {traceback.format_exc()}")
-            self.report_command_status(command, 'failed')
+            self.report_command_status(command, 'failed', f'{type(e).__name__}: {e}')
         finally:
             self._stop_command_heartbeat()
         return True
@@ -177,27 +184,38 @@ class TransportMixin:
         # Выполнение команды (с базовой фильтрацией)
         # ОПАСНЫЕ КОМАНДЫ ОТКЛЮЧЕНЫ ПО УМОЛЧАНИЮ
         allow_dangerous = os.getenv("ALLOW_DANGEROUS_COMMANDS", "false").lower() == "true"
+        # Причина последнего провала: её читает run_pending_command и
+        # отправляет на панель, иначе UI показывает голое «ошибка».
+        self._command_error = ''
         
         try:
             if command in ('check-agent-update', 'check-agent-updates'):
                 result = self.check_agent_update()
                 self.report_agent_update(result)
                 _log(f"check-agent-update: {result}")
+                if not result.get('ok'):
+                    self._command_error = str(result.get('error') or 'проверка обновления агента не удалась')
                 return bool(result.get('ok'))
             if command in ('update-agent', 'upgrade-agent'):
                 if not allow_dangerous:
                     _log("BLOCKED: update-agent command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 result = self.update_agent()
                 self.report_agent_update(result)
                 _log(f"update-agent: {result}")
                 if result.get('updated'):
                     self._exit_after_command = True
+                if not result.get('ok'):
+                    self._command_error = str(result.get('error') or 'обновление агента не удалось')
                 return bool(result.get('ok'))
             if command.startswith('reboot'):
                 # Перезагрузка системы - ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
                     _log("BLOCKED: reboot command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 _log("WARNING: Executing reboot command (dangerous operation)")
                 subprocess.run(['sudo', 'reboot'], check=False, timeout=10)
@@ -206,6 +224,8 @@ class TransportMixin:
                 # Выключение системы - ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
                     _log("BLOCKED: shutdown command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 _log("WARNING: Executing shutdown command (dangerous operation)")
                 subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=False, timeout=10)
@@ -214,6 +234,8 @@ class TransportMixin:
                 # Убить процесс — ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
                     _log("BLOCKED: kill command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 parts = command.split()
                 if len(parts) > 1:
@@ -237,6 +259,8 @@ class TransportMixin:
                 # Перезапуск процесса — ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
                     _log("BLOCKED: restart command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 parts = command.split()
                 if len(parts) > 1:
@@ -565,6 +589,8 @@ class TransportMixin:
                 # Firewall команды — ОПАСНАЯ КОМАНДА
                 if not allow_dangerous:
                     _log("BLOCKED: firewall command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                    self._command_error = ('Команда заблокирована политикой безопасности. '
+                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
                     return False
                 # Firewall команды (простая обёртка над ufw/iptables)
                 parts = command.split()
@@ -655,11 +681,15 @@ class TransportMixin:
             _log(f"Traceback: {traceback.format_exc()}")
         return False
 
-    def report_command_status(self, command, status):
+    def report_command_status(self, command, status, result=''):
         # Отчет о статусе выполнения команды
         url = f"{self.master_url}/api/nodes.php"
         params = {"id": self.node_name, "action": "command-status"}
         data = {"command": command, "status": status}
+        if result:
+            # Причина обязана уйти на панель: иначе в UI остаётся голое
+            # «ошибка», а объяснение видно только в журнале ноды.
+            data["result"] = str(result)[:4000]
         
         _log(f"Reporting command status: command={command}, status={status}")
         _log(f"POST {url}?id={self.node_name}&action=command-status")
