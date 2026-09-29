@@ -131,6 +131,32 @@ sudo -E env "DB_HOST=$DB_HOST" "DB_PORT=$DB_PORT" "DB_NAME=$DB_NAME" \
           ./install.sh
 
 # ----------------------------------------------------------------------
+# Проверяем, что БД действительно отвечает. Без этого установщик рапортовал
+# «Панель установлена» даже тогда, когда базу создать не удалось: дальше
+# система, nginx и cron настраивались, а панель падала с Access denied.
+echo "[install_panel] Проверка подключения к БД"
+if ! HM_DB_FILE="${INSTALL_DIR}/monitoring/data/db.local.php" php -r '
+    $cfg = @include getenv("HM_DB_FILE");
+    if (!is_array($cfg)) { fwrite(STDERR, "нет конфига\n"); exit(1); }
+    try {
+        new PDO(
+            "mysql:host={$cfg["host"]};port={$cfg["port"]};dbname={$cfg["name"]};charset=utf8mb4",
+            $cfg["user"], $cfg["password"],
+            [PDO::ATTR_TIMEOUT => 5]
+        );
+    } catch (Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . "\n"); exit(1);
+    }
+' 2>/tmp/dbcheck.log; then
+    cat /tmp/dbcheck.log >&2
+    echo "[install_panel] ОШИБКА: панель не сможет работать — нет подключения к БД." >&2
+    echo "  Проверьте: sudo mysql -u root -e 'SHOW DATABASES;'" >&2
+    rm -f /tmp/dbcheck.log
+    exit 1
+fi
+rm -f /tmp/dbcheck.log
+
+# ----------------------------------------------------------------------
 echo "[install_panel] Настройка пользователя monitoring"
 if ! id "monitoring" &>/dev/null; then
     sudo useradd -r -s /usr/sbin/nologin -d "${INSTALL_DIR}" monitoring 2>/dev/null || \
