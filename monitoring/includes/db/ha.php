@@ -25,6 +25,24 @@ function db_replica_enabled(array $cfg): bool
     return trim((string)($cfg['replica']['host'] ?? '')) !== '';
 }
 
+/**
+ * Подставляет ли панель пароль основной базы вместо пароля резерва.
+ *
+ * db_endpoint() берёт пароль основной базы, если пароль резерва пуст. Из-за
+ * этого MySQL отвечает «using password: YES», хотя пароль резерва не вводили,
+ * и ошибка выглядит противоречивой: в форме поле пустое, а сервер сообщает,
+ * что пароль подставлен. Проверка нужна, чтобы прямо сказать об этом в тексте
+ * ошибки.
+ */
+function db_replica_password_inherited(array $cfg): bool
+{
+    $replicaPassword = (string)($cfg['replica']['password'] ?? '');
+    if ($replicaPassword !== '') {
+        return false;
+    }
+    return (string)($cfg['password'] ?? '') !== '';
+}
+
 function db_endpoint(array $cfg, string $role): array
 {
     if ($role === 'replica') {
