@@ -33,6 +33,7 @@
         "db_quote_ident",
         "db_render_error_page",
         "db_replica_enabled",
+        "db_replica_password_inherited",
         "db_reset_pdo",
         "db_schema_path",
         "db_ssl_ca_absolute",
@@ -295,6 +296,13 @@
             "by_ref_return": false
         },
         "db_replica_enabled": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "bool",
+            "by_ref_return": false
+        },
+        "db_replica_password_inherited": {
             "params": [
                 "array $cfg"
             ],
@@ -587,6 +595,7 @@
             "db_connection_editable"
         ],
         "db_replica_enabled": [],
+        "db_replica_password_inherited": [],
         "db_reset_pdo": [],
         "db_schema_path": [],
         "db_ssl_ca_absolute": [

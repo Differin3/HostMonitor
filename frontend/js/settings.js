@@ -685,6 +685,27 @@ function initDbHa() {
     val('db-replica-enabled')?.addEventListener('change', toggleReplicaFields);
     val('db-replica-ssl-verify')?.addEventListener('change', toggleSslCaBlock);
 
+    // Сервер возвращает вместе с сохранением результат проверки обеих баз.
+    // Раньше toast показывался зелёным всегда, поэтому неверные реквизиты
+    // резерва сохранялись молча, и ошибка всплывала только при следующей
+    // загрузке страницы. Теперь несостоявшееся подключение — это ошибка
+    // сохранения, а не тихий успех.
+    function dbHaSaveProblems(data) {
+        const problems = [];
+        const ping = (data && data.ping) || {};
+        const primary = ping.primary;
+        if (primary && primary.ok === false) {
+            problems.push('основная: ' + (primary.error || 'нет ответа'));
+        }
+        if (data && data.replica_enabled) {
+            const replica = ping.replica;
+            if (replica && replica.ok === false) {
+                problems.push('резерв: ' + (replica.error || 'нет ответа'));
+            }
+        }
+        return problems;
+    }
+
     val('db-ha-save')?.addEventListener('click', async () => {
         if (!dbHaEditable) return;
         try {
@@ -692,6 +713,13 @@ function initDbHa() {
             fillDbHaForm(data);
             if (val('db-password')) val('db-password').value = '';
             if (val('db-replica-password')) val('db-replica-password').value = '';
+            const problems = dbHaSaveProblems(data);
+            if (problems.length) {
+                const text = problems.join('; ');
+                dbHaLog('Сохранено, но подключение не удалось — ' + text, true);
+                showToast('Сохранено, но ' + text, 'error');
+                return;
+            }
             dbHaLog('Подключения сохранены.', false);
             showToast('Подключения к БД сохранены', 'success');
         } catch (e) {

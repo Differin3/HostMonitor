@@ -41,11 +41,25 @@ function db_ha_status_payload(bool $ping): array
         'ping' => null,
         'editable' => true,
     ];
-    if ($ping) {
-        $out['ping'] = [
-            'primary' => db_ping_endpoint($primary, 3),
-            'replica' => $enabled ? db_ping_endpoint($replica, 3) : ['ok' => false, 'ms' => 0, 'error' => 'Резерв выключен'],
-        ];
+      if ($ping) {
+          $replicaPing = $enabled
+              ? db_ping_endpoint($replica, 3)
+              : ['ok' => false, 'ms' => 0, 'error' => 'Резерв выключен'];
+          // Пароль резерва пуст — db_endpoint() молча берёт пароль основной
+          // базы. MySQL отвечает «using password: YES», и по тексту ошибки
+          // невозможно понять, откуда он взялся. Дописываем это прямо в текст.
+          if ($enabled
+              && !$replicaPing['ok']
+              && db_replica_password_inherited($cfg)
+              && is_string($replicaPing['error'] ?? null)
+              && $replicaPing['error'] !== ''
+              && stripos($replicaPing['error'], 'пароль резерва') === false) {
+              $replicaPing['error'] .= ' (пароль резерва не задан — подставлен пароль основной базы)';
+          }
+          $out['ping'] = [
+              'primary' => db_ping_endpoint($primary, 3),
+              'replica' => $replicaPing,
+          ];
         $out['editable'] = db_connection_editable([
             'configured' => true,
             'replica_enabled' => $enabled,
