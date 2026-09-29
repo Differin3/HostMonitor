@@ -464,6 +464,77 @@ function panel_sync_web_from_repo(string $repoRoot): array
     return ['ok' => false, 'message' => 'rsync не найден — установите rsync для синхронизации после git pull'];
 }
 
+/**
+ * Имя ветки приходит из HTTP-запроса и подставляется в строку shell-команды
+ * (panel_git_command экранирует $root, но $args склеивает как есть), поэтому
+ * проверяется и по синтаксису, и по списку реальных веток на origin.
+ *
+ * @return string текст ошибки, либо '' если ветка допустима (пустая = текущая)
+ */
+function panel_branch_guard(?string $branch, $root): string
+{
+    $branch = trim((string)$branch);
+    if ($branch === '') {
+        return '';
+    }
+    if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$~', $branch)
+        || $branch[0] === '-'
+        || strpos($branch, '..') !== false
+    ) {
+        return 'Недопустимое имя ветки: ' . $branch;
+    }
+    $known = array_map(
+        static function ($b) {
+            return is_array($b) ? (string)($b['name'] ?? '') : (string)$b;
+        },
+        panel_git_branch_list($root)
+    );
+    if (!in_array($branch, $known, true)) {
+        return 'Ветка ' . $branch . ' не найдена на origin.';
+    }
+    return '';
+}
+
+/**
+ * Определяет ветку, относительно которой считаем обновления.
+ *
+ * Порядок: явно запрошенная ветка → сохранённый в конфиге update_branch →
+ * текущая ветка рабочей копии. Раньше update_branch только записывался и
+ * нигде не читался, поэтому после перезагрузки страницы выбор терялся, а
+ * check всегда считал обновления для текущей ветки.
+ *
+ * Явно запрошенная ветка проверяется жёстко (ошибка), а сохранённая — нет:
+ * она могла остаться в конфиге после удаления ветки на origin или после
+ * переноса панели на репозиторий без remote. В этом случае откатываемся на
+ * текущую ветку и возвращаем warning, чтобы страница не ломалась целиком,
+ * но админ увидел, что сохранённый канал больше недоступен.
+ *
+ * @return array{branch: string, warning: string}
+ */
+function panel_update_resolve_branch(string $requested, $root): array
+{
+    $requested = trim($requested);
+    if ($requested !== '') {
+        return ['branch' => $requested, 'warning' => ''];
+    }
+
+    $cfg = panel_config_load();
+    $saved = trim((string)($cfg['update_branch'] ?? ''));
+    if ($saved === '') {
+        return ['branch' => '', 'warning' => ''];
+    }
+
+    if (panel_branch_guard($saved, $root) === '') {
+        return ['branch' => $saved, 'warning' => ''];
+    }
+
+    return [
+        'branch' => '',
+        'warning' => 'Сохранённая ветка обновлений «' . $saved . '» больше не найдена на origin — '
+            . 'показаны обновления текущей ветки. Выберите ветку заново.',
+    ];
+}
+
 function panel_update_check(bool $fetch = true, string $targetBranch = ''): array
 {
     $root = panel_repo_root();
@@ -480,6 +551,27 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
         ];
     }
 
+    // Явно запрошенную ветку валидируем жёстко, сохранённый update_branch —
+    // мягко (с warning). См. panel_update_resolve_branch().
+    $resolved = panel_update_resolve_branch($targetBranch, $root);
+    $targetBranch = $resolved['branch'];
+    $warning = $resolved['warning'];
+    if ($targetBranch !== '' && ($guard = panel_branch_guard($targetBranch, $root)) !== '') {
+        return [
+            'available' => false,
+            'error' => $guard,
+            'warning' => $warning,
+            'current_commit' => '',
+            'remote_commit' => '',
+            'branch' => panel_git_branch($root),
+            'branches' => panel_git_branch_list($root),
+            'selected_branch' => $targetBranch,
+            'commits' => [],
+            'repo_url' => panel_git_remote_url($root),
+            'repo_root' => $root,
+        ];
+    }
+
     if ($fetch) {
         // Короткий таймаут: UI CGI ~20с; длинный fetch вешал каждую вкладку админа
         $fetchResult = panel_git($root, 'fetch origin --prune', 12);
@@ -493,6 +585,7 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
             return [
                 'available' => false,
                 'error' => 'git fetch не удался: ' . $detail . $hint . "\n\nДиагностика: " . $diag,
+                'warning' => $warning,
                 'current_commit' => '',
                 'remote_commit' => '',
                 'branch' => panel_git_branch($root),
@@ -504,45 +597,34 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
     }
 
     $branch = panel_git_branch($root);
-    if ($updateBranch !== '' && $updateBranch !== $branch) {
-        $rev = panel_git($root, 'rev-parse --verify --quiet origin/' . $updateBranch, 10);
-        if (!$rev['ok']) {
-            return [
-                'available' => false,
-                'error' => 'Ветка ' . $updateBranch . ' не найдена на origin.',
-                'current_commit' => $local['output'] ?? '',
-                'remote_commit' => '',
-                'branch' => $updateBranch,
-                'branches' => panel_git_branch_list($root),
-                'selected_branch' => $updateBranch,
-                'commits' => [],
-                'repo_url' => panel_git_remote_url($root),
-                'repo_root' => $root,
-            ];
-        }
-        $branch = $updateBranch;
+    if ($targetBranch !== '' && $targetBranch !== $branch) {
+        $branch = $targetBranch;
     }
     $local = panel_git($root, 'rev-parse HEAD', 10);
-    $remote = panel_git($root, 'rev-parse origin/' . $branch, 10);
+    $remote = panel_git($root, 'rev-parse ' . escapeshellarg('origin/' . $branch), 10);
     if (!$local['ok'] || !$remote['ok']) {
-    return [
-        'available' => $available,
-        'error' => null,
-        'current_commit' => $local['output'],
-        'remote_commit' => $remote['output'],
-        'branch' => $branch,
-        'selected_branch' => $updateBranch !== '' ? $updateBranch : $branch,
-        'branches' => panel_git_branch_list($root),
-        'commits' => $commits,
-        'repo_url' => panel_git_remote_url($root),
-        'repo_root' => $root,
-    ];
-}
+        return [
+            'available' => false,
+            'error' => 'Не удалось определить коммиты: ' . trim((string)($local['output'] ?? ''))
+                . ' / ' . trim((string)($remote['output'] ?? '')),
+            'warning' => $warning,
+            'current_commit' => trim((string)($local['output'] ?? '')),
+            'remote_commit' => trim((string)($remote['output'] ?? '')),
+            'branch' => $branch,
+            'selected_branch' => $targetBranch !== '' ? $targetBranch : $branch,
+            'branches' => panel_git_branch_list($root),
+            'commits' => [],
+            'repo_url' => panel_git_remote_url($root),
+            'repo_root' => $root,
+        ];
+    }
 
-    $available = $local['output'] !== $remote['output'];
+    $currentCommit = trim((string)($local['output'] ?? ''));
+    $remoteCommit = trim((string)($remote['output'] ?? ''));
+    $available = $currentCommit !== '' && $currentCommit !== $remoteCommit;
     $commits = [];
     if ($available) {
-        $log = panel_git($root, 'log --oneline HEAD..origin/' . $branch, 15);
+        $log = panel_git($root, 'log --oneline ' . escapeshellarg('HEAD..origin/' . $branch), 15);
         if ($log['ok'] && $log['output'] !== '') {
             foreach (preg_split('/\r?\n/', $log['output']) ?: [] as $line) {
                 $line = trim($line);
@@ -560,10 +642,11 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
     return [
         'available' => $available,
         'error' => null,
-        'current_commit' => $local['output'],
-        'remote_commit' => $remote['output'],
+        'warning' => $warning,
+        'current_commit' => $currentCommit,
+        'remote_commit' => $remoteCommit,
         'branch' => $branch,
-        'selected_branch' => $updateBranch,
+        'selected_branch' => $targetBranch !== '' ? $targetBranch : $branch,
         'branches' => panel_git_branch_list($root),
         'commits' => $commits,
         'repo_url' => panel_git_remote_url($root),
@@ -611,6 +694,14 @@ function panel_update_apply(bool $discardLocal = false, string $targetBranch = '
     $root = panel_repo_root();
     if ($root === null) {
         return ['success' => false, 'error' => 'Репозиторий git не найден'];
+    }
+
+    // Тот же порядок разрешения, что и в check: явный запрос → сохранённый
+    // update_branch → текущая ветка. Иначе «Обновить» применило бы не тот
+    // канал, который страница только что показала в списке коммитов.
+    $targetBranch = panel_update_resolve_branch($targetBranch, $root)['branch'];
+    if (($guard = panel_branch_guard($targetBranch, $root)) !== '') {
+        return ['success' => false, 'error' => $guard];
     }
 
     $status = panel_git($root, 'status --porcelain', 10);
@@ -691,27 +782,49 @@ function panel_update_apply(bool $discardLocal = false, string $targetBranch = '
         }
     }
 
+    // С какой ветки уходим и в какую приходим. check['branch'] — это уже
+    // целевая ветка, поэтому ветку, на которой репозиторий лежит фактически,
+    // спрашиваем отдельно: иначе checkout пропускается, а
+    // «git pull origin main» выполняется внутри dev и смешивает ветки.
+    $currentBranch = panel_git_branch($root);
+    $target = $targetBranch !== '' ? $targetBranch : $currentBranch;
+
     $check = panel_update_check(true, $targetBranch);
     if (!empty($check['error'])) {
-        return ['success' => false, 'error' => $check['error']];
-    }
-    // Смена ветки = всегда «доступно обновление» (pull выполнит pull origin <target>)
-    if (!$check['available'] && $targetBranch === '') {
-        return ['success' => true, 'message' => 'Панель уже актуальна', 'already_up_to_date' => true];
+        return ['success' => false, 'error' => $check['error'], 'branch' => $currentBranch];
     }
 
-    $branch = $check['branch'];
-    if ($targetBranch !== '' && $targetBranch !== $branch) {
+    $switching = $target !== $currentBranch;
+    if ($switching) {
         // Ветка может не существовать локально — создаём с tracking на origin (без reset)
-        $co = panel_git($root, 'checkout -B ' . $targetBranch . ' --track origin/' . $targetBranch, 60);
+        $co = panel_git(
+            $root,
+            'checkout -B ' . escapeshellarg($target) . ' --track ' . escapeshellarg('origin/' . $target),
+            60
+        );
         if (!$co['ok']) {
-            return ['success' => false, 'error' => 'git checkout: ' . $co['output'] . panel_update_hint($co['output'])];
+            return [
+                'success' => false,
+                'error' => 'git checkout: ' . $co['output'] . panel_update_hint($co['output']),
+                'branch' => $currentBranch,
+            ];
         }
-        $branch = $targetBranch;
+    } elseif (!$check['available']) {
+        return [
+            'success' => true,
+            'message' => 'Панель уже актуальна',
+            'already_up_to_date' => true,
+            'branch' => $target,
+        ];
     }
-    $pull = panel_git($root, 'pull --ff-only origin ' . $branch, 180);
+
+    $pull = panel_git($root, 'pull --ff-only origin ' . escapeshellarg($target), 180);
     if (!$pull['ok']) {
-        return ['success' => false, 'error' => 'git pull: ' . $pull['output'] . panel_update_hint($pull['output'])];
+        return [
+            'success' => false,
+            'error' => 'git pull: ' . $pull['output'] . panel_update_hint($pull['output']),
+            'branch' => $target,
+        ];
     }
 
     $sync = panel_sync_web_from_repo($root);
@@ -733,7 +846,7 @@ function panel_update_apply(bool $discardLocal = false, string $targetBranch = '
         'message' => $msg,
         'output' => $pull['output'],
         'commit' => $after['output'] ?? '',
-        'branch' => $branch,
+        'branch' => $target,
     ];
 }
 

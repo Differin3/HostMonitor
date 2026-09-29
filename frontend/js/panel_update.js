@@ -17,6 +17,62 @@
         return sel ? sel.value : '';
     };
 
+    /**
+     * Заполняет список веток из ответа check.
+     *
+     * Функция была объявлена здесь в вызове, но нигде не определена, поэтому
+     * любая проверка падала с ReferenceError, а select оставался с единственным
+     * пунктом «— ветка не выбрана —»: выбрать канал было нечем.
+     */
+    const populateBranchSelect = (data) => {
+        const sel = branchSel();
+        if (!sel || !data) return;
+        const branches = Array.isArray(data.branches) ? data.branches : [];
+        const current = selectedBranch() || (data.selected_branch || '');
+        const checkedOut = data.branch || '';
+
+        const names = branches
+            .map((b) => (b && typeof b === 'object' ? b.name : b))
+            .filter((n) => typeof n === 'string' && n !== '')
+            .sort();
+        if (checkedOut && !names.includes(checkedOut)) names.unshift(checkedOut);
+        if (!names.length) return;
+
+        const existing = Array.from(sel.options).map((o) => o.value);
+        if (existing.length === names.length + 1 && current === sel.value
+            && names.every((n) => existing.includes(n))) {
+            // Список уже актуален — не трогаем select, чтобы не сбрасывать выбор.
+        } else {
+            sel.innerHTML = '';
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = '— ветка не выбрана —';
+            sel.appendChild(empty);
+            names.forEach((n) => {
+                const opt = document.createElement('option');
+                opt.value = n;
+                opt.textContent = n + (n === checkedOut ? ' (текущая)' : '');
+                sel.appendChild(opt);
+            });
+        }
+        if (current) sel.value = current;
+    };
+
+    /** Сохраняет выбранный канал на сервере, чтобы он переживал перезагрузку. */
+    async function saveBranch(branch) {
+        try {
+            await fetchJson(`${API}?action=select`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branch: branch }),
+            });
+            return true;
+        } catch (e) {
+            toast(e.message || 'Не удалось сохранить канал', 'warning');
+            return false;
+        }
+    }
+
     const toast = (msg, type = 'info') => {
         if (window.showToast) window.showToast(msg, type);
     };
@@ -83,6 +139,16 @@
                 ? `?action=check&local=1${branch !== '' ? '&branch=' + encodeURIComponent(branch) : ''}`
                 : `?action=check${branch !== '' ? '&branch=' + encodeURIComponent(branch) : ''}`;
             const data = await fetchJson(`${API}${qs}`);
+            // Список веток приходит и в ошибочном ответе (например, ветка не
+            // найдена), поэтому наполняем select до раннего выхода.
+            if (data && data.branches) populateBranchSelect(data);
+            // Сохранённый канал мог пропасть с origin — backend откатился на
+            // текущую ветку и вернул warning. Показываем даже при silent, иначе
+            // после перезагрузки страницы админ не узнает, что канал слетел.
+            if (data.warning) {
+                console.warn('[panel-update]', data.warning);
+                toast(data.warning, 'warning');
+            }
             if (data.error && !data.available) {
                 console.warn('[panel-update]', data.error);
                 if (!silent) toast(data.error.split('\n\n')[0], 'warning');
@@ -90,7 +156,6 @@
                 return;
             }
             setUpdateAvailable(!!data.available);
-            populateBranchSelect(data);
             if (!silent) {
                 if (data.available) {
                     const n = (data.commits || []).length;
@@ -113,10 +178,12 @@
 
     async function applyPanelUpdate(force = false) {
         if (isApplying || (!updateAvailable && !force)) return;
+        const branch = selectedBranch();
+        const where = branch ? ` на ветку «${branch}»` : '';
         const confirmed = await window.showConfirm(
             force
-                ? 'Сбросить локальные изменения на сервере и обновить панель?\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.'
-                : 'Обновить панель из репозитория?\n\nБудет выполнен git pull. Страница перезагрузится после успешного обновления.',
+                ? `Сбросить локальные изменения на сервере и обновить панель${where}?\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.`
+                : `Обновить панель из репозитория${where}?\n\nБудет выполнен git pull${branch ? ' с переключением ветки' : ''}. Страница перезагрузится после успешного обновления.`,
             force ? 'Сброс и обновление' : 'Обновление панели',
             force ? 'warning' : 'info'
         );
@@ -131,7 +198,9 @@
             const data = await fetchJson(`${API}?action=apply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ force: !!force }),
+                // Ветка обязана уходить в запрос: без неё сервер обновлял
+                // текущую ветку, а выбранный канал молча игнорировался.
+                body: JSON.stringify({ force: !!force, branch: selectedBranch() }),
             });
             if (data.success) {
                 toast(data.message || 'Панель обновлена', 'success');
@@ -168,6 +237,15 @@
     document.addEventListener('DOMContentLoaded', () => {
         checkBtn()?.addEventListener('click', () => checkPanelUpdate(false));
         applyBtn()?.addEventListener('click', applyPanelUpdate);
+        branchSel()?.addEventListener('change', async (e) => {
+            const branch = e.target.value;
+            setUpdateAvailable(false);
+            if (await saveBranch(branch)) {
+                // Перепроверяем под выбранный канал: доступность обновления
+                // считается именно для него.
+                checkPanelUpdate(false);
+            }
+        });
         checkPanelUpdate(true);
     });
 })();

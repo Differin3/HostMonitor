@@ -56,6 +56,13 @@ jobs:
       - name: Тесты конфигурации БД
         run: php tests/test_db_config.php
 
+      - name: Тесты механики обновления панели
+        # Поднимает свой origin+клон в /tmp и проверяет смену ветки, откат
+        # на текущую ветку при битом сохранённом канале, отсев недопустимых
+        # имён веток и отсутствие shell-инъекции. Рабочий репозиторий не
+        # трогает, panel.local.php восстанавливает на выходе.
+        run: php tests/test_panel_update.php
+
       - name: Слепок API db_config
         # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
         # только чтения исходников, подключения к БД не нужно.
@@ -83,6 +90,11 @@ jobs:
 
       - name: Тесты общего модуля
         run: node tests/test_frontend_js.js
+
+      - name: Тесты UI обновления панели
+        # Отдельный файл: страница обновления тянет fetch/DOM и не относится
+        # к общему модулю экранирования.
+        run: node tests/test_panel_update_js.js
 
   agent:
     name: Агент (Python ${{ matrix.python }})
@@ -131,6 +143,11 @@ jobs:
           EOF
           python tests/agent_fingerprint.py typehints
           python tests/agent_fingerprint.py methods --check tests/agent_methods.golden.json
+
+      - name: Тесты self-update агента
+        # Откат при сбое pip и передача причины провала на панель. Песочница
+        # с origin и клоном создаётся в /tmp, сеть подменена заглушками.
+        run: python tests/test_agent_update.py
 
       - name: Рабочее дерево не пачкается
         run: |

@@ -428,6 +428,18 @@ Environment=GIT_CONFIG_VALUE_0=${INSTALL_DIR}
 Environment=GIT_CONFIG_KEY_1=GIT_TERMINAL_PROMPT
 Environment=GIT_CONFIG_VALUE_1=0
 EOF
+
+    # Разрешённые команды (self-update агента, reboot, shutdown, kill).
+    # Без этого переменная нигде не выставлялась, и команда update-agent,
+    # которую панель ставит в очередь со страницы «Обновления», агент
+    # отклонял всегда — при этом check-agent-update под гейтом не стоит,
+    # так что панель показывала «доступно обновление», которое нельзя было
+    # установить. Отключить: sudo rm ${GIT_DROPIN_DIR}/dangerous-commands.conf
+    DANGEROUS="${ALLOW_DANGEROUS_COMMANDS:-true}"
+    sudo tee "${GIT_DROPIN_DIR}/dangerous-commands.conf" >/dev/null <<EOF
+[Service]
+Environment=ALLOW_DANGEROUS_COMMANDS=${DANGEROUS}
+EOF
     sudo systemctl daemon-reload
 fi
 

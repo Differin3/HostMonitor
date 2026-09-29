@@ -793,6 +793,13 @@ function handlePost($pdo) {
         
         $commandStatus = $data['status'] ?? 'completed'; // completed / failed / pending
         $command = trim((string)($data['command'] ?? ''));
+        // Причина от агента: без неё UI показывал голое «ошибка», а
+        // объяснение (например «update-agent заблокирован») оставалось
+        // только в журнале ноды.
+        $result = trim((string)($data['result'] ?? ($data['error'] ?? '')));
+        if (mb_strlen($result) > 4000) {
+            $result = mb_substr($result, 0, 4000);
+        }
         
         $currentStmt = $pdo->prepare("SELECT last_command, command_status FROM nodes WHERE id = ?");
         $currentStmt->execute([$targetNodeId]);
@@ -812,14 +819,21 @@ function handlePost($pdo) {
         if ($commandStatus === 'failed' && $sameCommand) {
             // Оставляем last_command — UI показывает «ошибка» + command_result
             // Presence не трогаем: статус ноды только от heartbeat/metrics
-            $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET command_status = 'failed' WHERE id = ?"
-            );
-            $updateStmt->execute([$targetNodeId]);
+            if ($result !== '') {
+                $updateStmt = $pdo->prepare(
+                    "UPDATE nodes SET command_status = 'failed', command_result = ? WHERE id = ?"
+                );
+                $updateStmt->execute([$result, $targetNodeId]);
+            } else {
+                $updateStmt = $pdo->prepare(
+                    "UPDATE nodes SET command_status = 'failed' WHERE id = ?"
+                );
+                $updateStmt->execute([$targetNodeId]);
+            }
             error_log("Command marked failed (kept last_command={$currentCmd})");
         } elseif ($commandStatus === 'completed' && $sameCommand) {
             $updateStmt = $pdo->prepare(
-                "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL WHERE id = ?"
+                "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL, command_result = NULL WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
             error_log("Command cleared: status={$commandStatus}, last_command=NULL");
