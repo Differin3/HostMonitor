@@ -109,6 +109,14 @@ if [[ "$USE_LOCAL_DB" == true ]]; then
     }
 
     log "Создание базы ${DB_NAME} и пользователя ${DB_USER}"
+    # Страховка от пустого пароля: пользователь MySQL без пароля означает,
+    # что любой локальный процесс заходит в базу под ним. Интерактивный
+    # путь генерирует пароль выше, но сюда можно попасть и через
+    # DB_HOST без DB_PASSWORD (например, из install_panel.sh).
+    if [[ -z "${DB_PASSWORD:-}" ]]; then
+        DB_PASSWORD="$(openssl rand -hex 16)"
+        log "Пароль не был задан — сгенерирован новый"
+    fi
     mysql_root -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
     mysql_root -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
     mysql_root -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';"
