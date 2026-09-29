@@ -58,6 +58,14 @@ if [[ "$DB_CHOICE" == "1" ]]; then
     DB_PORT="${DB_PORT:-3306}"
     DB_NAME="${DB_NAME:-monitoring}"
     DB_USER="${DB_USER:-monitoring}"
+    # Пароль генерируем здесь. Раньше он оставался незаданным, и на строке
+    # запуска install.sh (set -u) скрипт падал с «DB_PASSWORD: unbound
+    # variable». Просто убрать падение нельзя: install.sh при заданном
+    # DB_HOST считает, что пароль дал вызывающий, и создал бы пользователя
+    # MySQL с пустым паролем.
+    if [[ -z "${DB_PASSWORD:-}" ]]; then
+        DB_PASSWORD="$(openssl rand -hex 16)"
+    fi
 else
     read -r -p "Хост БД [localhost]: " input_host
     DB_HOST="${input_host:-localhost}"
