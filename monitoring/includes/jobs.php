@@ -472,14 +472,41 @@ if (!function_exists('jobs_heartbeat_path')) {
 }
 
 if (!function_exists('jobs_heartbeat_touch')) {
-    function jobs_heartbeat_touch(): void
+    /**
+     * Путь к самому воркеру: по нему панель понимает, какой версии кода
+     * работает запущенный процесс.
+     */
+    function jobs_worker_script_path(): string
+    {
+        return dirname(__DIR__, 2) . '/scripts/job_worker.php';
+    }
+}
+
+if (!function_exists('jobs_heartbeat_touch')) {
+    /**
+     * Отметка «воркер жив» и версия кода, на которой он реально работает.
+     *
+     * $codeMtime обязан приходить из самого воркера и быть тем, что он
+     * загрузил при старте. Если брать mtime файла здесь, то после git pull
+     * старый процесс продолжит писать в heartbeat mtime нового файла, и
+     * панель решит, что перезапуск уже произошёл, — хотя в очереди всё ещё
+     * крутится старый код.
+     */
+    function jobs_heartbeat_touch(int $codeMtime = 0): void
     {
         $path = jobs_heartbeat_path();
         $dir = dirname($path);
         if (!is_dir($dir)) {
             @mkdir($dir, 0750, true);
         }
-        @file_put_contents($path, (string)time());
+        $payload = ['ts' => time()];
+        if ($codeMtime <= 0) {
+            $codeMtime = (int)@filemtime(jobs_worker_script_path());
+        }
+        if ($codeMtime > 0) {
+            $payload['code'] = $codeMtime;
+        }
+        @file_put_contents($path, (string)json_encode($payload));
     }
 }
 
@@ -487,17 +514,80 @@ if (!function_exists('jobs_worker_alive')) {
     /**
      * Жив ли воркер. Панель показывает это в настройках долгих операций,
      * иначе застрявшая в очереди задача выглядит как «ничего не происходит».
+     *
+     * Файл heartbeat писался по-разному: сначала просто timestamp, потом
+     * JSON с меткой кода. Оба формата читаются, иначе воркер, запущенный
+     * до обновления, выглядел бы мёртвым и панель ругалась бы впустую.
      */
     function jobs_worker_alive(int $staleSeconds = 120): bool
     {
-        $path = jobs_heartbeat_path();
-        if (!is_file($path)) {
-            return false;
+        $raw = jobs_worker_heartbeat_raw();
+        $ts = 0;
+        if ($raw > 0) {
+            $ts = $raw;
+        } else {
+            $decoded = json_decode((string)@file_get_contents(jobs_heartbeat_path()), true);
+            $ts = isset($decoded['ts']) ? (int)$decoded['ts'] : 0;
         }
-        $ts = (int)@file_get_contents($path);
         if ($ts <= 0) {
             return false;
         }
         return (time() - $ts) <= max(30, $staleSeconds);
+    }
+}
+
+if (!function_exists('jobs_worker_heartbeat_raw')) {
+    /**
+     * Старый формат heartbeat — просто число секунд. Ноль у нового формата.
+     */
+    function jobs_worker_heartbeat_raw(): int
+    {
+        $path = jobs_heartbeat_path();
+        if (!is_file($path)) {
+            return 0;
+        }
+        $raw = trim((string)@file_get_contents($path));
+        return ctype_digit($raw) ? (int)$raw : 0;
+    }
+}
+
+if (!function_exists('jobs_worker_status')) {
+    /**
+     * Состояние воркера для панели: жив ли и на какой версии кода работает.
+     *
+     * up_to_date = null означает «неизвестно»: воркер не запущен либо
+     * метки кода ещё нет (процесс стартовал до этой правки). Панель в этом
+     * случае не должна утверждать, что всё в порядке.
+     */
+    function jobs_worker_status(int $staleSeconds = 120): array
+    {
+        $alive = jobs_worker_alive($staleSeconds);
+        $code = null;
+        $lastSeen = 0;
+
+        $decoded = json_decode((string)@file_get_contents(jobs_heartbeat_path()), true);
+        if (is_array($decoded)) {
+            $lastSeen = isset($decoded['ts']) ? (int)$decoded['ts'] : 0;
+            $code = isset($decoded['code']) ? (int)$decoded['code'] : null;
+        }
+        if ($lastSeen === 0) {
+            $lastSeen = jobs_worker_heartbeat_raw();
+        }
+
+        $expected = @filemtime(jobs_worker_script_path());
+        $expected = $expected === false ? null : (int)$expected;
+
+        $upToDate = null;
+        if ($alive && $code !== null && $expected !== null) {
+            $upToDate = $code === $expected;
+        }
+
+        return [
+            'alive' => $alive,
+            'code_mtime' => $code,
+            'expected_mtime' => $expected,
+            'up_to_date' => $upToDate,
+            'last_seen' => $lastSeen,
+        ];
     }
 }

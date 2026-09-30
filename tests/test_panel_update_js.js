@@ -50,14 +50,30 @@ function makeElement(id) {
         title: '',
         dataset: {},
         options: [],
-        classList: {
-            _s: new Set(),
-            toggle(c, on) { on ? this._s.add(c) : this._s.delete(c); },
-            contains(c) { return this._s.has(c); },
-        },
-        appendChild(child) { this.options.push(child); return child; },
-        querySelector() { return null; },
-        addEventListener(type, fn) { (this._h = this._h || {})[type] = fn; },
+classList: {
+              _s: new Set(),
+              toggle(c, on) { on ? this._s.add(c) : this._s.delete(c); },
+              contains(c) { return this._s.has(c); },
+              add(c) { this._s.add(c); },
+              remove(c) { this._s.delete(c); },
+          },
+          appendChild(child) { this.options.push(child); return child; },
+          // Настоящий DOM разбирает innerHTML в дерево. Разбирать HTML в тесте
+          // незачем: кнопки окна адресуются по data-role, и их достаточно
+          // отдать как устойчивые мемоизированные элементы — проверяем мы
+          // поведение и текст, а не парсер.
+          querySelector(sel) {
+              const m = /\[data-role="([^"]+)"\]/.exec(sel || '');
+              if (!m) return null;
+              const role = m[1];
+              const cache = this._q || (this._q = {});
+              if (!cache[role]) {
+                  cache[role] = makeElement(role);
+                  cache[role]._role = role;
+              }
+              return cache[role];
+          },
+          addEventListener(type, fn) { (this._h = this._h || {})[type] = fn; },
     };
     // В настоящем DOM присваивание innerHTML удаляет всех потомков, иначе
     // старые <option> навсегда оставались бы в списке.
@@ -73,56 +89,83 @@ function makeElement(id) {
 }
 
 /**
- * Готовит песочницу: элементы, fetch и журнал вызовов.
- * checkResponse — ответ на action=check.
- */
-function harness({ checkResponse }) {
-    const els = {
-        panelUpdateCheckBtn: makeElement('panelUpdateCheckBtn'),
-        panelUpdateApplyBtn: makeElement('panelUpdateApplyBtn'),
-        panelUpdateBranch: makeElement('panelUpdateBranch'),
-        panelUpdateActions: makeElement('panelUpdateActions'),
-    };
-    // Первоначально в разметке лежит единственный пустой пункт.
-    els.panelUpdateBranch.appendChild({ value: '', textContent: '— ветка не выбрана —' });
+   * Готовит песочницу: элементы, fetch и журнал вызовов.
+   * checkResponse — ответ на action=check, applyResponse — на action=apply.
+   */
+  function harness({ checkResponse, applyResponse }) {
+      const els = {
+          panelUpdateCheckBtn: makeElement('panelUpdateCheckBtn'),
+          panelUpdateApplyBtn: makeElement('panelUpdateApplyBtn'),
+          panelUpdateBranch: makeElement('panelUpdateBranch'),
+          panelUpdateActions: makeElement('panelUpdateActions'),
+      };
+      // Первоначально в разметке лежит единственный пустой пункт.
+      els.panelUpdateBranch.appendChild({ value: '', textContent: '— ветка не выбрана —' });
 
-    const toasts = [];
-    const confirms = [];
-    const calls = [];
-    const listeners = {};
+      const toasts = [];
+      const confirms = [];
+      const calls = [];
+      const listeners = {};
 
-    const sandbox = {
-        console,
-        setTimeout: (fn) => fn(),
-        JSON, Array, Object, String,
-        document: {
-            getElementById: (id) => els[id] || null,
-            createElement: (tag) => makeElement(tag),
-            addEventListener: (type, fn) => { listeners[type] = fn; },
-        },
-        location: { reload() { calls.push({ type: 'reload' }); } },
-        window: {
-            showToast: (msg, type) => toasts.push({ msg, type }),
-            showConfirm: async (msg) => { confirms.push(msg); return true; },
-        },
-    };
-    sandbox.window.window = sandbox.window;
-    sandbox.fetch = async (url, opts) => {
-        const method = (opts && opts.method) || 'GET';
-        const body = opts && opts.body ? JSON.parse(opts.body) : null;
-        calls.push({ url, method, body });
-        let data = {};
-        if (url.includes('action=check')) data = checkResponse;
-        else if (url.includes('action=select')) data = { success: true };
-        else if (url.includes('action=apply')) data = { success: true, message: 'ок' };
-        return { ok: true, status: 200, text: async () => JSON.stringify(data) };
-    };
+      const body = makeElement('body');
+      // Окно отчёта создаётся через createElement и получает id уже после
+      // создания, поэтому getElementById должен уметь находить его там же.
+      const created = [];
 
-    vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(SCRIPT, 'utf8'), sandbox, { filename: 'panel_update.js' });
-    if (listeners.DOMContentLoaded) listeners.DOMContentLoaded();
-    return { els, toasts, confirms, calls, sandbox };
-}
+      const sandbox = {
+          console,
+          setTimeout: (fn) => fn(),
+          requestAnimationFrame: (fn) => fn(),
+          JSON, Array, Object, String, Number,
+          document: {
+              getElementById: (id) => els[id] || created.find((e) => e.id === id) || null,
+              createElement: (tag) => {
+                  const el = makeElement(tag);
+                  created.push(el);
+                  return el;
+              },
+              body,
+              addEventListener: (type, fn) => { listeners[type] = fn; },
+          },
+          location: { reload() { calls.push({ type: 'reload' }); } },
+          window: {
+              showToast: (msg, type) => toasts.push({ msg, type }),
+              showConfirm: async (msg) => { confirms.push(msg); return true; },
+          },
+      };
+      sandbox.window.window = sandbox.window;
+      sandbox.fetch = async (url, opts) => {
+          const method = (opts && opts.method) || 'GET';
+          const body = opts && opts.body ? JSON.parse(opts.body) : null;
+          calls.push({ url, method, body });
+          let data = {};
+          if (url.includes('action=check')) data = checkResponse;
+          else if (url.includes('action=select')) data = { success: true };
+          else if (url.includes('action=apply')) {
+              data = applyResponse === undefined
+                  ? { success: true, message: 'ок' }
+                  : applyResponse;
+          }
+          return { ok: true, status: 200, text: async () => JSON.stringify(data) };
+      };
+
+      vm.createContext(sandbox);
+      vm.runInContext(fs.readFileSync(SCRIPT, 'utf8'), sandbox, { filename: 'panel_update.js' });
+      if (listeners.DOMContentLoaded) listeners.DOMContentLoaded();
+      const findById = (id) => els[id] || created.find((e) => e.id === id) || null;
+      return { els, toasts, confirms, calls, sandbox, modal: () => findById('update-report-modal') };
+  }
+
+  /** Ответ сервера об успешном обновлении с заданным состоянием воркера. */
+  function applyOk(worker, extra) {
+      return Object.assign({
+          success: true,
+          message: 'Панель обновлена',
+          commit: '1a2b3c4d5e6f7890abcdef1234567890abcdef12',
+          branch: 'main',
+          worker,
+      }, extra);
+  }
 
 // ─── Тесты ───────────────────────────────────────────────────────────────────
 
@@ -240,14 +283,164 @@ async function testChangeSavesBranch() {
         'после смены ветки выполняется перепроверка под новый канал');
 }
 
-(async () => {
-    await testLoadsWithoutReferenceError();
-    await testPopulateBranchSelect();
-    await testPopulateOnError();
-    await testWarningIsShown();
-    await testApplySendsBranch();
-    await testChangeSavesBranch();
+/**
+ * После обновления показывается окно с отчётом, а не молчаливый тост.
+ *
+ * Раньше был тост и reload через 1,5 секунды — админ не успевал узнать ни
+ * какой коммит встал, ни работает ли воркер, который git pull не перезапускает.
+ */
+async function testUpdateReportShowsInsteadOfSilentReload() {
+    console.log('\npanel_update.js: окно отчёта вместо молчаливой перезагрузки');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: applyOk({
+            state: 'stale', alive: true, up_to_date: false,
+            text: 'Воркер работает на старом коде и перезапустится сам.',
+        }),
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
 
-    console.log(`\nИтог: passed=${passed} failed=${failed}`);
-    process.exit(failed > 0 ? 1 : 0);
-})();
+    const modal = h.modal();
+    check(!!modal, 'после обновления открывается окно отчёта');
+    if (!modal) return;
+    check(modal.classList.contains('active'), 'окно показано, а не осталось скрытым');
+    check(h.toasts.length === 0, 'информация не потеряна в молчаливом тосте');
+    check(!h.calls.some((c) => c.type === 'reload'), 'страница не перезагружается молча и по таймеру');
+
+    check(modal.innerHTML.includes('Панель обновлена'), 'в окне есть заголовок результата');
+    check(modal.innerHTML.includes('main'), 'в окне указана ветка');
+    check(modal.innerHTML.includes('1a2b3c4d'), 'в окне указан сокращённый коммит');
+    check(!modal.innerHTML.includes('1a2b3c4d5e6f7890abcdef1234567890abcdef12'),
+        'коммит показан коротко, а не целиком');
+    check(modal.innerHTML.includes('перезапустится'), 'окно объясняет, что воркер перезапустится');
+}
+
+/**
+ * Кнопки окна: «Позже» закрывает, «Обновить страницу» перезагружает.
+ */
+async function testUpdateReportButtons() {
+    console.log('\npanel_update.js: кнопки окна отчёта');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: applyOk({ state: 'ok', alive: true, up_to_date: true, text: 'Воркер работает на новом коде.' }),
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
+
+    const modal = h.modal();
+    check(!!modal, 'окно создано');
+    if (!modal) return;
+    check(modal.innerHTML.includes('Воркер работает на новом коде'), 'окно сообщает, что воркер на новом коде');
+
+    modal.querySelector('[data-role="reload"]')._h.click();
+    check(h.calls.some((c) => c.type === 'reload'), '«Обновить страницу» перезагружает панель');
+
+    modal.querySelector('[data-role="later"]')._h.click();
+    check(!modal.classList.contains('active'), '«Позже» закрывает окно');
+}
+
+/**
+ * «Уже актуально» — обновления не было, отчёт был бы враньём.
+ */
+async function testAlreadyUpToDateStaysToast() {
+    console.log('\npanel_update.js: «уже актуально» остаётся тостом');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: { success: true, already_up_to_date: true, message: 'Панель уже актуальна' },
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
+
+    check(!h.modal(), 'окно отчёта не показывается, если ничего не применилось');
+    check(h.toasts.length === 1 && h.toasts[0].msg === 'Панель уже актуальна',
+        'показан тост «уже актуальна»');
+    check(!h.calls.some((c) => c.type === 'reload'), 'перезагрузки при «уже актуальна» нет');
+}
+
+/**
+ * Ответ сервера нельзя вставлять в innerHTML как есть: коммит и текст
+ * приходят из git и могут содержать что угодно.
+ */
+async function testReportEscapesServerText() {
+    console.log('\npanel_update.js: текст ответа экранируется');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: applyOk({
+            state: 'ok', alive: true, up_to_date: true,
+            text: '<img src=x onerror=alert(1)>',
+        }),
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
+
+    const modal = h.modal();
+    check(!!modal, 'окно создано');
+    if (!modal) return;
+    check(!modal.innerHTML.includes('<img src=x'), 'HTML из ответа не попадает в разметку');
+    check(modal.innerHTML.includes('&lt;img src=x'), 'HTML из ответа экранирован');
+}
+
+/**
+ * Воркер не запущен — окно обязано сказать, что именно делать.
+ */
+async function testMissingWorkerExplainsFix() {
+    console.log('\npanel_update.js: неработающий воркер не молчит');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: applyOk({
+            state: 'missing', alive: false, up_to_date: null,
+            text: 'Воркер не отвечает. Выполнить sudo bash scripts/install_jobs_worker.sh',
+        }),
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
+
+    const modal = h.modal();
+    check(!!modal, 'окно создано');
+    if (!modal) return;
+    check(modal.innerHTML.includes('install_jobs_worker.sh'), 'окно подсказывает, как поднять воркер');
+    check(modal.innerHTML.includes('Воркер не запущен'), 'окно явно говорит, что воркер не запущен');
+}
+
+  (async () => {
+      await testLoadsWithoutReferenceError();
+      await testPopulateBranchSelect();
+      await testPopulateOnError();
+      await testWarningIsShown();
+      await testApplySendsBranch();
+      await testChangeSavesBranch();
+      await testUpdateReportShowsInsteadOfSilentReload();
+      await testUpdateReportButtons();
+      await testAlreadyUpToDateStaysToast();
+      await testReportEscapesServerText();
+      await testMissingWorkerExplainsFix();
+
+      console.log(`\nИтог: passed=${passed} failed=${failed}`);
+      process.exit(failed > 0 ? 1 : 0);
+  })();

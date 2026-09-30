@@ -35,7 +35,6 @@ function check(bool $ok, string $name, string $detail = ''): void
     if ($detail !== '') {
         echo " — {$detail}";
     }
-    echo "\n";
 }
 
 echo "== Обрезка строк без mbstring ==\n";
@@ -312,6 +311,205 @@ check(
         || strpos($repl, "background_jobs'") !== false,
     'список исключений при копировании объявлен явно'
 );
+
+echo "\n";
+echo "\n== Heartbeat: два формата ==\n";
+// Файл heartbeat писался по-разному: сначала просто timestamp, потом JSON
+// с меткой кода. Оба случая должны читаться, иначе воркер, запущенный до
+// обновления, выглядел бы мёртвым и панель ругалась бы на пустом месте.
+$hb = jobs_heartbeat_path();
+@mkdir(dirname($hb), 0750, true);
+// Пишем в настоящий путь: код читает именно его. Прежнее содержимое
+// возвращаем в конце, чтобы тест не мешал реально работающему воркеру.
+$hbBackup = is_file($hb) ? (string)file_get_contents($hb) : null;
+
+file_put_contents($hb, (string)time());
+check(jobs_worker_alive(120) === true, 'старый формат heartbeat (просто число) читается');
+check(jobs_worker_heartbeat_raw() > 0, 'старый формат распознан как число');
+
+file_put_contents($hb, (string)json_encode(['ts' => time(), 'code' => 12345]));
+check(jobs_worker_alive(120) === true, 'новый формат heartbeat читается');
+
+file_put_contents($hb, (string)json_encode(['ts' => time() - 9999]));
+check(jobs_worker_alive(120) === false, 'протухший heartbeat считается мёртвым');
+
+file_put_contents($hb, 'мусор');
+check(jobs_worker_alive(120) === false, 'битый heartbeat не считается живым');
+
+// Метка кода воркера и mtime файла совпадают — значит процесс работает на
+// текущем коде; расхождение означает, что воркер перезапустится.
+$selfMtime = @filemtime(jobs_worker_script_path());
+file_put_contents($hb, (string)json_encode(['ts' => time(), 'code' => $selfMtime]));
+$same = jobs_worker_status(120);
+check($same['up_to_date'] === true, 'совпадение меток читается как «на новом коде»');
+
+file_put_contents($hb, (string)json_encode(['ts' => time(), 'code' => $selfMtime + 1]));
+$diff = jobs_worker_status(120);
+check($diff['up_to_date'] === false, 'расхождение меток читается как «на старом коде»');
+
+// Без метки кода утверждать ничего нельзя — это «неизвестно», а не «ок».
+file_put_contents($hb, (string)time());
+$none = jobs_worker_status(120);
+check($none['up_to_date'] === null, 'без метки кода состояние «неизвестно», а не «ок»');
+
+if ($hbBackup === null) {
+    @unlink($hb);
+} else {
+    file_put_contents($hb, $hbBackup);
+}
+
+echo "\n== Версия кода воркера ==\n";
+$st = jobs_worker_status();
+check(array_key_exists('up_to_date', $st), 'статус содержит up_to_date');
+check(array_key_exists('alive', $st), 'статус содержит alive');
+check(
+    $st['up_to_date'] === null || is_bool($st['up_to_date']),
+    'up_to_date либо булево, либо неизвестно (null)'
+);
+check(
+    jobs_worker_script_path() === $root . '/scripts/job_worker.php',
+    'путь к воркеру считается от корня репозитория',
+    jobs_worker_script_path()
+);
+check(
+    is_file(jobs_worker_script_path()),
+    'файл воркера существует по вычисленному пути'
+);
+
+echo "\n== Отчёт об обновлении ==\n";
+require_once $root . '/monitoring/includes/panel_update.php';
+check(function_exists('panel_update_worker_report'), 'функция отчёта объявлена');
+$rep = panel_update_worker_report();
+foreach (['alive', 'state', 'text', 'up_to_date'] as $k) {
+    check(array_key_exists($k, $rep), "в отчёте есть {$k}");
+}
+check(
+    in_array($rep['state'], ['ok', 'stale', 'unknown', 'missing'], true),
+    'состояние воркера из известного набора',
+    (string)$rep['state']
+);
+check(
+    is_string($rep['text']) && $rep['text'] !== '',
+    'состояние объясняется текстом, а не только флагом'
+);
+// Формулировка не должна обещать того, что ещё не случилось.
+if ($rep['state'] === 'stale') {
+    check(
+        mb_stripos($rep['text'], 'перезапустится') !== false,
+        'для старого кода сказано «перезапустится», а не «перезапущен»',
+        $rep['text']
+    );
+}
+if ($rep['state'] === 'missing') {
+    check(
+        strpos($rep['text'], 'install_jobs_worker.sh') !== false,
+        'если воркера нет, сказано чем это починить',
+        $rep['text']
+    );
+}
+
+echo "\n== Самоперезапуск воркера при обновлении ==\n";
+// git pull меняет job_worker.php на диске, а процесс держит старую версию
+// в памяти. Без проверки mtime панель обновляется, а очередь работает на
+// старом коде — расхождение версий ровно там, где это хуже всего.
+check(
+    strpos($worker, 'filemtime(__FILE__)') !== false,
+    'воркер запоминает mtime своего файла'
+);
+check(
+    strpos($worker, 'clearstatcache') !== false,
+    'stat сбрасывается, иначе mtime не обновится'
+);
+check(
+    strpos($worker, 'JOB_SELF_RELOAD_EVERY') !== false,
+    'проверка версии кода не на каждой строке'
+);
+// Выход должен происходить между чанками, а посреди копирования — нет.
+// Сверяем именно место проверки, а не инициализацию переменной: она стоит
+// выше цикла и ничего не говорит о том, где выход происходит.
+$checkPos = strpos($worker, '$nowMtime !== $selfMtime');
+$loopPos = strpos($worker, 'while ($running)');
+check(
+    $checkPos !== false && $loopPos !== false && $checkPos > $loopPos,
+    'проверка версии кода внутри цикла, а не до него'
+);
+check(
+    strpos($worker, '$reloadReason = \'изменился job_worker.php\';') !== false,
+    'причину перезапуска пишем в лог'
+);
+check(
+    strpos($worker, "UPDATE background_jobs SET status = 'queued'") !== false,
+    'перед выходом задача возвращается в очередь'
+);
+// Воркер не должен сам себя перезапускать и не должен дёргать systemctl:
+// перезапуск — дело systemd (Restart=always). Иначе получим два воркера
+// или рестарт без прав, и lock не спасёт от гонки.
+// У exec() отдельно смотрим только вызовы функций: $pdo->exec() — это PDO,
+// а не запуск процесса.
+$codeOnly = (string)preg_replace('!//[^\n]*!', '', (string)preg_replace('!/\*.*?\*/!s', '', $worker));
+foreach (['shell_exec', 'proc_open', 'passthru', 'systemctl', 'popen'] as $fn) {
+    check(
+        strpos($codeOnly, $fn) === false,
+        "воркер не вызывает {$fn} — перезапуск у systemd"
+    );
+}
+check(
+    preg_match('/(?<![>\w$])exec\s*\(/', $codeOnly) !== 1,
+    'воркер не вызывает exec() — перезапуск у systemd'
+);
+check(
+    strpos($codeOnly, '->exec(') !== false,
+    'воркер использует exec() у PDO — это не запуск процесса'
+);
+
+// Heartbeat должен получать mtime, загруженный при старте. Иначе старый
+// процесс после git pull отрапортует о новом коде, который он не выполняет,
+// и панель скажет «перезапуск произошёл», обманыв и админа, и очередь.
+check(
+    preg_match('/jobs_heartbeat_touch\(\s*\(int\)\s*\$selfMtime\s*\)/', $worker) === 1,
+    'воркер пишет в heartbeat свой startup mtime, а не текущий'
+);
+$hbt = (string)file_get_contents($root . '/monitoring/includes/jobs.php');
+check(
+    preg_match('/function jobs_heartbeat_touch\(int \$codeMtime = 0\)/', $hbt) === 1,
+    'heartbeat принимает метку кода от вызывающего'
+);
+check(
+    strpos($hbt, '$codeMtime = (int)@filemtime(jobs_worker_script_path());') !== false,
+    'без переданной метки используется mtime файла (воркер всегда её передаёт)'
+);
+
+// Лок обязан лежать в каталоге, который создаёт установщик и отдаёт
+// пользователю сервиса. Если он уедет на уровень выше, воркер упадёт
+// с exit(1) на старте — и очередь просто не заработает.
+preg_match('/\$lockPath\s*=\s*dirname\(__DIR__\)\s*\.\s*\'([^\']+)\'/', $worker, $m);
+check(!empty($m), 'путь лока вычисляется', $worker === '' ? 'воркер не найден' : 'нет $lockPath');
+if (!empty($m)) {
+    $lockDir = realpath(dirname($root . '/' . $m[1]));
+    $hbDir = realpath(dirname(jobs_heartbeat_path()));
+    check(
+        $lockDir === realpath($root . '/monitoring/data'),
+        'лок лежит в monitoring/data — там, где установщик делает chown',
+        'получено: ' . var_export($lockDir, true)
+    );
+    check(
+        $lockDir === $hbDir,
+        'каталог лока совпадает с каталогом heartbeat',
+        'получено: ' . var_export($lockDir, true) . ' vs ' . var_export($hbDir, true)
+    );
+    // Установщик обязан отдавать в пользователя сервиса именно этот каталог.
+    // Если chown идёт по другому пути, воркер не сможет создать лок.
+    $installer = (string)@file_get_contents($root . '/scripts/install_jobs_worker.sh');
+    check(
+        strpos($installer, 'monitoring/data') !== false,
+        'установщик создаёт и отдаёт каталог monitoring/data'
+    );
+    check(
+        strpos($installer, 'INSTALL_DIR}/monitoring/data') !== false
+            && strpos($installer, 'chown') !== false,
+        'установщик делает chown именно этого каталога в пользователя сервиса'
+    );
+}
 
 echo "\n";
 echo "\n";

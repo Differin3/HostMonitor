@@ -836,19 +836,55 @@ function panel_update_apply(bool $discardLocal = false, string $targetBranch = '
         ];
     }
 
-    $after = panel_git($root, 'rev-parse HEAD', 10);
-    $msg = 'Панель обновлена';
-    if (!empty($sync['message'])) {
-        $msg .= '. ' . $sync['message'];
-    }
-    return [
-        'success' => true,
-        'message' => $msg,
-        'output' => $pull['output'],
-        'commit' => $after['output'] ?? '',
-        'branch' => $target,
-    ];
-}
+$after = panel_git($root, 'rev-parse HEAD', 10);
+      $msg = 'Панель обновлена';
+      if (!empty($sync['message'])) {
+          $msg .= '. ' . $sync['message'];
+      }
+      return [
+          'success' => true,
+          'message' => $msg,
+          'output' => $pull['output'],
+          'commit' => $after['output'] ?? '',
+          'branch' => $target,
+          'worker' => panel_update_worker_report(),
+      ];
+  }
+
+  /**
+   * Что происходит с воркером после обновления.
+   *
+   * Воркер — отдельный долгоживущий процесс, и сам новый код не подхватит.
+   * Поэтому админу показываем не «обновлено» вообще, а состояние воркера:
+   * жив ли он и на какой версии кода. Формулировка «перезапустится» вместо
+   * «перезапущен» здесь принципиальна — рестарт происходит сам через
+   * несколько секунд, и врать об этом незачем.
+   */
+  function panel_update_worker_report(): array
+  {
+      require_once __DIR__ . '/jobs.php';
+      $status = jobs_worker_status();
+      $report = [
+          'alive' => (bool)$status['alive'],
+          'up_to_date' => $status['up_to_date'],
+          'code_mtime' => $status['code_mtime'],
+          'expected_mtime' => $status['expected_mtime'],
+      ];
+      if (!$status['alive']) {
+          $report['state'] = 'missing';
+          $report['text'] = 'Воркер не отвечает. Выполнить sudo bash scripts/install_jobs_worker.sh — без него копирование базы недоступно.';
+      } elseif ($status['up_to_date'] === false) {
+          $report['state'] = 'stale';
+          $report['text'] = 'Воркер работает на старом коде и перезапустится сам через несколько секунд. Текущая задача вернётся в очередь и продолжится с курсора.';
+      } elseif ($status['up_to_date'] === null) {
+          $report['state'] = 'unknown';
+          $report['text'] = 'Воркер отвечает, версию его кода определить нельзя — он запущен до этой правки. Перезапустить: sudo systemctl restart hostmonitor-jobs';
+      } else {
+          $report['state'] = 'ok';
+          $report['text'] = 'Воркер работает на новом коде.';
+      }
+      return $report;
+  }
 
 function panel_config_save(array $cfg): void
 {

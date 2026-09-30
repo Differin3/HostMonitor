@@ -18,6 +18,99 @@
     };
 
     /**
+     * Отчёт об обновлении.
+     *
+     * Раньше после git pull показывался тост, и через полторы секунды
+     * страница перезагружалась. Информации в этом почти не было: админ
+     * не знал, какой коммит встал и — главное — работает ли теперь воркер.
+     *
+     * Воркер отдельный долгоживущий процесс, и git pull его не трогает:
+     * он сам перезапустится на новом коде через несколько секунд. Поэтому
+     * в окне написано именно «перезапустится», а не «перезапущен» —
+     * обещать то, чего ещё не произошло, здесь нельзя.
+     */
+    const WORKER_VIEWS = {
+        ok: { icon: 'check-circle', kind: 'success', title: 'Воркер работает на новом коде' },
+        stale: { icon: 'refresh-cw', kind: 'info', title: 'Воркер перезапустится на новом коде' },
+        unknown: { icon: 'help-circle', kind: 'warning', title: 'Версия кода воркера неизвестна' },
+        missing: { icon: 'alert-triangle', kind: 'danger', title: 'Воркер не запущен' },
+    };
+
+    function paintIcons(root) {
+        if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+        try {
+            window.lucide.createIcons({ root });
+        } catch (_) {
+            window.lucide.createIcons();
+        }
+    }
+
+    function showUpdateReport(data) {
+        const worker = (data && data.worker) || {};
+        const view = WORKER_VIEWS[worker.state] || WORKER_VIEWS.unknown;
+        const commit = String((data && data.commit) || '').trim();
+        const short = commit.length > 8 ? commit.slice(0, 8) : commit;
+
+        let modal = document.getElementById('update-report-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'update-report-modal';
+            modal.className = 'confirm-modal hidden';
+            document.body.appendChild(modal);
+        }
+        modal.innerHTML = `
+            <div class="confirm-dialog hm-popover update-report">
+                <div class="confirm-header">
+                    <span class="confirm-icon"><i data-lucide="download"></i></span>
+                    <h3>Панель обновлена</h3>
+                </div>
+                <div class="confirm-body update-report-body">
+                    <dl class="update-report-list">
+                        <div><dt>Ветка</dt><dd>${escapeHtml((data && data.branch) || '—')}</dd></div>
+                        ${short ? `<div><dt>Коммит</dt><dd><code>${escapeHtml(short)}</code></dd></div>` : ''}
+                        <div><dt>Итог</dt><dd>${escapeHtml((data && data.message) || 'Файлы панели обновлены')}</dd></div>
+                    </dl>
+                    <div class="update-report-worker update-report-worker-${view.kind}">
+                        <i data-lucide="${view.icon}"></i>
+                        <div>
+                            <strong>${escapeHtml(view.title)}</strong>
+                            <p>${escapeHtml(worker.text || '')}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="confirm-actions">
+                    <button type="button" class="btn-cancel" data-role="later">Позже</button>
+                    <button type="button" class="btn-confirm success" data-role="reload">Обновить страницу</button>
+                </div>
+            </div>`;
+
+        const close = () => {
+            modal.classList.remove('active');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        };
+
+        modal.querySelector('[data-role="later"]').addEventListener('click', close);
+        modal.querySelector('[data-role="reload"]').addEventListener('click', () => location.reload());
+        modal.addEventListener('click', (ev) => {
+            if (ev.target === modal) close();
+        });
+
+        modal.classList.remove('hidden');
+        requestAnimationFrame(() => modal.classList.add('active'));
+        paintIcons(modal);
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[c]));
+    }
+
+    /**
      * Заполняет список веток из ответа check.
      *
      * Функция была объявлена здесь в вызове, но нигде не определена, поэтому
@@ -202,11 +295,18 @@
                 // текущую ветку, а выбранный канал молча игнорировался.
                 body: JSON.stringify({ force: !!force, branch: selectedBranch() }),
             });
-            if (data.success) {
-                toast(data.message || 'Панель обновлена', 'success');
-                setUpdateAvailable(false);
-                setTimeout(() => location.reload(), 1500);
-            } else if (data.dirty && !force) {
+if (data.success) {
+                    setUpdateAvailable(false);
+                    if (data.already_up_to_date) {
+                        // Ничего не применилось: отчёт был бы враньём.
+                        toast(data.message || 'Панель уже актуальна', 'info');
+                        return;
+                    }
+                    // Перезагрузку больше не делаем молча и по таймеру:
+                    // админ должен успеть прочитать, что встало и что
+                    // происходит с воркером.
+                    showUpdateReport(data);
+                } else if (data.dirty && !force) {
                 const files = (data.dirty_files || []).slice(0, 6).join('\n');
                 const again = await window.showConfirm(
                     (data.error || 'Локальные изменения') +

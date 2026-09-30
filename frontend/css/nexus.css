@@ -3157,3 +3157,85 @@ select optgroup {
     font-size: 10.5px;
     font-variant-numeric: tabular-nums;
 }
+
+/* Отчёт об обновлении панели. */
+.update-report {
+    width: 520px;
+    max-width: calc(100vw - 24px);
+}
+
+.update-report-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.update-report-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+}
+
+.update-report-list > div {
+    display: flex;
+    gap: 10px;
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.update-report-list dt {
+    flex: 0 0 62px;
+    color: var(--panel-muted, #8b93a6);
+}
+
+.update-report-list dd {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    color: var(--panel-text, #d4d6e4);
+    overflow-wrap: anywhere;
+}
+
+.update-report-list code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(148, 163, 142, 0.14);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+}
+
+.update-report-worker {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px 11px;
+    border-radius: 7px;
+    background: rgba(148, 163, 142, 0.09);
+}
+
+.update-report-worker > svg {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+}
+
+.update-report-worker strong {
+    display: block;
+    color: var(--panel-text, #d4d6e4);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.update-report-worker p {
+    margin: 3px 0 0;
+    color: var(--panel-muted, #8b93a6);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
+.update-report-worker-ok > svg { color: #22c55e; }
+.update-report-worker-info > svg { color: #3b82f6; }
+.update-report-worker-warning > svg { color: #f59e0b; }
+.update-report-worker-danger > svg { color: #ef4444; }
