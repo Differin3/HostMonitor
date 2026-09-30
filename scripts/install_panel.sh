@@ -263,10 +263,22 @@ else
         sudo systemctl daemon-reload
         sudo systemctl enable --now monitoring-web
     fi
-fi
+  fi
 
-# ----------------------------------------------------------------------
-echo "[install_panel] Настройка cron"
+  # ----------------------------------------------------------------------
+  # Воркер фоновых задач. Нужен при любом варианте веб-сервера: это
+  # отдельный CLI-процесс, а не модуль веба. Без него копирование базы
+  # снова придётся гонять из браузера и рвать при уходе со страницы.
+  # Логика вынесена в отдельный идемпотентный скрипт: обновление панели
+  # делает только git pull, и юнит нужно доставить отдельно — поэтому
+  # после обновления его ставит тот же скрипт вручную.
+  if [[ -f scripts/install_jobs_worker.sh ]]; then
+    sudo bash scripts/install_jobs_worker.sh "${INSTALL_DIR}" "${SERVICE_USER}" \
+      || echo "[install_panel] ВНИМАНИЕ: воркер фоновых задач не настроен, копирование базы будет недоступно"
+  fi
+  
+  # ----------------------------------------------------------------------
+  echo "[install_panel] Настройка cron"
 PHP_BIN="$(command -v php || echo /usr/bin/php)"
 sudo tee /etc/cron.d/hostmonitor-cleanup >/dev/null <<EOF
 15 3 * * * root ${PHP_BIN} ${INSTALL_DIR}/scripts/cleanup_logs.php >/var/log/hostmonitor-cleanup.log 2>&1

@@ -1,0 +1,24 @@
+[Unit]
+Description=HostMonitor background jobs (queue worker)
+Documentation=https://github.com/Differin3/HostMonitor
+After=network.target mariadb.service mysql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/monitoring
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="LANG=C.UTF-8"
+ExecStart=/usr/bin/php /opt/monitoring/scripts/job_worker.php
+StandardOutput=journal
+StandardError=journal
+# Воркер держит в памяти PDO-соединения и блокировки, поэтому после
+# systemctl restart в очередь возвращается только текущая задача, а не
+# весь процесс: состояние лежит в базе и подхватывается заново.
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

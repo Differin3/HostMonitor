@@ -642,3 +642,35 @@ CREATE TABLE IF NOT EXISTS database_metrics (
     FOREIGN KEY (database_id) REFERENCES monitored_databases(id) ON DELETE CASCADE,
     INDEX idx_dbm_ts (database_id, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Очередь долгих операций. Копирование базы и прочие тяжёлые задачи
+-- выполняет scripts/job_worker.php, а не браузер: состояние лежит здесь,
+-- поэтому миграция переживает уход со страницы и перезапуск воркера.
+-- В резерве эти таблицы не нужны — они служебные, и копировать их нельзя.
+CREATE TABLE IF NOT EXISTS background_jobs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    kind VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL DEFAULT '',
+    payload MEDIUMTEXT,
+    status VARCHAR(16) NOT NULL DEFAULT 'queued',
+    cancel_requested TINYINT(1) NOT NULL DEFAULT 0,
+    progress_done BIGINT NOT NULL DEFAULT 0,
+    progress_total BIGINT NOT NULL DEFAULT 0,
+    progress_label VARCHAR(255) NOT NULL DEFAULT '',
+    result MEDIUMTEXT,
+    error MEDIUMTEXT,
+    created_by INT NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP NULL DEFAULT NULL,
+    finished_at TIMESTAMP NULL DEFAULT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_jobs_status (status, id),
+    INDEX idx_jobs_kind (kind, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Отметки «пользователь видел результат» для счётчика в колокольчике.
+CREATE TABLE IF NOT EXISTS background_job_seen (
+    job_id BIGINT UNSIGNED NOT NULL,
+    user_id INT NOT NULL,
+    seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (job_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

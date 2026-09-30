@@ -48,15 +48,34 @@ function db_ping_endpoint(array $ep, int $timeout = 3): array
     }
 }
 
-function db_list_base_tables(PDO $pdo): array
-{
-    $stmt = $pdo->query('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'');
-    $tables = [];
-    while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
-        $tables[] = (string)$row[0];
-    }
-    return $tables;
-}
+  /**
+   * Таблицы, которые не переносятся в резерв.
+   *
+   * Очередь фоновых операций описывает работу воркера на конкретной
+   * primary: какая задача выполняется прямо сейчас и кто её поставил.
+   * В резерве своя очередь и свой воркер, а скопированные задачи были бы
+   * либо выполнены заново на чужом узле, либо помечены как stale по
+   * updated_at. Поэтому в копирование они не попадают.
+   */
+  function db_replication_skip_tables(): array
+  {
+      return ['background_jobs', 'background_job_seen'];
+  }
+
+  function db_list_base_tables(PDO $pdo): array
+  {
+      $skip = db_replication_skip_tables();
+      $stmt = $pdo->query('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'');
+      $tables = [];
+      while ($row = $stmt->fetch(PDO::FETCH_NUM)) {
+          $name = (string)$row[0];
+          if (in_array($name, $skip, true)) {
+              continue;
+          }
+          $tables[] = $name;
+      }
+      return $tables;
+  }
 
 function db_strip_foreign_keys(string $ddl): string
 {

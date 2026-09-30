@@ -3010,3 +3010,150 @@ select optgroup {
     margin: 0;
 }
 
+
+/* Колокольчик фоновых операций. */
+.topbar .jobs-bell-wrapper {
+    position: relative;
+}
+
+.jobs-bell {
+    position: relative;
+}
+
+.jobs-bell-badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 15px;
+    text-align: center;
+    pointer-events: none;
+}
+
+.jobs-bell-dropdown {
+    width: 330px;
+    max-width: calc(100vw - 24px);
+    padding: 0;
+    overflow: hidden;
+}
+
+.jobs-bell-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(148, 163, 142, 0.16);
+    color: var(--panel-text, #d4d6e4);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.jobs-bell-worker {
+    color: #f59e0b;
+    font-size: 10.5px;
+    font-weight: 500;
+}
+
+.jobs-bell-list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.jobs-bell-empty {
+    padding: 16px 12px;
+    color: var(--panel-muted, #8b93a6);
+    font-size: 12px;
+    text-align: center;
+}
+
+.jobs-bell-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(148, 163, 142, 0.08);
+}
+
+.jobs-bell-item:last-child {
+    border-bottom: none;
+}
+
+.jobs-bell-item > svg {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    width: 15px;
+    height: 15px;
+    color: var(--panel-muted, #8b93a6);
+}
+
+.jobs-bell-item-done > svg { color: #22c55e; }
+.jobs-bell-item-failed > svg { color: #ef4444; }
+.jobs-bell-item-canceled > svg { color: #94a3b8; }
+.jobs-bell-item-running > svg {
+    color: #3b82f6;
+    animation: jobs-bell-spin 1.4s linear infinite;
+}
+
+@keyframes jobs-bell-spin {
+    to { transform: rotate(360deg); }
+}
+
+.jobs-bell-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.jobs-bell-title {
+    color: var(--panel-text, #d4d6e4);
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.jobs-bell-meta {
+    color: var(--panel-muted, #8b93a6);
+    font-size: 11px;
+}
+
+.jobs-bell-label {
+    color: var(--panel-muted, #8b93a6);
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jobs-bell-error {
+    color: #f87171;
+    font-size: 10.5px;
+    overflow-wrap: anywhere;
+}
+
+.jobs-bell-bar {
+    height: 3px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: rgba(148, 163, 142, 0.18);
+    overflow: hidden;
+}
+
+.jobs-bell-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: #3b82f6;
+    transition: width 0.4s ease;
+}
+
+.jobs-bell-time {
+    flex: 0 0 auto;
+    color: var(--panel-muted, #8b93a6);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+}
