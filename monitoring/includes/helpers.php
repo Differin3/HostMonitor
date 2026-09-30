@@ -208,16 +208,65 @@ if (!function_exists('monitoring_base_path')) {
 }
 
 if (!function_exists('monitoring_asset')) {
+    /**
+     * URL статики из /frontend с защитой от устаревшего кэша браузера.
+     *
+     * Раньше здесь возвращался голый путь. После git pull браузер из
+     * уже открытой вкладки продолжал отдавать старый JS: панель при этом
+     * давно лежала с новым кодом на диске, и расхождение выглядело как
+     * «обновление не применилось». Именно так потерялась очередь копирования
+     * базы — старый копировщик в памяти вкладки продолжил работать сам.
+     *
+     * Версия берётся из mtime файла, а не из git: git на каждый ассет дёргать
+     * слишком дорого, а mtime меняется ровно тогда же, когда файл меняет
+     * содержимое при обновлении.
+     */
     function monitoring_asset(string $path): string
     {
         // Если путь начинается с /frontend, используем абсолютный путь от корня
         // Это нужно для XAMPP, где frontend находится в htdocs/frontend
         if (strpos($path, '/frontend') === 0) {
-            return $path; // Абсолютный путь от корня сайта
+            return monitoring_asset_version($path);
         }
         
         $base = monitoring_base_path();
         return $base . $path;
+    }
+}
+
+if (!function_exists('monitoring_asset_version')) {
+    /**
+     * Дописывает ?v=<mtime> к пути ассета, если файл нашёлся.
+     *
+     * Если файла нет — версия не добавляется и URL остаётся рабочим:
+     * битый кэш дешевле починить, чем отдать 404 на несуществующем файле.
+     */
+    function monitoring_asset_version(string $path): string
+    {
+        static $mtimes = [];
+        if (array_key_exists($path, $mtimes)) {
+            return $mtimes[$path];
+        }
+
+        // /frontend/css/nexus.css -> <корень репозитория>/frontend/css/nexus.css
+        $root = dirname(__DIR__, 2);
+        $relative = ltrim($path, '/');
+        $file = $root . '/' . $relative;
+
+        // За пределы репозитория не ходим: иначе ?v= превратился бы в
+        // инструмент обхода ограничений через ../
+        $real = @realpath($file);
+        $realRoot = @realpath($root);
+        $versioned = $path;
+        if ($real !== false && $realRoot !== false && strpos($real, $realRoot . DIRECTORY_SEPARATOR) === 0) {
+            $mtime = @filemtime($real);
+            if ($mtime !== false && $mtime > 0) {
+                $versioned = $path . '?v=' . (int)$mtime;
+            }
+        }
+
+        $mtimes[$path] = $versioned;
+        return $versioned;
     }
 }
 
