@@ -21,6 +21,8 @@ monitoring/data/db.local.php
 monitoring/data/*.php
 monitoring/data/retention.last
 monitoring/data/login_attempts.json
+monitoring/data/worker.heartbeat
+monitoring/data/job_worker.lock
 monitoring/data/ssl/*.pem
 monitoring/data/.agent_columns_ok_v2
 monitoring/data/.schema_*_ok

@@ -34,6 +34,8 @@ const JOB_IDLE_SLEEP = 2;
 const JOB_STALE_SEC = 300;
 // Раз в сутки чистим историю.
 const JOB_PRUNE_EVERY = 86400;
+// Как часто проверять, не обновили ли сам воркер.
+const JOB_SELF_RELOAD_EVERY = 15;
 
 $running = true;
 
@@ -195,7 +197,11 @@ function jobs_handler_db_sync(array &$state, PDO $queue, int $jobId): string
     return 'running';
 }
 
-$lockPath = dirname(__DIR__) . '/data/job_worker.lock';
+// Лок живёт рядом с heartbeat, в том же каталоге, который создаёт и
+// отдаёт в пользователя установщик. Раньше лок уезжал в scripts/../data,
+// то есть в /opt/monitoring/data — каталога там нет, а /opt/monitoring
+// принадлежит root, поэтому воркер падал бы с exit(1) ещё на старте.
+$lockPath = dirname(__DIR__) . '/monitoring/data/job_worker.lock';
 $lockDir = dirname($lockPath);
 if (!is_dir($lockDir)) {
     @mkdir($lockDir, 0750, true);
@@ -211,19 +217,45 @@ if (!flock($lock, LOCK_EX | LOCK_NB)) {
 }
 
 fwrite(STDOUT, "[jobs] воркер запущен, pid " . getmypid() . "\n");
-
-$pdo = null;
-$lastPrune = time();
-$reconnectAt = 0;
-$currentJobId = 0;
-
-while ($running) {
-    if (function_exists('pcntl_signal_dispatch')) {
-        pcntl_signal_dispatch();
-    }
-    if (!$running) {
-        break;
-    }
+  
+  $pdo = null;
+  $lastPrune = time();
+  $reconnectAt = 0;
+  $currentJobId = 0;
+  
+  // git pull меняет job_worker.php на диске, а процесс уже загрузил старую
+  // версию в память и сам её не перечитает. Остаёмся на старом коде, пока
+  // панель не перезапустят вручную, — и получаем расхождение версий именно
+  // в очереди. Поэтому запоминаем свой mtime и, когда файл изменился,
+  // выходим: systemd поднимет нас с новым кодом (Restart=always).
+  // Проверка идёт между чанками, посреди копирования выхода не бывает.
+  $selfMtime = @filemtime(__FILE__);
+  $selfCheckedAt = 0;
+  $reloadReason = '';
+  
+  while ($running) {
+      if (function_exists('pcntl_signal_dispatch')) {
+          pcntl_signal_dispatch();
+      }
+      if (!$running) {
+          break;
+      }
+  
+      if (time() - $selfCheckedAt >= JOB_SELF_RELOAD_EVERY) {
+          $selfCheckedAt = time();
+          // stat кэшируется, иначе после первого чтения mtime не менялся бы
+          // никогда и перезапуск не срабатывал бы.
+          clearstatcache(true, __FILE__);
+          $nowMtime = @filemtime(__FILE__);
+          // Нечитаемый mtime — не повод перезапускаться: это бывает
+          // посреди git checkout, и повторные попытки превратились бы в
+          // цикл рестартов. Следующая проверка через 15 с всё увидит.
+          if ($nowMtime !== false && $selfMtime !== false && $nowMtime !== $selfMtime) {
+              $reloadReason = 'изменился job_worker.php';
+              fwrite(STDOUT, '[jobs] ' . $reloadReason . ', перезапускаюсь на новом коде' . "\n");
+              break;
+          }
+      }
 
     try {
         if ($pdo === null || time() >= $reconnectAt) {
@@ -235,7 +267,10 @@ while ($running) {
         }
 
         jobs_ensure_tables($pdo);
-        jobs_heartbeat_touch();
+        // Важно: пишем туда mtime, который воркер загрузил при старте.
+        // Если бы heartbeat брал mtime файла в момент записи, старый процесс
+        // после git pull отрапортовал бы о новом коде, которого он не выполняет.
+        jobs_heartbeat_touch((int)$selfMtime);
 
         $recovered = jobs_recover_stale($pdo, JOB_STALE_SEC);
         if ($recovered > 0) {
