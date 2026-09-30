@@ -280,8 +280,66 @@ $injApply = panel_update_apply(false, 'dev; touch ' . $canary);
 check(($injApply['success'] ?? true) === false, 'apply() отказывает для имени с инъекцией');
 check(!file_exists($canary), 'инъекция через apply не выполнилась');
 
-// ─── Итог ─────────────────────────────────────────────────────────────────────
-
-echo "\n";
-echo "  Итог: {$passed} успешно, {$failed} провалено\n";
-exit($failed === 0 ? 0 : 1);
+// ─── Версия ассетов против устаревшего кэша браузера ──────────────────────────
+  //
+  // После git pull браузер из уже открытой вкладки продолжал отдавать старый
+  // JS: панель лежала с новым кодом на диске, а вкладка работала на старом.
+  // Именно так потерялась очередь копирования базы — старый копировщик в
+  // памяти вкладки продолжил исполняться сам и умер при переходе на другую
+  // страницу. Теперь к путям ассетов добавляется ?v=<mtime>.
+  
+  $_SERVER['SCRIPT_NAME'] = '/index.php';
+  require_once dirname(__DIR__) . '/monitoring/includes/helpers.php';
+  
+  $css = monitoring_asset('/frontend/css/nexus.css');
+  $js = monitoring_asset('/frontend/js/panel_update.js');
+  
+  check(strpos($css, '?v=') !== false, 'к CSS добавлена версия', $css);
+  check(strpos($js, '?v=') !== false, 'к JS добавлена версия', $js);
+  
+  preg_match('/\?v=(\d+)/', $js, $vm);
+  $jsMtime = (int)($vm[1] ?? 0);
+  $jsReal = (int)@filemtime(dirname(__DIR__) . '/frontend/js/panel_update.js');
+  check(
+      $jsMtime === $jsReal && $jsReal > 0,
+      'версия равна mtime файла — он меняется ровно при обновлении',
+      "в url {$jsMtime}, у файла {$jsReal}"
+  );
+  
+  check(
+      strpos($css, '/frontend/css/nexus.css') === 0,
+      'путь не искажён, версия дописана в конец',
+      $css
+  );
+  
+  // Отсутствующий файл должен остаться рабочим ссылкой, а не превратиться
+  // в 404 из-за поиска версии.
+  $missing = monitoring_asset('/frontend/js/такого-файла-нет.js');
+  check(
+      strpos($missing, '?v=') === false,
+      'для отсутствующего файла версия не добавляется — ссылка остаётся рабочей',
+      $missing
+  );
+  
+  // Выход за пределы репозитория через ../ не должен получать версию:
+  // иначе ?v= станет инструментом обхода ограничений.
+  $escape = monitoring_asset('/frontend/../../etc/passwd');
+  check(
+      strpos($escape, '?v=') === false,
+      'путь за пределы репозитория не версионируется',
+      $escape
+  );
+  
+  // Ссылка на ассет идёт в HTML через htmlspecialchars — амперсанд должен
+  // остаться экранированным, иначе HTML ломается.
+  check(
+      htmlspecialchars($js, ENT_QUOTES) === '/frontend/js/panel_update.js?v=' . $jsMtime,
+      'htmlspecialchars не ломает ссылку с параметром',
+      htmlspecialchars($js, ENT_QUOTES)
+  );
+  
+  // ─── Итог ─────────────────────────────────────────────────────────────────────
+  
+  echo "\n";
+  echo "  Итог: {$passed} успешно, {$failed} провалено\n";
+  exit($failed === 0 ? 0 : 1);
