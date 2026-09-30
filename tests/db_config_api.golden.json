@@ -34,6 +34,7 @@
         "db_render_error_page",
         "db_replica_enabled",
         "db_replica_password_inherited",
+        "db_replication_skip_tables",
         "db_reset_pdo",
         "db_schema_path",
         "db_ssl_ca_absolute",
@@ -309,6 +310,11 @@
             "return": "bool",
             "by_ref_return": false
         },
+        "db_replication_skip_tables": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
         "db_reset_pdo": {
             "params": [],
             "return": "void",
@@ -570,7 +576,9 @@
         "db_is_configured": [
             "db_config_load"
         ],
-        "db_list_base_tables": [],
+        "db_list_base_tables": [
+            "db_replication_skip_tables"
+        ],
         "db_needs_setup": [
             "db_has_users",
             "db_is_configured"
@@ -596,6 +604,7 @@
         ],
         "db_replica_enabled": [],
         "db_replica_password_inherited": [],
+        "db_replication_skip_tables": [],
         "db_reset_pdo": [],
         "db_schema_path": [],
         "db_ssl_ca_absolute": [

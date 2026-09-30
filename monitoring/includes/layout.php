@@ -203,6 +203,21 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                         </button>
                     </div>
                     <?php endif; ?>
+                    <div class="jobs-bell-wrapper hm-drop">
+                        <button type="button" class="icon-btn jobs-bell" id="jobsBellBtn" data-drop="jobsBellDropdown" role="button" tabindex="0" title="Фоновые операции" aria-label="Фоновые операции">
+                            <i data-lucide="bell"></i>
+                            <span class="jobs-bell-badge hidden" id="jobsBellBadge">0</span>
+                        </button>
+                        <div class="hm-menu jobs-bell-dropdown hidden" id="jobsBellDropdown">
+                            <div class="jobs-bell-head">
+                                <span>Фоновые операции</span>
+                                <span class="jobs-bell-worker hidden" id="jobsBellWorker" title="Воркер не отвечает">воркер не запущен</span>
+                            </div>
+                            <div class="jobs-bell-list" id="jobsBellList">
+                                <div class="jobs-bell-empty">Операций пока нет</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="user-menu-wrapper hm-drop">
                         <div class="user-menu" id="userMenuToggle" data-drop="userDropdown" role="button" tabindex="0">
                             <div class="user-avatar">
@@ -331,6 +346,7 @@ function render_layout_end(array $scripts = []): void
         <div class="toast-host" id="toast-host" aria-live="polite"></div>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/notify.js')) ?>"></script>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/jobs.js')) ?>"></script>
+          <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/jobs_runner.js')) ?>"></script>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/db_sync_runner.js')) ?>"></script>
         <script src="<?= htmlspecialchars(monitoring_asset('/frontend/js/agent_jobs_runner.js')) ?>"></script>
         <script>
