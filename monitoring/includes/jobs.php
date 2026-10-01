@@ -153,9 +153,12 @@ if (!function_exists('jobs_kinds')) {
      */
     function jobs_kinds(): array
     {
-        return [
-            'db.sync' => 'Копирование базы',
-        ];
+          return [
+              'db.sync' => 'Копирование базы',
+              'pkg.install' => 'Установка пакетов',
+              'agent.update' => 'Обновление агентов',
+              'agent.check' => 'Проверка обновлений агентов',
+          ];
     }
 }
 

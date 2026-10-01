@@ -58,7 +58,9 @@
                 if (!j?.id) return;
                 // Старые done/fail старше 2 мин — не поднимаем
                 if (['done', 'fail'].includes(j.status) && now - (j.updatedAt || 0) > 120000) return;
-                const resumable = !!j.resumable || j.id === 'db-sync' || String(j.id).startsWith('agent-');
+                // agent-* больше не клиентские: прогресс обновления агентов
+                // и пакетов ведёт серверная очередь и рисует колокольчик.
+                const resumable = !!j.resumable || j.id === 'db-sync';
                 // Не-resumable running после смены страницы — клиентский цикл мёртв
                 if (j.status === 'running' && !resumable) {
                     j.status = 'fail';
@@ -265,9 +267,9 @@
             pct: opts.pct == null ? (existing?.pct ?? 0) : Number(opts.pct),
             status: 'running',
             cancelable: opts.cancelable != null ? !!opts.cancelable : !!existing?.cancelable,
-            resumable: opts.resumable != null
-                ? !!opts.resumable
-                : !!(existing?.resumable || key === 'db-sync' || String(key).startsWith('agent-')),
+                resumable: opts.resumable != null
+                    ? !!opts.resumable
+                    : !!(existing?.resumable || key === 'db-sync'),
             startedAt: existing?.startedAt || now,
             updatedAt: now,
             maxMs: Number.isFinite(maxMs) ? maxMs : DEFAULT_MAX_MS,
