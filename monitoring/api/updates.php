@@ -2,8 +2,11 @@
 // API для системы обновлений
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/jobs.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$userId = null;
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = $_GET['action'] ?? null;
@@ -143,18 +146,19 @@ if ($method === 'GET' && ($action === 'pending-install')) {
         echo json_encode(['error' => 'Unauthorized']);
         exit;
     }
-} elseif ($method === 'POST') {
-    // Для других POST запросов (check, install) проверяем сессию пользователя
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-    if (!isset($_SESSION['user_id'])) {
-        http_response_code(401);
-        echo json_encode(['error' => 'Unauthorized']);
-        exit;
-    }
-    session_write_close();
-}
+  } elseif ($method === 'POST') {
+      // Для других POST запросов (check, install) проверяем сессию пользователя
+      if (session_status() === PHP_SESSION_NONE) {
+          session_start();
+      }
+      if (!isset($_SESSION['user_id'])) {
+          http_response_code(401);
+          echo json_encode(['error' => 'Unauthorized']);
+          exit;
+      }
+      $userId = (int)$_SESSION['user_id'];
+      session_write_close();
+  }
 
 try {
     if ($method === 'GET') {
@@ -510,6 +514,9 @@ try {
             $queued = 0;
             $nodesQueued = 0;
             $nodeNames = [];
+            $queuedNodes = [];
+            // node_id => список пакетов, реально помеченных в install_queued
+            $queuedPackages = [];
 
             foreach ($byNode as $nodeId => $pkgs) {
                 $nodeStmt = $pdo->prepare("SELECT id, name, status, last_command, command_status FROM nodes WHERE id = ?");
@@ -542,51 +549,83 @@ try {
                     }
                 }
 
-                $mark = $pdo->prepare("UPDATE node_updates SET install_queued = 1 WHERE node_id = ? AND package = ?");
-                $marked = 0;
-                foreach ($pkgs as $p) {
-                    $mark->execute([$nodeId, $p['package']]);
-                    if ($mark->rowCount() > 0) {
-                        $marked++;
-                    } else {
-                        // пакета нет в node_updates — всё равно ставим флаг если вставим? нет, только известные
-                        $errors[] = "Пакет {$p['package']} не найден в списке обновлений ноды {$node['name']}";
-                    }
-                }
-                if ($marked === 0) {
-                    continue;
-                }
+                  $mark = $pdo->prepare("UPDATE node_updates SET install_queued = 1 WHERE node_id = ? AND package = ?");
+                  $marked = 0;
+                  $markedPkgs = [];
+                  foreach ($pkgs as $p) {
+                      $mark->execute([$nodeId, $p['package']]);
+                      if ($mark->rowCount() > 0) {
+                          $marked++;
+                          $markedPkgs[] = $p['package'];
+                      } else {
+                          // пакета нет в node_updates — всё равно ставим флаг если вставим? нет, только известные
+                          $errors[] = "Пакет {$p['package']} не найден в списке обновлений ноды {$node['name']}";
+                      }
+                  }
+                  if ($marked === 0) {
+                      continue;
+                  }
+                  // Именно эти пакеты считаем в прогрессе: записи с
+                  // install_queued=1 от прошлых попыток сюда не входят.
+                  $queuedPackages[$nodeId] = $markedPkgs;
 
-                $payload = json_encode([
-                    'packages' => array_values(array_unique(array_map(static fn($p) => $p['package'], $pkgs))),
-                    'count' => $marked,
-                ], JSON_UNESCAPED_UNICODE);
-
-                $pdo->prepare(
-                    "UPDATE nodes SET last_command = 'install-updates', command_status = 'pending',
-                     command_timestamp = NOW(), command_result = ? WHERE id = ?"
-                )->execute([$payload, $nodeId]);
-
-                $queued += $marked;
-                $nodesQueued++;
-                $nodeNames[] = (string)$node['name'];
-            }
+          $payload = json_encode([
+              'packages' => array_values(array_unique(array_map(static fn($p) => $p['package'], $pkgs))),
+              'count' => $marked,
+          ], JSON_UNESCAPED_UNICODE);
+  
+          $pdo->prepare(
+              "UPDATE nodes SET last_command = 'install-updates', command_status = 'pending',
+               command_timestamp = NOW(), command_result = ? WHERE id = ?"
+          )->execute([$payload, $nodeId]);
+  
+          $queued += $marked;
+          $nodesQueued++;
+          $nodeNames[] = (string)$node['name'];
+          $queuedNodes[] = $nodeId;
+          }
 
             $msg = $nodesQueued > 0
-                ? "В очередь: {$queued} пакет(ов) на {$nodesQueued} нод(ах): " . implode(', ', $nodeNames)
-                : 'Не удалось поставить обновления в очередь';
+                  ? "В очередь: {$queued} пакет(ов) на {$nodesQueued} нод(ах): " . implode(', ', $nodeNames)
+                  : 'Не удалось поставить обновления в очередь';
             if ($errors) {
                 $msg .= '. Ошибок: ' . count($errors);
             }
 
+            // Кладём наблюдение в очередь воркера: прогресс установки
+            // тогда виден в колокольчике на любой странице и переживает
+            // переход, а не живёт в таймерах вкладки. ids узлов нужны
+            // воркеру, чтобы считать реальные статусы из nodes/node_updates.
+            $jobId = 0;
+            if ($queuedNodes !== [] && jobs_kind_allowed('pkg.install')) {
+                try {
+                    $jobId = jobs_enqueue(
+                        $pdo,
+                        'pkg.install',
+                        [
+                            'nodes' => $queuedNodes,
+                            // Явный список пакетов: считать прогресс по всем
+                            // строкам install_queued нельзя — там остаются
+                            // хвосты от прошлых неудачных попыток.
+                            'packages' => $queuedPackages,
+                        ],
+                        'Установка пакетов',
+                        $userId ?? null
+                    );
+                } catch (Throwable $e) {
+                    error_log('pkg.install enqueue failed: ' . $e->getMessage());
+                }
+            }
+
             echo json_encode([
-                'success' => $queued > 0,
-                'queued' => $queued,
-                'nodes' => $nodesQueued,
-                'errors' => $errors,
-                'message' => $msg,
-            ], JSON_UNESCAPED_UNICODE);
-            exit;
+                  'success' => $queued > 0,
+                  'queued' => $queued,
+                  'nodes' => $nodesQueued,
+                  'errors' => $errors,
+                  'job_id' => $jobId,
+                  'message' => $msg,
+              ], JSON_UNESCAPED_UNICODE);
+              exit;
         } elseif ($action === 'pending-install') {
             // Агент забирает список пакетов для batch-установки
             if (!$nodeInfo) {

@@ -494,7 +494,50 @@ async function main() {
         check(t.timers.length > 0, 'опрос продолжается, панель не замирает после 401');
     }
 
-    console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
+    console.log('\n== Обновления агентов и пакетов ведёт сервер, а не вкладка ==');
+{
+    // Колокольчик рисует только background_jobs. Пока обновления шли через
+    // HostJobs (sessionStorage вкладки), переход на другую страницу или
+    // новая вкладка обрывали отображение, хотя установка продолжалась.
+    const jobsSrc = stripComments(fs.readFileSync(
+        path.join(__dirname, '..', 'frontend', 'js', 'jobs.js'), 'utf8',
+    ));
+    const updatesSrc = stripComments(fs.readFileSync(
+        path.join(__dirname, '..', 'frontend', 'js', 'updates.js'), 'utf8',
+    ));
+
+    check(
+        !/String\(j\.id\)\.startsWith\('agent-'\)/.test(jobsSrc)
+            && !/String\(key\)\.startsWith\('agent-'\)/.test(jobsSrc),
+        'agent-* больше не помечается resumable: за задачей стоит воркер',
+    );
+    check(
+        !/pkg-install/.test(updatesSrc),
+        'фейковой локальной задачи pkg-install больше нет',
+    );
+    // Счётчик тиков в проверке обновлений — это просто предохранитель от
+    // вечного опроса, прогресс он не рисует. Проверяем именно запрет
+    // подставления счётчика в процент задачи.
+    check(
+        !/pct:[^;]*refreshCount/.test(updatesSrc),
+        'счётчик таймера не подставляется в процент задачи',
+    );
+    check(
+        !/Math\.min\(95,\s*15\s*\+/.test(updatesSrc),
+        'процент установки больше не растёт от тиков setInterval',
+    );
+    check(
+        /function watchInstallRows\(\)/.test(updatesSrc)
+            && /function watchAgentRows\(/.test(updatesSrc),
+        'таблицы обновляются локальным таймером, а прогресс ведёт сервер',
+    );
+    check(
+        /pagehide/.test(updatesSrc) && /beforeunload/.test(updatesSrc),
+        'таймеры таблиц снимаются на уходе со страницы',
+    );
+}
+
+console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
 {
     // Ошибка была чисто позиционной: .hm-menu по умолчанию раскрывается
     // вправо от кнопки (left: 0), а колокольчик стоит у правого края

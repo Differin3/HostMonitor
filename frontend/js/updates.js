@@ -193,8 +193,51 @@ async function checkUpdates(silent = false) {
     }
 }
 
-function applyFilters() {
-    syncSelectedKeysFromDom();
+  let installWatchTimer = null;
+
+  /**
+   * Пока идёт установка, подтягиваем статусы строк и историю.
+   *
+   * Отдельно от прогресса в колокольчике: колокольчик ведёт воркер и виден
+   * на любой странице, а этот таймер нужен только чтобы таблица на этой
+   * странице не выглядела застывшей. Как только строк в работе не осталось
+   * и история перестала меняться — таймер снимает себя, чтобы не висеть
+   * до бесконечности после перезагрузки страницы.
+   */
+  function watchInstallRows() {
+      if (installWatchTimer) return;
+      let idle = 0;
+      let lastHistoryLength = -1;
+      installWatchTimer = setInterval(async () => {
+          const busy = (updatesData || []).some((u) => ['pending', 'installing'].includes(u.install_status));
+          await checkUpdates(true);
+          loadHistory();
+          const stillBusy = (updatesData || []).some((u) => ['pending', 'installing'].includes(u.install_status));
+          const histLen = (window.__updatesHistoryLength ?? -1);
+          const settled = histLen === lastHistoryLength;
+          lastHistoryLength = histLen;
+          // Три тика подряд без изменений — установка действительно закончена.
+          idle = (!stillBusy && settled) ? idle + 1 : 0;
+          if (idle >= 3 || (!busy && !stillBusy)) {
+              stopInstallWatch();
+          }
+      }, 3000);
+  }
+
+  function stopInstallWatch() {
+      if (installWatchTimer) {
+          clearInterval(installWatchTimer);
+          installWatchTimer = null;
+      }
+  }
+
+  // Уход со страницы снимает таймер: переживать переход должен колокольчик,
+  // а не этот опрос.
+  window.addEventListener('pagehide', stopInstallWatch);
+  window.addEventListener('beforeunload', stopInstallWatch);
+
+  function applyFilters() {
+      syncSelectedKeysFromDom();
 
     const nodeFilter = document.getElementById('nodeFilter')?.value || '';
     const priorityFilter = document.getElementById('priorityFilter')?.value || '';
@@ -511,68 +554,36 @@ async function installUpdates() {
             }
         });
     
-        showToast('Отправка команды установки...', 'info');
-        window.HostJobs?.start('pkg-install', {
-            title: 'Установка пакетов',
-            detail: `${selected.length} пакет(ов) в очереди`,
-            pct: 5,
-        });
-        const result = await fetchJson('/updates.php?action=install', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ updates: selected })
-        });
-        
-        if (result.success) {
-            const queued = result.queued || result.installed || 0;
-            selected.forEach((u) => selectedUpdateKeys.delete(updateSelectionKey(u)));
-            if (result.message) {
-                showToast(result.message, queued > 0 ? (result.errors?.length ? 'warning' : 'success') : 'error');
-            } else if (result.errors && result.errors.length > 0) {
-                showToast(`Поставлено в очередь: ${queued}, ошибок: ${result.errors.length}`, 'warning');
-            } else {
-                showToast(`Команда отправлена: ${queued} обновлений поставлено в очередь`, 'success');
-            }
-            window.HostJobs?.update('pkg-install', {
-                detail: queued > 0 ? `В очереди: ${queued}` : (result.message || 'Ошибка очереди'),
-                pct: queued > 0 ? 15 : 0,
-            });
-            // Обновляем список сразу чтобы показать статус "pending"
-            await checkUpdates(true); // silent обновление
-            loadHistory();
-            // Автообновление статуса установки каждые 2 секунды в течение 2 минут
-            let refreshCount = 0;
-            const statusInterval = setInterval(async () => {
-                await checkUpdates(true); // silent обновление
-                loadHistory();
-                refreshCount++;
-                const pending = (updatesData || []).filter((u) => ['pending', 'installing'].includes(u.install_status)).length;
-                if (window.HostJobs) {
-                    if (pending > 0) {
-                        window.HostJobs.update('pkg-install', {
-                            detail: `Устанавливается / в очереди: ${pending}`,
-                            pct: Math.min(95, 15 + refreshCount),
-                        });
-                    } else if (refreshCount >= 3) {
-                        window.HostJobs.done('pkg-install', 'Установка завершена');
-                        clearInterval(statusInterval);
-                        return;
-                    }
-                }
-                if (refreshCount >= 60) { // 60 * 2 = 120 секунд
-                    window.HostJobs?.done('pkg-install', 'Опрос завершён');
-                    clearInterval(statusInterval);
-                }
-            }, 2000);
-        } else {
-            window.HostJobs?.fail('pkg-install', result.error || 'Ошибка установки');
-            showToast(result.error || 'Ошибка установки', 'error');
-        }
-    } catch (error) {
-        console.error('Error installing updates:', error);
-        window.HostJobs?.fail('pkg-install', error.message || 'Ошибка установки');
-        showToast('Ошибка установки обновлений', 'error');
-    } finally {
+          showToast('Отправка команды установки...', 'info');
+          const result = await fetchJson('/updates.php?action=install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ updates: selected })
+          });
+          
+          if (result.success) {
+              const queued = result.queued || result.installed || 0;
+              selected.forEach((u) => selectedUpdateKeys.delete(updateSelectionKey(u)));
+              if (result.message) {
+                  showToast(result.message, queued > 0 ? (result.errors?.length ? 'warning' : 'success') : 'error');
+              } else if (result.errors && result.errors.length > 0) {
+                  showToast(`Поставлено в очередь: ${queued}, ошибок: ${result.errors.length}`, 'warning');
+              } else {
+                  showToast(`Команда отправлена: ${queued} обновлений поставлено в очередь`, 'success');
+              }
+              // Прогресс ведёт воркер и рисует колокольчик — на любой
+              // странице. Здесь только список строк, показывающий реальные
+              // статусы установки, и он не привязан к таймеру вкладки.
+              await checkUpdates(true);
+              loadHistory();
+              watchInstallRows();
+          } else {
+              showToast(result.error || 'Ошибка установки', 'error');
+          }
+      } catch (error) {
+          console.error('Error installing updates:', error);
+          showToast('Ошибка установки обновлений', 'error');
+      } finally {
         // Снимаем флаг блокировки
         isInstalling = false;
         
@@ -758,58 +769,27 @@ async function installSingleUpdate(index) {
     }
 
     try {
-        showToast('Отправка команды установки...', 'info');
-        window.HostJobs?.start('pkg-install', {
-            title: `Установка: ${update.package}`,
-            detail: update.node_name || 'нода',
-            pct: 5,
-        });
-            const result = await fetchJson('/updates.php?action=install', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ updates: [update] })
-            });
-            
-            if (result.success) {
-                showToast('Команда отправлена. Обновление поставлено в очередь.', 'success');
-                window.HostJobs?.update('pkg-install', { detail: 'В очереди агента', pct: 15 });
-                // Обновляем список сразу чтобы показать статус "pending"
-                await checkUpdates(true); // silent обновление
-                loadHistory();
-                // Автообновление статуса установки каждые 2 секунды в течение 2 минут
-                let refreshCount = 0;
-            const statusInterval = setInterval(async () => {
-                await checkUpdates(true); // silent обновление
-                loadHistory();
-                refreshCount++;
-                const pending = (updatesData || []).some(
-                    (u) => u.package === update.package
-                        && String(u.node_id) === String(update.node_id)
-                        && ['pending', 'installing'].includes(u.install_status)
-                );
-                if (!pending && refreshCount >= 2) {
-                    window.HostJobs?.done('pkg-install', `${update.package} — готово`);
-                    clearInterval(statusInterval);
-                    return;
-                }
-                window.HostJobs?.update('pkg-install', {
-                    detail: pending ? 'Устанавливается…' : 'Ожидание статуса…',
-                    pct: Math.min(95, 15 + refreshCount),
-                });
-                if (refreshCount >= 60) { // 60 * 2 = 120 секунд
-                    window.HostJobs?.done('pkg-install', 'Опрос завершён');
-                    clearInterval(statusInterval);
-                }
-            }, 2000);
-        } else {
-            window.HostJobs?.fail('pkg-install', result.error || 'Ошибка установки');
-            showToast(result.error || 'Ошибка установки', 'error');
-        }
-    } catch (error) {
-        console.error('Error installing update:', error);
-        window.HostJobs?.fail('pkg-install', error.message || 'Ошибка установки');
-        showToast('Ошибка установки обновления', 'error');
-    } finally {
+          showToast('Отправка команды установки...', 'info');
+          const result = await fetchJson('/updates.php?action=install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ updates: [update] })
+          });
+          
+          if (result.success) {
+              showToast('Команда отправлена. Обновление поставлено в очередь.', 'success');
+              // Реальный прогресс и итог показывает воркер через колокольчик.
+              // Здесь обновляем только таблицу, чтобы статусы были видны сразу.
+              await checkUpdates(true);
+              loadHistory();
+              watchInstallRows(false);
+          } else {
+              showToast(result.error || 'Ошибка установки', 'error');
+          }
+      } catch (error) {
+          console.error('Error installing update:', error);
+          showToast('Ошибка установки обновления', 'error');
+      } finally {
         // Снимаем флаг блокировки
         isInstalling = false;
         
@@ -872,6 +852,7 @@ async function loadHistory() {
         if (status) url += `&status=${encodeURIComponent(status)}`;
         
         const result = await fetchJson(url);
+        window.__updatesHistoryLength = (result.history || []).length;
         renderHistory(result.history || [], result.stats || {});
     } catch (error) {
         console.error('Error loading history:', error);
@@ -1030,26 +1011,82 @@ function stopAgentPoll() {
     agentPollTicks = 0;
 }
 
-function finishTrackedAgentJobs(ok, message) {
-    [...agentJobIds].forEach((id) => {
-        if (ok) window.HostJobs?.done(id, message || 'Готово');
-        else window.HostJobs?.fail(id, message || 'Таймаут');
-    });
-    agentJobIds.clear();
-}
+  /**
+   * Fallback-путь для старого layout без AgentJobsRunner: закрывает
+   * локальные HostJobs-задачи. На обычных страницах их уже нет — прогресс
+   * ведёт серверная очередь.
+   */
+  function finishTrackedAgentJobs(ok, message) {
+      [...agentJobIds].forEach((id) => {
+          if (ok) window.HostJobs?.done(id, message || 'Готово');
+          else window.HostJobs?.fail(id, message || 'Таймаут');
+      });
+      agentJobIds.clear();
+  }
 
-function untrackAgentJob(jobId) {
-    if (jobId) agentJobIds.delete(String(jobId));
-}
+  function untrackAgentJob(jobId) {
+      if (jobId) agentJobIds.delete(String(jobId));
+  }
 
-function startAgentPoll(jobId) {
-    if (jobId) {
-        agentJobIds.add(String(jobId));
-        window.AgentJobsRunner?.track(jobId);
-    }
-    // Глобальный AgentJobsRunner ведёт опрос на всех страницах;
-    // локальный таймер — только если runner недоступен (старый layout).
-    if (window.AgentJobsRunner) return;
+  let agentWatchTimer = null;
+
+  /**
+   * Пока агенты заняты, подтягиваем их статусы в таблицу.
+   *
+   * Колокольчик при этом ведёт воркер и не зависит от этого таймера: тот
+   * нужен только чтобы строки на текущей странице не выглядели застывшими,
+   * и снимает себя, как только все ноды отработали.
+   */
+  function watchAgentRows(nodeIds) {
+      const ids = (nodeIds || []).map(Number).filter((v) => v > 0);
+      if (!ids.length) return;
+      window.__agentWatchIds = ids;
+      if (agentWatchTimer) return;
+      let idle = 0;
+      agentWatchTimer = setInterval(async () => {
+          const busy = watchIdsBusy();
+          await loadAgentUpdates(true);
+          const stillBusy = watchIdsBusy();
+          idle = stillBusy ? 0 : idle + 1;
+          if (idle >= 3 || (!busy && !stillBusy)) {
+              stopAgentWatch();
+          }
+      }, 3000);
+  }
+
+  function watchIdsBusy() {
+      const ids = window.__agentWatchIds || [];
+      if (!ids.length) return false;
+      return agentNodesCache.some((n) => ids.includes(Number(n.id))
+          && ['checking', 'updating'].includes(agentJobOf(n)));
+  }
+
+  function stopAgentWatch() {
+      if (agentWatchTimer) {
+          clearInterval(agentWatchTimer);
+          agentWatchTimer = null;
+      }
+      window.__agentWatchIds = [];
+  }
+
+  window.addEventListener('pagehide', stopAgentWatch);
+  window.addEventListener('beforeunload', stopAgentWatch);
+
+  /**
+   * Fallback-опрос для старых layout, где нет AgentJobsRunner.
+   *
+   * На всех страницах агентов подключён agent_jobs_runner.js, поэтому эта
+   * ветка почти не выполняется. Основной путь — серверная очередь: её
+   * прогресс рисует колокольчик, и он не зависит от вкладки.
+   */
+    function startAgentPoll(jobId) {
+        if (jobId) {
+            agentJobIds.add(String(jobId));
+            window.AgentJobsRunner?.track(jobId);
+        }
+      // Глобальный AgentJobsRunner ведёт опрос на всех страницах;
+      // локальный таймер — только если runner недоступен (старый layout).
+      if (window.AgentJobsRunner) return;
     if (agentPollTimer) return;
     agentPollTicks = 0;
     agentPollTimer = setInterval(async () => {
@@ -1100,10 +1137,10 @@ function startAgentPoll(jobId) {
             if (!stillBusy) finishTrackedAgentJobs(true, 'Готово');
             else finishTrackedAgentJobs(false, 'Таймаут — нажмите Проверить ещё раз');
         }
-    }, 2000);
-}
+      }, 2000);
+  }
 
-function renderAgentNodes(nodes, desired, outdatedCount) {
+  function renderAgentNodes(nodes, desired, outdatedCount) {
     const tbody = document.getElementById('agent-updates-tbody');
     const label = document.getElementById('agent-desired-label');
     if (label) {
@@ -1244,19 +1281,15 @@ async function checkAgentUpdates() {
             await loadAgentUpdates(true);
             return;
         }
-        markNodesJob(ids, 'checking');
-        const jobId = `agent-check-${Date.now()}`;
-        window.HostJobs?.start(jobId, {
-            title: 'Проверка агентов',
-            detail: `${ids.length} нод(ы)`,
-            pct: 5,
-            maxMs: 120000,
-            resumable: true,
-        });
-        startAgentPoll(jobId);
-        const result = await queueAgentCommand(ids, 'check');
-        showToast(result?.message || `В очередь: ${result?.queued || 0}`, 'success');
-        await loadAgentUpdates(true);
+          markNodesJob(ids, 'checking');
+          // Прогресс проверки ведёт воркер и рисует колокольчик: он виден
+          // на любой странице и переживает уход со страницы. Локальный
+          // HostJobs-задача тут только мешала — она жила в sessionStorage
+          // вкладки и исчезала вместе с ней.
+          const result = await queueAgentCommand(ids, 'check');
+          showToast(result?.message || `В очередь: ${result?.queued || 0}`, 'success');
+          await loadAgentUpdates(true);
+          watchAgentRows(ids);
     } catch (e) {
         showToast(e.message || 'Ошибка проверки агентов', 'error');
         setAgentHeaderBusy(false);
@@ -1300,31 +1333,19 @@ async function applyAgentUpdates() {
             return;
         }
 
-        markNodesJob(ids, 'updating');
-        const jobId = `agent-update-batch-${Date.now()}`;
-        window.HostJobs?.start(jobId, {
-            title: 'Обновление агентов',
-            detail: `${ids.length} нод(ы): ${(status.nodes || []).filter((n) => ids.includes(Number(n.id))).map((n) => n.name).join(', ')}`,
-            pct: 5,
-            maxMs: 600000,
-            resumable: true,
-        });
-        startAgentPoll(jobId);
-        showToast(`Обновление агентов (${ids.length})...`, 'info');
-        const result = await queueAgentCommand(ids, 'apply');
-        const queued = result?.queued ?? 0;
-        const skipped = result?.skipped ?? 0;
-        showToast(
-            result?.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
-            queued > 0 ? 'success' : 'warning'
-        );
-        if (queued > 0) {
-            window.HostJobs?.update(jobId, { detail: `В очереди: ${queued}`, pct: 15 });
-        } else {
-            untrackAgentJob(jobId);
-            window.HostJobs?.fail(jobId, result?.message || 'Не поставлено в очередь');
-        }
-        await loadAgentUpdates(true);
+          markNodesJob(ids, 'updating');
+          showToast(`Обновление агентов (${ids.length})...`, 'info');
+          const result = await queueAgentCommand(ids, 'apply');
+          const queued = result?.queued ?? 0;
+          const skipped = result?.skipped ?? 0;
+          showToast(
+              result?.message || `В очередь: ${queued}` + (skipped ? `, пропущено: ${skipped}` : ''),
+              queued > 0 ? 'success' : 'warning'
+          );
+          await loadAgentUpdates(true);
+          if (queued > 0) {
+              watchAgentRows(ids);
+          }
     } catch (e) {
         showToast(e.message || 'Ошибка обновления агентов', 'error');
         setAgentHeaderBusy(false);
@@ -1344,37 +1365,20 @@ async function applyAgentUpdateOne(nodeId) {
         'warning'
     );
     if (!confirmed) return;
-    let jobId = null;
-    try {
-        setAgentHeaderBusy(true, 'update');
-        markNodesJob([id], 'updating');
-        jobId = `agent-update-${id}-${Date.now()}`;
-        window.HostJobs?.start(jobId, {
-            title: `Обновление: ${name}`,
-            detail: 'В очереди',
-            pct: 5,
-            maxMs: 600000,
-            resumable: true,
-        });
-        startAgentPoll(jobId);
-        const result = await queueAgentCommand([id], 'apply');
-        const queued = result?.queued ?? 0;
-        showToast(result?.message || (queued ? `Обновление «${name}» в очереди` : `Не удалось поставить обновление «${name}»`), queued > 0 ? 'success' : 'warning');
-        if (queued > 0) {
-            window.HostJobs?.update(jobId, { detail: 'Ожидание агента…', pct: 20 });
-        } else {
-            untrackAgentJob(jobId);
-            window.HostJobs?.fail(jobId, result?.message || 'Не поставлено');
-        }
-        await loadAgentUpdates(true);
-    } catch (e) {
-        showToast(e.message || 'Ошибка обновления агента', 'error');
-        if (jobId) {
-            untrackAgentJob(jobId);
-            window.HostJobs?.fail(jobId, e.message || 'Ошибка');
-        }
-        setAgentHeaderBusy(false);
-    }
+      try {
+          setAgentHeaderBusy(true, 'update');
+          markNodesJob([id], 'updating');
+          const result = await queueAgentCommand([id], 'apply');
+          const queued = result?.queued ?? 0;
+          showToast(result?.message || (queued ? `Обновление «${name}» в очереди` : `Не удалось поставить обновление «${name}»`), queued > 0 ? 'success' : 'warning');
+          await loadAgentUpdates(true);
+          if (queued > 0) {
+              watchAgentRows([id]);
+          }
+      } catch (e) {
+          showToast(e.message || 'Ошибка обновления агента', 'error');
+          setAgentHeaderBusy(false);
+      }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

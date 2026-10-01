@@ -67,12 +67,22 @@ check(jobs_decode('не json') === [], 'битый JSON не роняет раз
 check(jobs_decode('{"a":1}') === ['a' => 1], 'обычный объект разбирается');
 check(jobs_decode('[1,2]') === [], 'JSON-массив не принимается как состояние');
 
-echo "\n== Реестр видов задач ==\n";
-$kinds = jobs_kinds();
-check(isset($kinds['db.sync']), 'зарегистрирован вид db.sync');
-check(jobs_kind_allowed('db.sync'), 'db.sync разрешён');
-check(!jobs_kind_allowed('rm -rf'), 'произвольный вид отклоняется');
-check(!jobs_kind_allowed(''), 'пустой вид отклоняется');
+  echo "\n== Реестр видов задач ==\n";
+  $kinds = jobs_kinds();
+  check(isset($kinds['db.sync']), 'зарегистрирован вид db.sync');
+  check(jobs_kind_allowed('db.sync'), 'db.sync разрешён');
+  check(!jobs_kind_allowed('rm -rf'), 'произвольный вид отклоняется');
+  check(!jobs_kind_allowed(''), 'пустой вид отклоняется');
+
+  // Обновления нод тоже должны идти через серверную очередь: колокольчик
+  // рисует только background_jobs, поэтому вид, которого нет в реестре,
+  // откатился бы к таймерам вкладки.
+  check(jobs_kind_allowed('pkg.install'), 'pkg.install разрешён (установка пакетов)');
+  check(jobs_kind_allowed('agent.update'), 'agent.update разрешён (обновление агентов)');
+  check(jobs_kind_allowed('agent.check'), 'agent.check разрешён (проверка обновлений)');
+  foreach (['pkg.install', 'agent.update', 'agent.check'] as $nodeKind) {
+      check(isset($kinds[$nodeKind]), "вид {$nodeKind} подписан в реестре");
+  }
 
 echo "\n== Строка задачи для браузера ==\n";
 $row = [

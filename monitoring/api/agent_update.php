@@ -13,6 +13,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/jobs.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -524,16 +525,21 @@ try {
         exit;
     }
 
-    if ($method === 'POST' && in_array($action, ['check', 'apply'], true)) {
-        $data = json_decode((string)file_get_contents('php://input'), true);
-        if (!is_array($data)) {
-            $data = [];
-        }
-        $command = $action === 'apply' ? 'update-agent' : 'check-agent-update';
-        $ids = $data['node_ids'] ?? $data['ids'] ?? null;
-        $onlyOutdated = !empty($data['only_outdated']);
-        // С панели всегда force: иначе чужой/зависший pending блокирует обновление
-        $force = !isset($data['force']) || !empty($data['force']);
+      if ($method === 'POST' && in_array($action, ['check', 'apply'], true)) {
+          $data = json_decode((string)file_get_contents('php://input'), true);
+          if (!is_array($data)) {
+              $data = [];
+          }
+          $command = $action === 'apply' ? 'update-agent' : 'check-agent-update';
+          $ids = $data['node_ids'] ?? $data['ids'] ?? null;
+          $onlyOutdated = !empty($data['only_outdated']);
+          // С панели всегда force: иначе чужой/зависший pending блокирует обновление
+          $force = !isset($data['force']) || !empty($data['force']);
+          if (session_status() === PHP_SESSION_NONE) {
+              session_start();
+          }
+          $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+          session_write_close();
 
         agent_clear_stale_pending($pdo, 600);
 
@@ -617,19 +623,37 @@ try {
 
         $queued = 0;
         $skipped = 0;
-        $names = [];
-        $skippedNames = [];
-        foreach ($nodes as $node) {
-            if (agent_queue_command($pdo, (int)$node['id'], $command, $force || agent_is_agent_cmd($command))) {
-                $queued++;
-                $names[] = (string)($node['name'] ?? $node['id']);
-            } else {
-                $skipped++;
-                $skippedNames[] = (string)($node['name'] ?? $node['id']);
-            }
-        }
+          $names = [];
+          $skippedNames = [];
+          $queuedIds = [];
+          foreach ($nodes as $node) {
+              if (agent_queue_command($pdo, (int)$node['id'], $command, $force || agent_is_agent_cmd($command))) {
+                  $queued++;
+                  $names[] = (string)($node['name'] ?? $node['id']);
+                  $queuedIds[] = (int)$node['id'];
+              } else {
+                  $skipped++;
+                  $skippedNames[] = (string)($node['name'] ?? $node['id']);
+              }
+          }
 
-        if ($queued > 0) {
+          // Наблюдение отдаём воркеру: колокольчик рисует только серверную
+          // очередь, поэтому без этой записи прогресс обновления агентов
+          // жил бы в таймерах вкладки и пропал бы при переходе на другую
+          // страницу.
+          $jobId = 0;
+          $jobKind = $action === 'apply' ? 'agent.update' : 'agent.check';
+          if ($queuedIds !== [] && jobs_kind_allowed($jobKind)) {
+              try {
+                  $jobId = jobs_enqueue($pdo, $jobKind, ['nodes' => $queuedIds], $command === 'update-agent'
+                      ? 'Обновление агентов'
+                      : 'Проверка обновлений агентов', $userId);
+              } catch (Throwable $e) {
+                  error_log('agent job enqueue failed: ' . $e->getMessage());
+              }
+          }
+  
+          if ($queued > 0) {
             $message = "Команда «{$command}» поставлена в очередь для {$queued} нод(ы): " . implode(', ', $names);
             if ($skipped > 0) {
                 $message .= ". Пропущено ({$skipped}): " . implode(', ', $skippedNames);
@@ -642,15 +666,16 @@ try {
             $message = 'Нет подходящих нод для команды.';
         }
 
-        echo json_encode([
-            'ok' => true,
-            'command' => $command,
-            'queued' => $queued,
-            'skipped' => $skipped,
-            'nodes' => $names,
-            'skipped_nodes' => $skippedNames,
-            'message' => $message,
-        ], JSON_UNESCAPED_UNICODE);
+          echo json_encode([
+              'ok' => true,
+              'command' => $command,
+              'queued' => $queued,
+              'skipped' => $skipped,
+              'nodes' => $names,
+              'skipped_nodes' => $skippedNames,
+              'job_id' => $jobId,
+              'message' => $message,
+          ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
