@@ -3066,9 +3066,43 @@ select optgroup {
 }
 
 .jobs-bell-worker {
+    /* Прижимаем к правому краю, чтобы «Очистить» осталось справа от
+     * заголовка, а не улетело в середину из-за space-between. */
+    margin-left: auto;
     color: #f59e0b;
     font-size: 10.5px;
     font-weight: 500;
+}
+
+.jobs-bell-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: 1px solid rgba(148, 163, 142, 0.22);
+    border-radius: 6px;
+    background: rgba(148, 163, 142, 0.08);
+    color: var(--panel-muted, #8b93a6);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.jobs-bell-clear:hover:not(:disabled) {
+    background: rgba(148, 163, 142, 0.18);
+    color: var(--panel-text, #d4d6e4);
+}
+
+.jobs-bell-clear:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.jobs-bell-clear svg {
+    width: 13px;
+    height: 13px;
 }
 
 .jobs-bell-list {

@@ -118,6 +118,18 @@ try {
         exit;
     }
 
+    if ($method === 'POST' && $action === 'ack-all') {
+        $stmt = $pdo->prepare(
+            "INSERT IGNORE INTO background_job_seen (job_id, user_id)
+             SELECT j.id, ? FROM background_jobs j
+             WHERE j.status IN ('done','failed','canceled')
+               AND NOT EXISTS (SELECT 1 FROM background_job_seen s WHERE s.job_id = j.id AND s.user_id = ?)"
+        );
+        $stmt->execute([$userId, $userId]);
+        echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     json_error('Unknown action');
 } catch (Throwable $e) {
     json_exception($e, true);

@@ -70,35 +70,51 @@ function makeEl(tag) {
         _attrs: {},
         _handlers: {},
         className: '',
-        set textContent(v) {
-            this._text = String(v);
-        },
-        get textContent() {
-            return this._text !== undefined ? this._text : this.childNodes.map((c) => c.textContent).join('');
-        },
-        setAttribute(k, v) {
-            this._attrs[k] = String(v);
-        },
-        getAttribute(k) {
-            return k in this._attrs ? this._attrs[k] : null;
-        },
-        appendChild(child) {
-            this.childNodes.push(child);
-            return child;
-        },
-        addEventListener(type, fn) {
-            (this._handlers[type] = this._handlers[type] || []).push(fn);
-        },
-        dispatch(type, ev) {
-            (this._handlers[type] || []).forEach((fn) => fn(ev));
-        },
-        querySelector() {
-            return null;
-        },
-        querySelectorAll() {
-            return [];
-        },
-    };
+          // В браузере присваивание textContent удаляет всех потомков.
+          // Без этого очистка списка дописывала бы новые строки к старым,
+          // и проверки видели бы не те элементы, что видит панель.
+          set textContent(v) {
+              this._text = String(v);
+              this.childNodes = [];
+          },
+          get textContent() {
+              return this._text !== undefined ? this._text : this.childNodes.map((c) => c.textContent).join('');
+          },
+          setAttribute(k, v) {
+              this._attrs[k] = String(v);
+          },
+          getAttribute(k) {
+              return k in this._attrs ? this._attrs[k] : null;
+          },
+          // jobs_runner.js вешает на строку data-job-id, а «Очистить» по
+          // ней узнаёт максимальный видимый id. Без dataset стенд не поймёт
+          // очистку так же, как браузер.
+          dataset: {},
+          appendChild(child) {
+              this.childNodes.push(child);
+              return child;
+          },
+          addEventListener(type, fn) {
+              (this._handlers[type] = this._handlers[type] || []).push(fn);
+          },
+          dispatch(type, ev) {
+              (this._handlers[type] || []).forEach((fn) => fn(ev));
+          },
+          querySelector() {
+              return null;
+          },
+          // Поддерживаем только селектор по атрибуту — он один и используется
+          // кнопкой очистки.
+          querySelectorAll(sel) {
+              const m = /^\[([\w-]+)\]$/.exec(String(sel || ''));
+              if (!m) return [];
+              const key = m[1].replace(/^data-/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+              return this.childNodes.filter((c) => {
+                  const src = (c.dataset && c.dataset[key] !== undefined) ? c.dataset : (c._attrs || {});
+                  return src[key] !== undefined && src[key] !== null && String(src[key]) !== '';
+              });
+          },
+      };
     Object.defineProperty(el, 'classList', {
         get() {
             const set = el._classes;
@@ -147,10 +163,10 @@ class CustomEventShim {
 
 function boot() {
     const byId = {};
-    for (const id of ['jobsBellBadge', 'jobsBellWorker', 'jobsBellList', 'jobsBellDropdown', 'jobsBellCount']) {
-        byId[id] = makeEl('div');
-        byId[id].id = id;
-    }
+      for (const id of ['jobsBellBadge', 'jobsBellWorker', 'jobsBellList', 'jobsBellDropdown', 'jobsBellCount', 'jobsBellClear']) {
+          byId[id] = makeEl(id === 'jobsBellClear' ? 'button' : 'div');
+          byId[id].id = id;
+      }
 
     const timers = [];
     const fetchLog = [];
@@ -158,13 +174,25 @@ function boot() {
     const icons = [];
     let responder = () => ({ ok: true, body: {} });
 
-    const store = {};
-    const sessionStorage = {
-        getItem: (k) => (k in store ? store[k] : null),
-        setItem: (k, v) => {
-            store[k] = String(v);
-        },
-    };
+      const store = {};
+      const localStore = {};
+      const sessionStorage = {
+          getItem: (k) => (k in store ? store[k] : null),
+          setItem: (k, v) => {
+              store[k] = String(v);
+          },
+      };
+      // Граница очистки живёт в localStorage: она должна переживать
+      // перезагрузку страницы, иначе очищенное выскочило бы обратно.
+      const localStorage = {
+          getItem: (k) => (k in localStore ? localStore[k] : null),
+          setItem: (k, v) => {
+              localStore[k] = String(v);
+          },
+          removeItem: (k) => {
+              delete localStore[k];
+          },
+      };
 
     const documentStub = Object.assign(makeBus(), {
         readyState: 'complete',
@@ -178,10 +206,11 @@ function boot() {
     const windowStub = Object.assign(makeBus(), {
         MONITORING_API_BASE: '/api',
         CSRF_TOKEN: 'test-csrf',
-        document: documentStub,
-        sessionStorage,
-        showToast: (msg, kind) => toasts.push({ msg, kind }),
-        lucide: {
+          document: documentStub,
+          sessionStorage,
+          localStorage,
+          showToast: (msg, kind) => toasts.push({ msg, kind }),
+          lucide: {
             createIcons: (arg) => {
                 icons.push(arg && arg.root ? 'scoped' : 'global');
             },
@@ -190,10 +219,11 @@ function boot() {
 
     const sandbox = {
         window: windowStub,
-        document: documentStub,
-        sessionStorage,
-        CustomEvent: CustomEventShim,
-        console,
+          document: documentStub,
+          sessionStorage,
+          localStorage,
+          CustomEvent: CustomEventShim,
+          console,
         JSON,
         Object,
         Number,
@@ -233,22 +263,37 @@ function boot() {
     return {
         window: windowStub,
         document: documentStub,
-        byId,
-        timers,
-        fetchLog,
-        toasts,
-        icons,
-        store,
-        respond(fn) {
-            responder = fn;
-        },
-        async settle(n = 6) {
-            for (let i = 0; i < n; i++) {
-                await realSetTimeout(resolve => resolve(), 0);
-            }
-        },
-    };
-}
+          byId,
+          timers,
+          fetchLog,
+          toasts,
+          icons,
+          store,
+          localStore,
+          respond(fn) {
+              responder = fn;
+          },
+          /**
+           * Выполняет ровно один отложенный колбэк.
+           *
+           * jobs_runner.js при readyState=complete стартует через setTimeout,
+           * а таймеры здесь подменены на список: без проглатывания первого
+           * колбэка start() не вызвался бы и кнопка «Очистить» не получила
+           * бы обработчик. Один, а не все: tick() планирует следующий опрос,
+           * и полный прогон крутился бы вечно.
+           */
+          async flushTimer() {
+              const t0 = timers.shift();
+              if (t0) t0.fn();
+              await realSetTimeout(resolve => resolve(), 0);
+          },
+          async settle(n = 6) {
+              for (let i = 0; i < n; i++) {
+                  await realSetTimeout(resolve => resolve(), 0);
+              }
+          },
+      };
+  }
 
 const BELL_BODY = {
     worker_alive: true,
@@ -537,7 +582,105 @@ async function main() {
     );
 }
 
-console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
+  console.log('\n== Кнопка «Очистить» убирает завершённое, не трогая активное ==');
+  {
+      const finished = [
+          job({ id: 41, status: 'done', progress_pct: 100, finished_at: '2026-09-30 19:23:04' }),
+          job({ id: 42, status: 'failed', error: 'Превышено время ожидания', finished_at: '2026-09-30 19:24:00' }),
+      ];
+      const active = job({ id: 43, status: 'running', progress_pct: 8 });
+
+      const t = boot();
+      // Ответ задаём до старта: первый же tick() должен отрисовать список.
+      t.respond(() => ({ body: Object.assign({}, BELL_BODY, { recent: finished.concat([active]) }) }));
+      // Прогоняем отложенный старт: именно он навешивает обработчик кнопки.
+      await t.flushTimer();
+      await t.settle();
+      eq(
+          t.byId.jobsBellList.childNodes.length,
+          3,
+          'завершённые и активная задачи показаны до очистки'
+      );
+
+      // Клик по кнопке: обработчик асинхронный, поэтому дожидаемся тиков.
+      t.respond((url) => {
+          if (String(url).indexOf('ack-all') >= 0) {
+              return { body: { ok: true } };
+          }
+          return { body: Object.assign({}, BELL_BODY, { recent: finished.concat([active]) }) };
+      });
+      t.byId.jobsBellClear.dispatch('click', { preventDefault() {}, stopPropagation() {} });
+      await t.settle(12);
+
+      const ackCalls = t.fetchLog.filter((c) => String(c.url).indexOf('ack-all') >= 0);
+      eq(ackCalls.length, 1, 'очистка сбрасывает счётчик одним запросом ack-all');
+      // Кнопка зовёт tick(), но он возвращается, если опрос уже идёт.
+      // Поэтому проверяем результат на следующем цикле опроса — именно так
+      // список обновляется и в браузере.
+      await t.window.HostJobsBell.refresh();
+      eq(
+          t.byId.jobsBellList.childNodes.length,
+          1,
+          'после очистки осталась только активная задача'
+      );
+      const left = JSON.stringify(t.byId.jobsBellList.childNodes);
+      check(left.indexOf('running') >= 0 || left.indexOf(active.title) >= 0,
+            'активная задача не убрана', left.slice(0, 160));
+      eq(
+          t.localStore.hm_jobs_cleared_v1,
+          '42',
+          'граница очистки сохранена в localStorage'
+      );
+
+      // Новые завершённые задачи с большим id должны появиться сами.
+      t.respond(() => ({
+          body: Object.assign({}, BELL_BODY, {
+              recent: [job({ id: 44, status: 'done', finished_at: '2026-09-30 20:00:00' })].concat([active]),
+          }),
+      }));
+      await t.window.HostJobsBell.refresh();
+      eq(
+          t.byId.jobsBellList.childNodes.length,
+          2,
+          'новая завершённая задача появляется после очистки'
+      );
+
+      // Граница переживает перезагрузку: новая вкладка читает localStorage.
+      const t2 = boot();
+      t2.localStore.hm_jobs_cleared_v1 = '42';
+      t2.respond(() => ({ body: Object.assign({}, BELL_BODY, { recent: finished.concat([active]) }) }));
+      await t2.window.HostJobsBell.refresh();
+      eq(
+          t2.byId.jobsBellList.childNodes.length,
+          1,
+          'после перезагрузки очищенное не возвращается'
+      );
+  }
+
+  console.log('\n== Кнопка «Очистить» не срабатывает дважды ==');
+  {
+      const t = boot();
+      // Без проглатывания отложенного старта обработчик не навешен.
+      await t.flushTimer();
+      t.respond(() => ({
+          body: Object.assign({}, BELL_BODY, { recent: [job({ id: 7, status: 'done', finished_at: 'x' })] }),
+      }));
+      await t.window.HostJobsBell.refresh();
+      let calls = 0;
+      t.respond((url) => {
+          if (String(url).indexOf('ack-all') >= 0) {
+              calls++;
+              return { body: { ok: true } };
+          }
+          return { body: Object.assign({}, BELL_BODY, { recent: [job({ id: 7, status: 'done', finished_at: 'x' })] }) };
+      });
+      t.byId.jobsBellClear.dispatch('click', { preventDefault() {}, stopPropagation() {} });
+      t.byId.jobsBellClear.dispatch('click', { preventDefault() {}, stopPropagation() {} });
+      await t.settle(12);
+      eq(calls, 1, 'повторный клик игнорируется, пока кнопка занята');
+  }
+
+  console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
 {
     // Ошибка была чисто позиционной: .hm-menu по умолчанию раскрывается
     // вправо от кнопки (left: 0), а колокольчик стоит у правого края

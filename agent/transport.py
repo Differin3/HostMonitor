@@ -14,6 +14,19 @@ except ImportError:
     from runtime import _log, _get_verify, _request_with_retry
 
 
+def _env_true(name, default=False):
+    """Читает булев флаг окружения: '1', 'true', 'yes', 'on' — включено.
+
+    Без default переменная читается как отсутствующая и берётся значение
+    по умолчанию. Пустая строка в окружении systemd — это не «включено»,
+    иначе Environment= с незаполненной переменной тихо снимала бы защиту.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == '':
+        return bool(default)
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 class TransportMixin:
     def send_data(self, metrics, processes):
         # Отправка данных на главный сервер с буферизацией при ошибках
@@ -183,7 +196,14 @@ class TransportMixin:
     def execute_command(self, command):
         # Выполнение команды (с базовой фильтрацией)
         # ОПАСНЫЕ КОМАНДЫ ОТКЛЮЧЕНЫ ПО УМОЛЧАНИЮ
-        allow_dangerous = os.getenv("ALLOW_DANGEROUS_COMMANDS", "false").lower() == "true"
+        allow_dangerous = _env_true("ALLOW_DANGEROUS_COMMANDS")
+        # Обновление агента разрешено по умолчанию: панели это нужно для
+        # штатной кнопки «Обновить», и операция безопасна — агент лишь
+        # тянет новую версию и перезапускает себя. Разрушительные команды
+        # (reboot/shutdown/kill/restart/firewall) остаются за отдельным
+        # ALLOW_DANGEROUS_COMMANDS, который по умолчанию выключен.
+        # Значение false можно задать явно, чтобы запретить и обновление.
+        allow_agent_updates = _env_true("ALLOW_AGENT_UPDATES", default=True)
         # Причина последнего провала: её читает run_pending_command и
         # отправляет на панель, иначе UI показывает голое «ошибка».
         self._command_error = ''
@@ -197,10 +217,16 @@ class TransportMixin:
                     self._command_error = str(result.get('error') or 'проверка обновления агента не удалась')
                 return bool(result.get('ok'))
             if command in ('update-agent', 'upgrade-agent'):
-                if not allow_dangerous:
-                    _log("BLOCKED: update-agent command is disabled for safety. Set ALLOW_DANGEROUS_COMMANDS=true to enable.")
+                # Обновление агента — штатная операция панели, а не
+                # разрушительное действие: сам агент только тянет новую
+                # версию и перезапускается. Поэтому его разрешает
+                # отдельный флаг, чтобы ALLOW_DANGEROUS_COMMANDS (он же
+                # открывает reboot/shutdown/kill/restart/firewall) не пришлось
+                # включать ради простой кнопки «Обновить».
+                if not allow_agent_updates:
+                    _log("BLOCKED: update-agent command is disabled. Set ALLOW_AGENT_UPDATES=true to enable.")
                     self._command_error = ('Команда заблокирована политикой безопасности. '
-                                           'Разрешите её переменной ALLOW_DANGEROUS_COMMANDS=true в окружении агента.')
+                                           'Разрешите её переменной ALLOW_AGENT_UPDATES=true в окружении агента.')
                     return False
                 result = self.update_agent()
                 self.report_agent_update(result)
