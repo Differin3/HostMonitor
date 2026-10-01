@@ -212,12 +212,16 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                             <div class="jobs-bell-head">
                                 <span>Фоновые операции</span>
                                 <span class="jobs-bell-worker hidden" id="jobsBellWorker" title="Воркер не отвечает">воркер не запущен</span>
+                                <button type="button" class="jobs-bell-clear" id="jobsBellClear" title="Скрыть завершённые операции">
+                                    <i data-lucide="eraser"></i>
+                                    <span>Очистить</span>
+                                </button>
                             </div>
                             <div class="jobs-bell-list" id="jobsBellList">
                                 <div class="jobs-bell-empty">Операций пока нет</div>
                             </div>
                         </div>
-                    </div>
+                  </div>
                     <div class="user-menu-wrapper hm-drop">
                         <div class="user-menu" id="userMenuToggle" data-drop="userDropdown" role="button" tabindex="0">
                             <div class="user-avatar">

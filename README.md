@@ -302,8 +302,13 @@ TLS_CERT_PATH=""
 
 **Дополнительные опции (node.conf или env):**
 ```ini
-# Опасные команды (kill, reboot, firewall, update-agent) — только с этим флагом
-ALLOW_DANGEROUS_COMMANDS=true
+  # Опасные команды (kill, reboot, shutdown, restart, firewall) — только с этим флагом
+  ALLOW_DANGEROUS_COMMANDS=true
+  
+  # Обновление агента (self-update) — включено по умолчанию,
+  # операция безопасная: агент только тянет новую версию и перезапускается.
+  # Поставьте false, если обновление с панели запрещено.
+  ALLOW_AGENT_UPDATES=true
 
 # Интервал сбора SMART данных (в циклах, по умолчанию 5)
 SMART_INTERVAL=5
@@ -473,7 +478,8 @@ DDL + сиды `settings`/`providers`, **без демо-нод** (в отлич
 - Экспорт нод автоматически исключает `node_token` и `secret_key`
 
 #### <img src="frontend/icons/lucide/x-circle.svg" width="16" height="16" alt="Agent"> Агент (Python)
-- Все опасные команды (`kill`, `reboot`, `firewall`, `update-agent`) требуют `ALLOW_DANGEROUS_COMMANDS=true`
+  - Опасные команды (`kill`, `reboot`, `shutdown`, `restart`, `firewall`) требуют `ALLOW_DANGEROUS_COMMANDS=true` (по умолчанию выключено)
+  - `update-agent` управляется отдельным `ALLOW_AGENT_UPDATES` (по умолчанию включено): обновление не должно требовать флага, открывающего reboot и kill
 - `install-update`: regex-валидация имени пакета `^[a-zA-Z0-9][a-zA-Z0-9+._:-]*$`
 - Health server: биндится на `127.0.0.1` (не `0.0.0.0`)
 - `MASTER_URL`: отказ от запуска без HTTPS (override: `MASTER_URL_INSECURE=1`)

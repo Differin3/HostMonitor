@@ -229,9 +229,24 @@ check(
     strpos($api, "'worker_alive' => jobs_worker_alive()") !== false,
     'API сообщает, жив ли воркер'
 );
-foreach (['bell', 'list', 'status', 'start', 'cancel', 'ack'] as $action) {
-    check(strpos($api, "'{$action}'") !== false || strpos($api, "=== '{$action}'") !== false, "есть действие {$action}");
-}
+  foreach (['bell', 'list', 'status', 'start', 'cancel', 'ack'] as $action) {
+      check(strpos($api, "'{$action}'") !== false || strpos($api, "=== '{$action}'") !== false, "есть действие {$action}");
+  }
+  check(strpos($api, "'ack-all'") !== false, 'есть действие ack-all для кнопки «Очистить»');
+  // Очистка обязана трогать только закрытые задачи: активную из очереди
+  // убрать нельзя, иначе прогресс потерял бы исполнителя.
+  if (preg_match("/action === 'ack-all'.*?\);/s", $api, $m)) {
+      check(
+          strpos($m[0], "status IN ('done','failed','canceled')") !== false,
+          'ack-all отмечает только завершённые задачи',
+          substr(preg_replace('/\s+/', ' ', $m[0]), 0, 160)
+      );
+      check(strpos($m[0], 'DELETE') === false, 'ack-all ничего не удаляет из базы');
+  } else {
+      check(false, 'найден блок обработчика ack-all');
+  }
+  $layout = (string)file_get_contents($root . '/monitoring/includes/layout.php');
+  check(strpos($layout, 'jobsBellClear') !== false, 'в колокольчике есть кнопка «Очистить»');
 
 echo "\n== Установка воркера ==\n";
 check(is_file($root . '/systemd/hostmonitor-jobs.service'), 'юнит hostmonitor-jobs.service на месте');

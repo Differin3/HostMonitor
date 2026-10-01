@@ -55,7 +55,8 @@ def load_node_conf(path: str = "node.conf") -> None:
         _ALLOWED_CONF_KEYS = {
             'NODE_TOKEN', 'MASTER_URL', 'NODE_NAME', 'COLLECT_INTERVAL',
             'HEALTH_PORT', 'TLS_VERIFY', 'TLS_CERT_PATH',
-            'ALLOW_DANGEROUS_COMMANDS', 'SNMP_COMMUNITY', 'SMART_INTERVAL',
+              'ALLOW_DANGEROUS_COMMANDS', 'ALLOW_AGENT_UPDATES',
+              'SNMP_COMMUNITY', 'SMART_INTERVAL',
             'MASTER_URL_INSECURE',
         }
         _BLOCKED_CONF_KEYS = {

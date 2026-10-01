@@ -19,6 +19,10 @@
     const IDLE_MS = 30000;
     const ACTIVE_MS = 2000;
     const TOASTED_KEY = 'hm_jobs_toasted_v1';
+    const FINISHED = ['done', 'failed', 'canceled'];
+    // Ключ границы очистки в localStorage: она должна переживать перезагрузку,
+    // иначе очищенное выскочило бы обратно в списке.
+    const CLEARED_KEY = 'hm_jobs_cleared_v1';
 
     let timer = null;
     let inFlight = false;
@@ -112,20 +116,50 @@
         el.classList.toggle('hidden', !!alive);
     }
 
-    function renderList(jobs) {
-        const list = document.getElementById('jobsBellList');
-        if (!list) return;
-        list.textContent = '';
-        if (!Array.isArray(jobs) || !jobs.length) {
-            const empty = document.createElement('div');
-            empty.className = 'jobs-bell-empty';
-            empty.textContent = 'Операций пока нет';
-            list.appendChild(empty);
-            return;
+    /**
+     * До какого id пользователь нажимал «Очистить».
+     *
+     * Храним границу, а не список: id растут монотонно, поэтому всё с меньшим
+     * id — уже закрытое. Новые завершённые задачи (id больше границы) появляются
+     * в списке сами, без перезагрузки страницы.
+     */
+    function clearedUpTo() {
+        try {
+            return Number(localStorage.getItem(CLEARED_KEY)) || 0;
+        } catch (_) {
+            return 0;
         }
-        for (const job of jobs) {
+    }
+
+    function rememberCleared(id) {
+        try {
+            const n = Number(id) || 0;
+            if (n > clearedUpTo()) localStorage.setItem(CLEARED_KEY, String(n));
+        } catch (_) { /* приватный режим — просто не запомним */ }
+    }
+
+    function renderList(jobs) {
+          const list = document.getElementById('jobsBellList');
+          if (!list) return;
+          const cleared = clearedUpTo();
+          // Прячем только завершённые ниже границы «Очистить». Активные остаются
+          // всегда: их нельзя убирать, пока они идут.
+          const visible = (Array.isArray(jobs) ? jobs : []).filter(
+              (j) => !FINISHED.includes(j.status) || Number(j.id) > cleared
+          );
+          list.textContent = '';
+          if (!visible.length) {
+              const empty = document.createElement('div');
+              empty.className = 'jobs-bell-empty';
+              empty.textContent = 'Операций пока нет';
+              list.appendChild(empty);
+              return;
+          }
+          for (const job of visible) {
             const row = document.createElement('div');
             row.className = `jobs-bell-item jobs-bell-item-${job.status}`;
+            row.dataset.jobId = String(job.id);
+            row.dataset.jobStatus = String(job.status);
 
             const icon = document.createElement('i');
             icon.setAttribute('data-lucide', statusIcon(job.status));
@@ -197,12 +231,65 @@
     }
 
     function markSeen(seen) {
-        if (!seen.length) return;
-        api('ack', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: seen }),
-        }).catch(() => { /* счётчик переживёт до следующего раза */ });
+          if (!seen.length) return;
+          api('ack', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: seen }),
+          }).catch(() => { /* счётчик переживёт до следующего раза */ });
+      }
+
+    /**
+     * Кнопка «Очистить» в шапке окна.
+     *
+     * Завершённые и упавшие задачи не удаляются из базы: их ещё можно
+     * посмотреть в истории. Здесь мы лишь отмечаем их прочитанными, чтобы
+     * они ушли из списка и счётчика. Активные (queued/running) остаются
+     * на месте — их убирать нельзя, они ещё идут.
+     */
+    function setupClearButton() {
+        const btn = document.getElementById('jobsBellClear');
+        if (!btn || btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', async (e) => {
+            // Клик по кнопке не должен закрывать окно: клик вне dropdown
+            // обрабатывает notify.js.
+            e.preventDefault();
+            e.stopPropagation();
+            if (btn.disabled) return;
+            const list = document.getElementById('jobsBellList');
+            // Границу двигаем по самой свежей из видимых ЗАВЕРШЁННЫХ.
+            // Активные в неё не входят: они ещё идут, и если сдвинуть границу
+            // до их id, задача исчезнет из списка сразу после завершения,
+            // не показав результат. Если завершённых нет — ничего не меняем,
+            // чтобы пустая очистка не съедала будущие задачи.
+            const finishedIds = list
+                ? Array.from(list.querySelectorAll('[data-job-id]'))
+                    .filter((el) => FINISHED.includes(el.dataset.jobStatus))
+                    .map((el) => Number(el.dataset.jobId))
+                    .filter((id) => id > 0)
+                : [];
+            const highest = finishedIds.length ? Math.max.apply(null, finishedIds) : 0;
+            btn.disabled = true;
+            if (highest > 0) rememberCleared(highest);
+            try {
+                // Счётчик на колокольчике тоже сбрасываем: иначе бейдж
+                // продолжит считать уже скрытые задачи.
+                await api('ack-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}',
+                });
+            } catch (err) {
+                if (window.showToast) {
+                    window.showToast('Не удалось очистить: ' + (err.message || 'ошибка запроса'), 'error');
+                }
+                btn.disabled = false;
+                return;
+            }
+            await tick();
+            btn.disabled = false;
+        });
     }
 
     async function tick() {
@@ -259,6 +346,7 @@
     }
 
     function start() {
+        setupClearButton();
         tick();
     }
 

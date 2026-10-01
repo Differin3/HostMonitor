@@ -152,7 +152,11 @@ def make_transport(command):
             self.reported.append({"cmd": cmd, "status": status, "result": result})
 
         def report_agent_update(self, payload):
-            pass
+            self.reported_agent = payload
+
+        def update_agent(self):
+            self.update_agent_called = True
+            return {"ok": True, "updated": False, "message": "уже актуальная версия"}
 
     return Transport()
 
@@ -235,28 +239,59 @@ def test_pip_success_updates(base: pathlib.Path) -> None:
 def test_blocked_command_explains_why() -> None:
     print("\ntransport.py: заблокированная команда объясняет причину")
     os.environ.pop("ALLOW_DANGEROUS_COMMANDS", None)
+    os.environ["ALLOW_AGENT_UPDATES"] = "false"
+    try:
+        t = make_transport("update-agent")
+        eq(t.execute_command("update-agent"), False,
+           "update-agent заблокирован при ALLOW_AGENT_UPDATES=false")
+        check(not getattr(t, "update_agent_called", False),
+              "заблокированная команда не доходит до update_agent()")
+        check(bool(t._command_error), "заполнена _command_error")
+        check("ALLOW_AGENT_UPDATES" in t._command_error,
+              "причина называет нужную переменную", repr(t._command_error))
+        check("безопасност" in t._command_error.lower(),
+              "причина объясняет, что это политика безопасности", repr(t._command_error))
+    finally:
+        os.environ.pop("ALLOW_AGENT_UPDATES", None)
+
+
+def test_update_agent_allowed_by_default() -> None:
+    print("\ntransport.py: update-agent разрешён без опасных команд")
+    os.environ.pop("ALLOW_DANGEROUS_COMMANDS", None)
+    os.environ.pop("ALLOW_AGENT_UPDATES", None)
     t = make_transport("update-agent")
-    eq(t.execute_command("update-agent"), False,
-       "update-agent заблокирован без ALLOW_DANGEROUS_COMMANDS")
-    check(bool(t._command_error), "заполнена _command_error")
+    eq(t.execute_command("update-agent"), True,
+       "update-agent проходит без ALLOW_DANGEROUS_COMMANDS")
+    check(getattr(t, "update_agent_called", False),
+          "вызов дошёл до update_agent()")
+
+
+def test_destructive_still_blocked_by_default() -> None:
+    print("\ntransport.py: разрушительные команды остаются закрыты")
+    os.environ.pop("ALLOW_DANGEROUS_COMMANDS", None)
+    t = make_transport("reboot")
+    eq(t.execute_command("reboot"), False,
+       "reboot заблокирован без ALLOW_DANGEROUS_COMMANDS")
     check("ALLOW_DANGEROUS_COMMANDS" in t._command_error,
           "причина называет нужную переменную", repr(t._command_error))
-    check("безопасност" in t._command_error.lower(),
-          "причина объясняет, что это политика безопасности", repr(t._command_error))
 
 
 def test_run_pending_command_reports_reason() -> None:
     print("\ntransport.py: run_pending_command отправляет причину на панель")
     os.environ.pop("ALLOW_DANGEROUS_COMMANDS", None)
-    t = make_transport("update-agent")
-    t.run_pending_command()
-    failed = [r for r in t.reported if r.get("status") == "failed"]
-    check(bool(failed), "панели отправлен статус failed",
-          json.dumps(t.reported, ensure_ascii=False)[:200])
-    if failed:
-        eq(failed[0]["cmd"], "update-agent", "в статусе указана исходная команда")
-        check("ALLOW_DANGEROUS_COMMANDS" in str(failed[0].get("result", "")),
-              "в result ушла причина блокировки", repr(failed[0].get("result")))
+    os.environ["ALLOW_AGENT_UPDATES"] = "false"
+    try:
+        t = make_transport("update-agent")
+        t.run_pending_command()
+        failed = [r for r in t.reported if r.get("status") == "failed"]
+        check(bool(failed), "панели отправлен статус failed",
+              json.dumps(t.reported, ensure_ascii=False)[:200])
+        if failed:
+            eq(failed[0]["cmd"], "update-agent", "в статусе указана исходная команда")
+            check("ALLOW_AGENT_UPDATES" in str(failed[0].get("result", "")),
+                  "в result ушла причина блокировки", repr(failed[0].get("result")))
+    finally:
+        os.environ.pop("ALLOW_AGENT_UPDATES", None)
 
 
 def test_check_update_error_propagates() -> None:
@@ -286,6 +321,8 @@ def main() -> int:
     finally:
         shutil.rmtree(base, ignore_errors=True)
     test_blocked_command_explains_why()
+    test_update_agent_allowed_by_default()
+    test_destructive_still_blocked_by_default()
     test_run_pending_command_reports_reason()
     test_check_update_error_propagates()
 
