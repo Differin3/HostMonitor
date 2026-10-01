@@ -494,7 +494,44 @@ async function main() {
         check(t.timers.length > 0, 'опрос продолжается, панель не замирает после 401');
     }
 
-    console.log(`\nПройдено: ${passed}, провалено: ${failed}`);
+    console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
+{
+    // Ошибка была чисто позиционной: .hm-menu по умолчанию раскрывается
+    // вправо от кнопки (left: 0), а колокольчик стоит у правого края
+    // шапки. Окно шириной 330px уезжало за правый край страницы.
+    const css = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'nexus.css'), 'utf8');
+    const block = (sel) => {
+        const i = css.indexOf(sel + ' {');
+        if (i < 0) return '';
+        const j = css.indexOf('}', i);
+        return j < 0 ? '' : css.slice(i, j);
+    };
+
+    const drop = block('.jobs-bell-dropdown');
+    check(drop !== '', 'правило .jobs-bell-dropdown есть');
+    check(/left:\s*auto/.test(drop), 'окно не раскрывается вправо от кнопки', drop.trim());
+    check(/right:\s*0/.test(drop), 'окно прижато к правому краю', drop.trim());
+    check(/max-width:[^;]*100vw/.test(drop), 'ширина ограничена шириной окна браузера', drop.trim());
+    check(/width:\s*3\d\dpx/.test(drop), 'окно имеет разумную фиксированную ширину', drop.trim());
+
+    check(
+        /overflow-wrap:\s*anywhere/.test(block('.jobs-bell-title')),
+        'название задачи переносится, а не распирает окно',
+        block('.jobs-bell-title').trim(),
+    );
+    check(
+        /overflow-wrap:\s*anywhere/.test(block('.jobs-bell-meta')),
+        'строка состояния переносится',
+        block('.jobs-bell-meta').trim(),
+    );
+    check(
+        /flex-wrap:\s*wrap/.test(block('.jobs-bell-head')),
+        'заголовок окна переносится на узком экране',
+        block('.jobs-bell-head').trim(),
+    );
+}
+
+      console.log(`\nПройдено: ${passed}, провалено: ${failed}`);
     process.exit(failed === 0 ? 0 : 1);
 }
 
