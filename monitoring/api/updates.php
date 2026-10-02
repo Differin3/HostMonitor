@@ -115,6 +115,46 @@ function updates_list_payload(PDO $pdo, $nodeId = null): array
     ];
 }
 
+/**
+ * Список пакетов, помеченных к установке для конкретной ноды.
+ *
+ * Агент забирает его отдельным запросом (transport.py), поэтому ответ
+ * должен зависеть ТОЛЬКО от install_queued. Раньше список брался из
+ * command-слотов ноды — но агент успевает забрать и выполнить команду
+ * раньше, чем спросить пакеты, и проверка всегда давала «нечего
+ * ставить».
+ *
+ * Чистоту списка обеспечивает постановка в очередь: она гасит
+ * install_queued у всей ноды и заново выставляет ровно запрошенное.
+ */
+function updates_pending_install(PDO $pdo, ?array $nodeInfo): void
+{
+    if (!$nodeInfo) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Unauthorized']);
+        return;
+    }
+    $nodeId = (int)$nodeInfo['id'];
+    $stmt = $pdo->prepare(
+        "SELECT package, current_version, new_version, priority
+         FROM node_updates
+         WHERE node_id = ? AND COALESCE(install_queued, 0) = 1
+         ORDER BY FIELD(priority, 'security', 'important', 'normal'), package ASC"
+    );
+    try {
+        $stmt->execute([$nodeId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        $rows = [];
+    }
+    echo json_encode([
+        'success' => true,
+        'node_id' => $nodeId,
+        'packages' => array_column($rows, 'package'),
+        'updates' => $rows,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
 // Для GET запросов (история, проверка) проверяем сессию пользователя
 // Для POST запросов от агента (report, result, pending-install) проверяем токен
 $nodeInfo = null;
@@ -212,6 +252,13 @@ try {
         } elseif ($action === 'list') {
             $nodeId = $_GET['node_id'] ?? null;
             echo json_encode(updates_list_payload($pdo, $nodeId), JSON_UNESCAPED_UNICODE);
+        } elseif ($action === 'pending-install') {
+            // Агент спрашивает GET-ом (agent/transport.py). Раньше этот
+            // action жил только в POST-ветке, поэтому GET от агента
+            // получал «Invalid action», а установка молча не делала
+            // ничего: пакетов в ответе не было.
+            updates_pending_install($pdo, $nodeInfo);
+            exit;
         } else {
             http_response_code(400);
             echo json_encode(['error' => 'Invalid action']);
@@ -673,43 +720,7 @@ try {
                 echo json_encode(['error' => 'Unauthorized']);
                 exit;
             }
-            $nodeId = (int)$nodeInfo['id'];
-            // Отдаём пакеты только пока на ноде действительно висит
-            // команда установки. Иначе агент, опоздавший к команде
-            // (рестарт, потерянный poll), забрал бы и установил пакеты,
-            // которых в текущей очереди нет.
-            $cmdStmt = $pdo->prepare(
-                "SELECT last_command, command_status
-                 FROM nodes WHERE id = ?"
-            );
-            $cmdStmt->execute([$nodeId]);
-            $cmdRow = $cmdStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-            $lastCommand = trim((string)($cmdRow['last_command'] ?? ''));
-            $cmdStatus = (string)($cmdRow['command_status'] ?? '');
-            $installActive = in_array($cmdStatus, ['pending', 'running'], true)
-                && (
-                    $lastCommand === 'install-updates'
-                    || str_starts_with($lastCommand, 'install-update-batch')
-                    || str_starts_with($lastCommand, 'install-update ')
-                );
-            $stmt = $pdo->prepare(
-                "SELECT package, current_version, new_version, priority
-                 FROM node_updates
-                 WHERE node_id = ? AND COALESCE(install_queued, 0) = 1
-                 ORDER BY FIELD(priority, 'security', 'important', 'normal'), package ASC"
-            );
-            try {
-                $stmt->execute([$nodeId]);
-                $rows = $installActive ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
-            } catch (Throwable $e) {
-                $rows = [];
-            }
-            echo json_encode([
-                'success' => true,
-                'node_id' => $nodeId,
-                'packages' => array_column($rows, 'package'),
-                'updates' => $rows,
-            ], JSON_UNESCAPED_UNICODE);
+            updates_pending_install($pdo, $nodeInfo);
             exit;
         } else {
             http_response_code(400);

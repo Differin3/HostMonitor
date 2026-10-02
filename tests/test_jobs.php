@@ -244,13 +244,40 @@ check(
     ),
     'перед постановкой прошлые install_queued гасятся (очередь = текущий запрос)'
 );
+// Регресс: агент спрашивает пакеты GET-запросом (agent/transport.py),
+// а action=pending-install жил только в POST-ветке. GET от агента
+// получал «Invalid action», установка завершалась ничем: пакетов в
+// ответе не было, агент писал «No queued packages».
+$transport = (string)file_get_contents($root . '/agent/transport.py');
+$agentUsesGet = (bool)preg_match(
+    '/[\'"]GET[\'"],\s*\n?\s*f"\{self\.master_url\}\/api\/updates\.php\?action=pending-install"/',
+    $transport
+);
+check(
+    $agentUsesGet,
+    'агент забирает pending-install методом GET'
+);
 check(
     (bool)preg_match(
-        '/\$installActive = in_array/',
+        '/if \(\$method === \'GET\'\).*?\$action === \'pending-install\'.*?updates_pending_install\(\$pdo, \$nodeInfo\)/s',
+        $updates
+    ),
+    'GET-ветка updates.php отвечает на pending-install (а не «Invalid action»)'
+);
+// Список пакетов не должен зависеть от command-слотов ноды: агент
+// забирает и выполняет команду раньше, чем спрашивает пакеты, поэтому
+// такая проверка всегда давала «нечего ставить».
+check(
+    strpos($updates, '$installActive') === false,
+    'список пакетов не зависит от command-слотов ноды (агент успевает выполнить команду раньше)'
+);
+check(
+    (bool)preg_match(
+        '/function updates_pending_install\(PDO \$pdo, \?array \$nodeInfo\)/',
         $updates
     )
-        && strpos($updates, "AND COALESCE(install_queued, 0) = 1") !== false,
-    'pending-install отдаёт пакеты только при активной команде установки'
+        && substr_count($updates, 'updates_pending_install($pdo, $nodeInfo)') === 2,
+    'pending-install вынесен в функцию и вызывается из GET и POST'
 );
 
 echo "\n== Захват задачи в очереди ==\n";
