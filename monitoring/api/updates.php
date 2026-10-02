@@ -549,22 +549,58 @@ try {
                     }
                 }
 
-                  $mark = $pdo->prepare("UPDATE node_updates SET install_queued = 1 WHERE node_id = ? AND package = ?");
-                  $marked = 0;
-                  $markedPkgs = [];
+                  // rowCount() у UPDATE считает ИЗМЕНЁННЫЕ строки, а не
+                  // найденные: повторная пометка уже готового
+                  // install_queued=1 (1 -> 1) даёт 0, и пакет ошибочно
+                  // считался «не найденным в списке обновлений». Поэтому
+                  // существование пакета проверяем отдельным SELECT, а
+                  // помечаем одним UPDATE по списку.
+                  $wanted = [];
                   foreach ($pkgs as $p) {
-                      $mark->execute([$nodeId, $p['package']]);
-                      if ($mark->rowCount() > 0) {
-                          $marked++;
-                          $markedPkgs[] = $p['package'];
-                      } else {
-                          // пакета нет в node_updates — всё равно ставим флаг если вставим? нет, только известные
-                          $errors[] = "Пакет {$p['package']} не найден в списке обновлений ноды {$node['name']}";
+                      $wanted[$p['package']] = $p['package'];
+                  }
+                  $markedPkgs = [];
+                  if ($wanted !== []) {
+                      $ph = implode(',', array_fill(0, count($wanted), '?'));
+                      $existStmt = $pdo->prepare(
+                          "SELECT package FROM node_updates
+                           WHERE node_id = ? AND package IN ($ph)"
+                      );
+                      $existStmt->execute(array_merge([$nodeId], array_values($wanted)));
+                      $existing = $existStmt->fetchAll(PDO::FETCH_COLUMN);
+                      foreach ($existing as $foundPkg) {
+                          $markedPkgs[] = (string)$foundPkg;
                       }
+                      foreach ($wanted as $pkg) {
+                          if (!in_array($pkg, $existing, true)) {
+                              $errors[] = "Пакет {$pkg} не найден в списке обновлений ноды {$node['name']}";
+                          }
+                      }
+                  }
+                  $marked = count($markedPkgs);
+                  if ($marked > 0) {
+                      $ph = implode(',', array_fill(0, $marked, '?'));
+                      $pdo->prepare(
+                          "UPDATE node_updates SET install_queued = 1
+                           WHERE node_id = ? AND package IN ($ph)"
+                      )->execute(array_merge([$nodeId], $markedPkgs));
                   }
                   if ($marked === 0) {
                       continue;
                   }
+                  // install_queued — это «стоит в ТЕКУЩЕЙ очереди», а не
+                  // «когда-то было помечено». Старые хвосты (установка
+                  // упала, нода офлайн) годами висели с флагом 1, и
+                  // агент на pending-install забирал их вместе с новыми.
+                  // Перед постановкой гасим все прошлые флаги ноды: в
+                  // очереди остаётся ровно то, что запросили сейчас.
+                  $pdo->prepare(
+                      "UPDATE node_updates SET install_queued = 0 WHERE node_id = ?"
+                  )->execute([$nodeId]);
+                  $pdo->prepare(
+                      "UPDATE node_updates SET install_queued = 1
+                       WHERE node_id = ? AND package IN ($ph)"
+                  )->execute(array_merge([$nodeId], $markedPkgs));
                   // Именно эти пакеты считаем в прогрессе: записи с
                   // install_queued=1 от прошлых попыток сюда не входят.
                   $queuedPackages[$nodeId] = $markedPkgs;
@@ -638,6 +674,24 @@ try {
                 exit;
             }
             $nodeId = (int)$nodeInfo['id'];
+            // Отдаём пакеты только пока на ноде действительно висит
+            // команда установки. Иначе агент, опоздавший к команде
+            // (рестарт, потерянный poll), забрал бы и установил пакеты,
+            // которых в текущей очереди нет.
+            $cmdStmt = $pdo->prepare(
+                "SELECT last_command, command_status
+                 FROM nodes WHERE id = ?"
+            );
+            $cmdStmt->execute([$nodeId]);
+            $cmdRow = $cmdStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $lastCommand = trim((string)($cmdRow['last_command'] ?? ''));
+            $cmdStatus = (string)($cmdRow['command_status'] ?? '');
+            $installActive = in_array($cmdStatus, ['pending', 'running'], true)
+                && (
+                    $lastCommand === 'install-updates'
+                    || str_starts_with($lastCommand, 'install-update-batch')
+                    || str_starts_with($lastCommand, 'install-update ')
+                );
             $stmt = $pdo->prepare(
                 "SELECT package, current_version, new_version, priority
                  FROM node_updates
@@ -646,7 +700,7 @@ try {
             );
             try {
                 $stmt->execute([$nodeId]);
-                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                $rows = $installActive ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
             } catch (Throwable $e) {
                 $rows = [];
             }

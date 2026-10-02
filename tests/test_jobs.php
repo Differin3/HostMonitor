@@ -211,6 +211,47 @@ check(
     strpos($updates, "'packages' => array_values(\$markedPkgs)") !== false,
     'в команду ноде уходят только реально помеченные пакеты, а не все запрошенные'
 );
+// Регресс: UPDATE install_queued=1 у уже помеченного пакета это 1 -> 1,
+// и MySQL возвращает rowCount()=0 (число ИЗМЕНЁННЫХ строк). Если
+// existence проверять через rowCount(), повторная установка молча
+// теряла все пакеты и задача воркера не создавалась вообще.
+check(
+    strpos($updates, '$mark->rowCount()') === false
+        && strpos($updates, '$u->rowCount()') === false,
+    'пакет не помечается через rowCount() UPDATE (1 -> 1 даёт 0)'
+);
+check(
+    (bool)preg_match(
+        '/SELECT package FROM node_updates\s+WHERE node_id = \? AND package IN/',
+        $updates
+    ),
+    'существование пакета проверяется отдельным SELECT, а не rowCount()'
+);
+check(
+    (bool)preg_match(
+        '/UPDATE node_updates SET install_queued = 1\s+WHERE node_id = \? AND package IN/',
+        $updates
+    ),
+    'все найденные пакеты помечаются одним UPDATE по списку IN (...)'
+);
+// Регресс: install_queued значит «в текущей очереди». Старые флаги от
+// упавших попыток годами висели с 1, и агент на pending-install утаскивал
+// их вместе с новыми пакетами. Перед постановкой флаги гасятся.
+check(
+    (bool)preg_match(
+        '/UPDATE node_updates SET install_queued = 0 WHERE node_id = \?/',
+        $updates
+    ),
+    'перед постановкой прошлые install_queued гасятся (очередь = текущий запрос)'
+);
+check(
+    (bool)preg_match(
+        '/\$installActive = in_array/',
+        $updates
+    )
+        && strpos($updates, "AND COALESCE(install_queued, 0) = 1") !== false,
+    'pending-install отдаёт пакеты только при активной команде установки'
+);
 
 echo "\n== Захват задачи в очереди ==\n";
 // Захват обязан быть условным: повторный вызов на уже выполняющейся задаче
