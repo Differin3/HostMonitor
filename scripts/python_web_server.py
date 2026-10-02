@@ -126,6 +126,18 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
     def _is_sse_script(self, script_path: str) -> bool:
         return os.path.basename(script_path) == "sse.php"
 
+    def send_error(self, code, message=None, explain=None):
+        # Строка status-строки кодируется latin-1. Если в message или explain
+        # попал не-ASCII текст (например, stderr PHP на русском), http.server
+        # падал с UnicodeEncodeError прямо во время отправки ответа: клиент
+        # получал пустой ответ вместо кода ошибки, а прокси — 502.
+        def _latin1_safe(value):
+            if not isinstance(value, str):
+                return value
+            return value.encode("latin-1", "replace").decode("latin-1")
+
+        return super().send_error(code, _latin1_safe(message), _latin1_safe(explain))
+
     def _read_php_headers(self, stream):
         """Читает CGI-заголовки PHP и возвращает (header_blob, remainder)."""
         buf = b""
@@ -187,14 +199,14 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
                 proc.stdin.write(body)
             proc.stdin.close()
         except Exception as e:
-            self.send_error(500, f"Ошибка передачи тела запроса в PHP: {e}")
+            self.send_error(500, f"PHP request body transfer failed: {e}")
             proc.kill()
             return
 
         header_blob, remainder = self._read_php_headers(proc.stdout)
         if not header_blob:
             err = proc.stderr.read().decode(errors="ignore") if proc.stderr else ""
-            self.send_error(500, f"SSE: PHP не вернул заголовки\n{err}")
+            self.send_error(500, f"SSE: PHP returned no headers\n{err}")
             proc.wait()
             return
 
@@ -220,7 +232,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         script_path = self.translate_path(parsed.path)
         if not os.path.exists(script_path):
-            self.send_error(404, "PHP файл не найден")
+            self.send_error(404, "PHP script not found")
             return
 
         body = b""
@@ -271,7 +283,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
                 cwd=str(WEB_ROOT),
             )
         except Exception as e:
-            self.send_error(500, f"Ошибка запуска PHP: {e}")
+            self.send_error(500, f"Failed to start PHP: {e}")
             return
 
         if self._is_sse_script(script_path):
@@ -313,7 +325,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
 
         if not stdout:
             sys.stderr.write(f"ПРЕДУПРЕЖДЕНИЕ: PHP вернул пустой вывод для {script_path}\n")
-            self.send_error(500, "PHP вернул пустой вывод")
+            self.send_error(500, "PHP returned empty output")
             return
 
         # Ищем разделитель заголовков (может быть \r\n\r\n или \n\n)

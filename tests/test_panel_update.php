@@ -338,6 +338,33 @@ check(!file_exists($canary), 'инъекция через apply не выпол�
       htmlspecialchars($js, ENT_QUOTES)
   );
   
+  // ─── Веб-сервер: ответы на ошибку не рвут соединение ─────────────────────────
+  
+  $webServer = (string)file_get_contents(dirname(__DIR__) . '/scripts/python_web_server.py');
+  check(
+      strpos($webServer, 'def send_error(') !== false,
+      'send_error переопределён, чтобы приводить текст к latin-1'
+  );
+  check(
+      strpos($webServer, 'encode("latin-1", "replace")') !== false,
+      'не-ASCII в status-строке заменяется, а не рвёт ответ'
+  );
+  // Строковые аргументы send_error попадают в status-строку, которая
+  // кодируется latin-1: кириллица там роняла соединение (пустой ответ
+  // вместо 404, а через обратный прокси — 502).
+  preg_match_all('/send_error\(\s*\d+\s*,\s*(f?)"([^"]*)"/', $webServer, $errCalls, PREG_SET_ORDER);
+  check(count($errCalls) > 0, 'найдены вызовы send_error для проверки', 'найдено: ' . count($errCalls));
+  foreach ($errCalls as $call) {
+      $isAscii = preg_match('/^[\x20-\x7E]*$/', $call[2]) === 1;
+      // f-строки допускаем: не-ASCII может прийти из исключения, но его
+      // приводит к latin-1 переопределённый send_error.
+      check(
+          $isAscii || $call[1] === 'f',
+          "статус-строка без кириллицы: {$call[2]}",
+          $call[2]
+      );
+  }
+  
   // ─── Итог ─────────────────────────────────────────────────────────────────────
   
   echo "\n";
