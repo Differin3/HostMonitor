@@ -569,20 +569,24 @@ try {
                   // install_queued=1 от прошлых попыток сюда не входят.
                   $queuedPackages[$nodeId] = $markedPkgs;
 
-          $payload = json_encode([
-              'packages' => array_values(array_unique(array_map(static fn($p) => $p['package'], $pkgs))),
-              'count' => $marked,
-          ], JSON_UNESCAPED_UNICODE);
-  
-          $pdo->prepare(
-              "UPDATE nodes SET last_command = 'install-updates', command_status = 'pending',
-               command_timestamp = NOW(), command_result = ? WHERE id = ?"
-          )->execute([$payload, $nodeId]);
-  
-          $queued += $marked;
-          $nodesQueued++;
-          $nodeNames[] = (string)$node['name'];
-          $queuedNodes[] = $nodeId;
+                  // Список пакетов в команде — именно помеченные, а не все
+                  // запрошенные: агент берёт его из pending-install, но если
+                  // в разборе что-то изменится, в команде не должно быть
+                  // пакетов, которых в node_updates нет.
+                  $payload = json_encode([
+                      'packages' => array_values($markedPkgs),
+                      'count' => $marked,
+                  ], JSON_UNESCAPED_UNICODE);
+
+                  $pdo->prepare(
+                      "UPDATE nodes SET last_command = 'install-updates', command_status = 'pending',
+                       command_timestamp = NOW(), command_result = ? WHERE id = ?"
+                  )->execute([$payload, $nodeId]);
+
+                  $queued += $marked;
+                  $nodesQueued++;
+                  $nodeNames[] = (string)$node['name'];
+                  $queuedNodes[] = $nodeId;
           }
 
             $msg = $nodesQueued > 0
