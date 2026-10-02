@@ -363,6 +363,56 @@ async function main() {
         check(rendered.indexOf('секретный курсор') === -1, 'внутренний курсор не попадает в разметку');
     }
 
+    console.log('\n== Колокольчик: статус не дублируется ==');
+    {
+        // jobs_finish() пишет в progress_label то же слово, что STATUS_TITLE
+        // выводит в строке состояния («Готово», «Ошибка», «Отменено»).
+        // Обе строки рендерились подряд, и статус читался дважды.
+        const textsOf = (t) => {
+            const out = [];
+            JSON.stringify(t.byId.jobsBellList.childNodes, (k, v) => {
+                if (k === 'textContent' && typeof v === 'string' && v) out.push(v);
+                return v;
+            });
+            return out;
+        };
+
+        const t = boot();
+        t.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                recent: [job({ status: 'done', progress_pct: 100, progress_label: 'Готово', finished_at: '2026-09-30 10:05:00' })],
+            }),
+        }));
+        await t.window.HostJobsBell.refresh();
+        const doneTexts = textsOf(t);
+        eq(doneTexts.filter((s) => s === 'Готово').length, 1, '«Готово» показывается один раз');
+        check(!JSON.stringify(t.byId.jobsBellList.childNodes).includes('Готово Готово'), 'нет подряд идущих «Готово Готово»');
+
+        const t2 = boot();
+        t2.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                recent: [job({ status: 'failed', progress_pct: 40, progress_label: 'Ошибка', error: 'apt: не найден пакет' })],
+            }),
+        }));
+        await t2.window.HostJobsBell.refresh();
+        eq(textsOf(t2).filter((s) => s === 'Ошибка').length, 1, '«Ошибка» показывается один раз');
+        check(
+            textsOf(t2).includes('apt: не найден пакет'),
+            'текст ошибки при этом остаётся виден',
+        );
+
+        const t3 = boot();
+        t3.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                recent: [job({ status: 'done', progress_pct: 100, progress_label: 'Установлено пакетов: 1' })],
+            }),
+        }));
+        await t3.window.HostJobsBell.refresh();
+        const keep = textsOf(t3);
+        check(keep.includes('Готово'), 'строка состояния остаётся', JSON.stringify(keep));
+        check(keep.includes('Установлено пакетов: 1'), 'осмысленный label не теряется', JSON.stringify(keep));
+    }
+
     console.log('\n== Колокольчик: иконки рисуются ==');
     {
         const t = boot();
@@ -680,7 +730,76 @@ async function main() {
       eq(calls, 1, 'повторный клик игнорируется, пока кнопка занята');
   }
 
-  console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
+  console.log('\n== Мобильная вёрстка: окно колокольчика и топбар ==');
+    {
+        // Ошибка была мобильной: окно раскрывалось абсолютно внутри .hm-drop
+        // в шапке 54px и вылезало за правый край, накрывая соседние
+        // элементы; селектор ветки панели (до 230px) растягивал шапку, и
+        // кнопки наезжали друг на друга.
+        const mcss = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'mobile.css'), 'utf8');
+        // Селектор может переноситься через запятую (`.topbar .hm-menu,\n
+        // .user-dropdown {`), а правило встречается в файле несколько раз,
+        // поэтому собираем все вхождения и ищем по объединённому тексту.
+        const mblock = (sel) => {
+            const out = [];
+            let at = 0;
+            for (;;) {
+                const i = mcss.indexOf(sel, at);
+                if (i < 0) break;
+                const open = mcss.indexOf('{', i);
+                const close = mcss.indexOf('}', open);
+                if (open < 0 || close < 0) break;
+                out.push(mcss.slice(i, close) + '}');
+                at = close;
+            }
+            return out.join('\n');
+        };
+        const rule = (sel) => mblock(sel).split('\n').pop() || '';
+
+        const bell = mblock('.jobs-bell-dropdown');
+        check(bell !== '', 'в mobile.css есть правило .jobs-bell-dropdown');
+        check(/position:\s*fixed/.test(bell), 'окно колокольчика фиксировано от вьюпорта', bell.trim());
+        check(/top:\s*54px/.test(bell), 'окно открывается под шапкой', bell.trim());
+        check(/left:\s*8px/.test(bell), 'окно отступлено слева от края экрана', bell.trim());
+        check(/right:\s*8px/.test(bell), 'окно прижато к правому краю экрана', bell.trim());
+        check(/max-width:\s*none/.test(bell), 'десктопное ограничение 360px снято', bell.trim());
+
+        const topMenu = mblock('.topbar .hm-menu,');
+        check(topMenu !== '', 'в mobile.css есть правило для меню шапки');
+        check(/position:\s*fixed/.test(topMenu), 'меню шапки фиксировано от вьюпорта', topMenu.trim());
+        check(/max-width:\s*none/.test(topMenu), 'меню шапки не ограничено десктопными 360px', topMenu.trim());
+
+        const branch = mblock('.panel-update-branch');
+        check(branch !== '', 'в mobile.css есть правило для селектора ветки');
+        check(/max-width:\s*\d\dpx/.test(branch), 'селектор ветки ограничен по ширине', branch.trim());
+        const cap = Number((branch.match(/max-width:\s*(\d+)px/) || [])[1]);
+        check(!(cap > 100), `ширина селектора ужата до ${cap}px, чтобы шапка не разъезжалась`);
+
+        const topRight = mblock('.topbar-right');
+        check(/min-width:\s*0/.test(topRight), 'правая группа шапки может сжиматься', topRight.trim());
+        check(/flex-shrink:\s*0/.test(topRight), 'правая группа не сжимается в ноль', topRight.trim());
+
+        const item = mblock('.jobs-bell-item');
+        check(/padding:\s*1\dpx 1\dpx/.test(item), 'строка списка увеличена под палец', item.trim());
+
+        const title = mblock('.jobs-bell-title');
+        check(/font-size:\s*1[3-9]px/.test(title), 'название задачи не микроскопическое', title.trim());
+
+        const lbl = mblock('.jobs-bell-label');
+        check(
+            /white-space:\s*normal/.test(lbl) && /overflow-wrap:\s*anywhere/.test(lbl),
+            'label переносится, а не обрезается в многоточие',
+            lbl.trim(),
+        );
+
+        // У окна overflow:hidden, поэтому max-height у списка обязателен:
+        // без него длинный список обрезался бы и стал бы недостижимым.
+        const list = mblock('.jobs-bell-list');
+        check(/max-height:\s*calc\(100dvh/.test(list), 'список ограничен высотой экрана', list.trim());
+        check(/overflow-y:\s*auto/.test(list), 'список прокручивается', list.trim());
+    }
+
+    console.log('\n== Окно фоновых операций не уезжает за край страницы ==');
 {
     // Ошибка была чисто позиционной: .hm-menu по умолчанию раскрывается
     // вправо от кнопки (left: 0), а колокольчик стоит у правого края
