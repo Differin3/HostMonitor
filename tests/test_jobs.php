@@ -361,6 +361,22 @@ check(
   }
   $layout = (string)file_get_contents($root . '/monitoring/includes/layout.php');
   check(strpos($layout, 'jobsBellClear') !== false, 'в колокольчике есть кнопка «Очистить»');
+// Стили подключались без ?v=, поэтому после деплоя браузер продолжал
+// отдавать из кэша старый mobile.css — правки вёрстки не доезжали.
+check(
+    preg_match('/\$hmCss\s*=\s*static function/', $layout) === 1,
+    'локальные стили версионируются через $hmCss'
+);
+check(
+    preg_match('/filemtime/', $layout) === 1 && strpos($layout, "'v=' .") !== false,
+    'в версию стиля подставляется mtime файла'
+);
+foreach (['style.css', 'nexus.css', 'net-gear.css', 'icons.css', 'mobile.css'] as $hmSheet) {
+    check(
+        strpos($layout, "\$hmCss('/frontend/css/$hmSheet')") !== false,
+        "стиль $hmSheet подключается с версией"
+    );
+}
 
 echo "\n== Установка воркера ==\n";
 check(is_file($root . '/systemd/hostmonitor-jobs.service'), 'юнит hostmonitor-jobs.service на месте');
