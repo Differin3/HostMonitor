@@ -62,11 +62,20 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/style.css')) ?>">
-        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/nexus.css')) ?>">
-        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/net-gear.css')) ?>">
-        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/icons.css')) ?>">
-        <link rel="stylesheet" href="<?= htmlspecialchars(monitoring_asset('/frontend/css/mobile.css')) ?>">
+        <?php
+        // Локальные стили версионируем по mtime, иначе браузер продолжает
+        // держать в кэше старый mobile.css/nexus.css после деплоя.
+        $hmCss = static function (string $rel): string {
+            $src = monitoring_asset($rel);
+            $ver = @filemtime(dirname(__DIR__, 2) . $rel);
+            return $src . (str_contains($src, '?') ? '&' : '?') . 'v=' . ($ver !== false ? (string) $ver : '1');
+        };
+        ?>
+        <link rel="stylesheet" href="<?= htmlspecialchars($hmCss('/frontend/css/style.css')) ?>">
+        <link rel="stylesheet" href="<?= htmlspecialchars($hmCss('/frontend/css/nexus.css')) ?>">
+        <link rel="stylesheet" href="<?= htmlspecialchars($hmCss('/frontend/css/net-gear.css')) ?>">
+        <link rel="stylesheet" href="<?= htmlspecialchars($hmCss('/frontend/css/icons.css')) ?>">
+        <link rel="stylesheet" href="<?= htmlspecialchars($hmCss('/frontend/css/mobile.css')) ?>">
         <script>
             window.MONITORING_BASE_PATH = <?= json_encode(monitoring_base_path(), JSON_UNESCAPED_SLASHES) ?>;
             window.MONITORING_API_BASE = <?= json_encode(monitoring_asset('/api'), JSON_UNESCAPED_SLASHES) ?>;
