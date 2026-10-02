@@ -166,6 +166,52 @@ check(
     'воркер продолжает свою задачу, а не забирает её заново'
 );
 
+echo "\n== Дедлайн ожидания нод ==\n";
+// Регрессия: локальная $deadline оставалась 0, когда воркер выставлял дедлайн
+// сам, и первый же тик падал с «Превышено время ожидания», не дождавшись агента.
+// Проверяем, что обе ветки пишут в $state и в локальную переменную.
+check(
+    (bool)preg_match(
+        '/\$deadline = time\(\) \+ jobs_node_ops_timeout\(\$mode, \$total\);\s*'
+        . '\s*\$state\[\'deadline\'\] = \$deadline;/',
+        $worker
+    ),
+    'дедлайн кладётся и в state, и в локальную переменную (иначе мгновенный таймаут)'
+);
+check(
+    strpos($worker, "throw new RuntimeException('Превышено время ожидания')") !== false,
+    'таймаут без ответа нод остаётся отдельной ошибкой'
+);
+check(
+    (bool)preg_match('/if \(time\(\) > \$deadline\) \{/', $worker),
+    'сравнение времени идёт с локальной переменной $deadline'
+);
+
+echo "\n== Установка пакетов идёт через воркер ==\n";
+// Пакеты должны попадать в ту же серверную очередь, что и агенты: иначе
+// прогресс снова уехал бы в sessionStorage вкладки.
+$updates = (string)file_get_contents($root . '/monitoring/api/updates.php');
+check(
+    strpos($updates, "jobs_enqueue(") !== false
+        && strpos($updates, "'pkg.install'") !== false,
+    'установка пакетов ставит задачу pkg.install в очередь воркера'
+);
+check(
+    (bool)preg_match(
+        '/jobs_kind_allowed\(\'pkg\.install\'\)[^;]*jobs_enqueue\(/s',
+        $updates
+    ),
+    'задача ставится в очередь только когда вид pkg.install разрешён'
+);
+check(
+    strpos($updates, "'packages' => \$queuedPackages") !== false,
+    'в payload задачи уходит явный список пакетов по нодам'
+);
+check(
+    strpos($updates, "'packages' => array_values(\$markedPkgs)") !== false,
+    'в команду ноде уходят только реально помеченные пакеты, а не все запрошенные'
+);
+
 echo "\n== Захват задачи в очереди ==\n";
 // Захват обязан быть условным: повторный вызов на уже выполняющейся задаче
 // должен дать null, иначе воркер крутил бы её вместо остальной очереди.

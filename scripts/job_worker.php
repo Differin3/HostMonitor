@@ -148,12 +148,17 @@ function jobs_handler(string $kind, array &$state, PDO $queue, int $jobId): stri
       // Нода пропала или зависла намертво: ждать вечно нельзя, иначе задача
       // висит в колокольчике сутками. Порог generous — обновление пакета
       // идёт до 300 с, несколько пакетов подряд — дольше.
-      $deadline = (int)($state['deadline'] ?? 0);
-      if ($deadline === 0) {
-          $state['deadline'] = time() + jobs_node_ops_timeout($mode, $total);
-          jobs_update_payload($queue, $jobId, $state);
-      }
-      if (time() > $deadline) {
+        $deadline = (int)($state['deadline'] ?? 0);
+        if ($deadline === 0) {
+            // Локальную переменную тоже нужно заполнить: ниже сравнение
+            // идёт с ней, а не с $state. Иначе на первом же тике $deadline
+            // остаётся 0 и задача падает с «Превышено время ожидания»,
+            // не дождавшись агента ни секунды.
+            $deadline = time() + jobs_node_ops_timeout($mode, $total);
+            $state['deadline'] = $deadline;
+            jobs_update_payload($queue, $jobId, $state);
+        }
+        if (time() > $deadline) {
           if ($snapshot['stale'] > 0) {
               throw new RuntimeException(sprintf(
                   'Нет ответа от %d нод(ы): %s',
