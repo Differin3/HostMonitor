@@ -67,6 +67,16 @@
         canceled: 'Отменено',
     };
 
+    // jobs_finish() записывает в progress_label ровно то же слово, что
+    // STATUS_TITLE показывает в строке состояния («Готово», «Ошибка»,
+    // «Отменено»). Раньше обе строки выводились подряд, и в колокольчике
+    // статус читался дважды. Совпадающий текст не дублируем.
+    function sameText(a, b) {
+        const x = String(a ?? '').trim().toLowerCase();
+        const y = String(b ?? '').trim().toLowerCase();
+        return x !== '' && x === y;
+    }
+
     function statusIcon(status) {
         if (status === 'done') return 'check-circle';
         if (status === 'failed') return 'x-circle';
@@ -182,7 +192,7 @@
                 : state;
             body.appendChild(meta);
 
-            if (job.progress_label) {
+            if (job.progress_label && !sameText(job.progress_label, state)) {
                 const label = document.createElement('div');
                 label.className = 'jobs-bell-label';
                 label.textContent = job.progress_label;
