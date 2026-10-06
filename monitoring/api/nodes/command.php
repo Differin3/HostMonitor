@@ -19,6 +19,15 @@ require_once __DIR__ . '/../../includes/database.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 require_once __DIR__ . '/../../includes/commands.php';
 
+if (!function_exists('mb_strlen')) {
+    function mb_strlen($s, $enc = null) { return strlen((string)$s); }
+}
+if (!function_exists('mb_substr')) {
+    function mb_substr($s, $start, $length = null, $enc = null) {
+        return $length === null ? substr((string)$s, $start) : substr((string)$s, $start, $length);
+    }
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
