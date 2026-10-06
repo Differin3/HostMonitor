@@ -10,8 +10,13 @@ from threading import Thread
 from datetime import datetime  # время
 try:
     from .runtime import _log, _get_verify, _request_with_retry
+    from .auth import AgentAuth
 except ImportError:
     from runtime import _log, _get_verify, _request_with_retry
+    try:
+        from auth import AgentAuth
+    except Exception:
+        AgentAuth = None
 
 
 def _env_true(name, default=False):
@@ -38,7 +43,7 @@ class TransportMixin:
             "POST",
             f"{self.master_url}/api/metrics.php",
             json=data,
-            headers=self.headers,
+            headers=getattr(self, "signed_headers", self.headers),
             verify=_get_verify(),
             timeout=20,
         )
@@ -66,7 +71,7 @@ class TransportMixin:
             "POST",
             f"{self.master_url}/api/processes.php",
             json={"processes": processes},
-            headers=self.headers,
+            headers=getattr(self, "signed_headers", self.headers),
             verify=_get_verify(),
         )
         if not proc_resp or proc_resp.status_code not in (200, 201):
@@ -97,7 +102,7 @@ class TransportMixin:
             "GET",
             url,
             params=params,
-            headers=self.headers,
+            headers=getattr(self, "signed_headers", self.headers),
             verify=_get_verify(),
         )
         
@@ -361,7 +366,7 @@ class TransportMixin:
                     resp = _request_with_retry(
                         'GET',
                         f"{self.master_url}/api/updates.php?action=pending-install",
-                        headers=self.headers,
+                        headers=getattr(self, "signed_headers", self.headers),
                         verify=_get_verify(),
                         timeout=20,
                     )
@@ -562,7 +567,7 @@ class TransportMixin:
                                 'command': command,
                                 'logs': process_logs
                             },
-                            headers=self.headers,
+                            headers=getattr(self, "signed_headers", self.headers),
                             verify=_get_verify(),
                             timeout=30
                         )
@@ -599,7 +604,7 @@ class TransportMixin:
                                 'command': command,
                                 'logs': []
                             },
-                            headers=self.headers,
+                            headers=getattr(self, "signed_headers", self.headers),
                             verify=_get_verify(),
                             timeout=30
                         )
@@ -726,7 +731,7 @@ class TransportMixin:
             url,
             params=params,
             json=data,
-            headers=self.headers,
+            headers=getattr(self, "signed_headers", self.headers),
             verify=_get_verify(),
         )
         
@@ -758,7 +763,7 @@ class TransportMixin:
                 resp = requests.post(
                     f"{self.master_url}/api/nodes.php?action=heartbeat",
                     json=payload,
-                    headers=self.headers,
+                    headers=getattr(self, "signed_headers", self.headers),
                     verify=_get_verify(),
                     timeout=10,
                 )

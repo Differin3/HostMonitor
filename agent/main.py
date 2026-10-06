@@ -58,6 +58,19 @@ class MonitoringAgent(
         self.node_name = node_name
         self.node_token = node_token
         self.headers = {"Authorization": f"Bearer {node_token}", "Content-Type": "application/json"}
+        self.auth = None
+        self.signed_headers = self.headers
+        try:
+            if AgentAuth is not None and os.getenv("NODE_ID") and os.getenv("NODE_SECRET_B64"):
+                try:
+                    nid = int(os.getenv("NODE_ID"))
+                except Exception:
+                    nid = 0
+                self.auth = AgentAuth(nid, os.getenv("NODE_SECRET_B64"))
+                if self.auth.can_sign:
+                    _log(f"Ed25519 auth enabled for node_id={nid}")
+        except Exception as e:
+            _log(f"auth init failed: {e}")
         # Храним предыдущие значения для расчета расхода трафика
         self.last_network_in = 0
         self.last_network_out = 0
@@ -293,3 +306,8 @@ if __name__ == "__main__":
         start_health_server(health_port)
     agent.run()
 
+
+try:
+    from auth import AgentAuth
+except Exception:
+    AgentAuth = None
