@@ -26,6 +26,10 @@ if (!function_exists('str_ends_with')) {
     }
 }
 
+// Агентская аутентификация (Ed25519 + legacy Bearer). Требуется раньше
+// require_api_auth(), определения функций — только при вызове.
+require_once __DIR__ . '/agent_auth.php';
+
 if (!function_exists('json_error')) {
     function json_error(string $message, int $status = 400): void
     {
@@ -77,7 +81,7 @@ if (!function_exists('csrf_token_validate')) {
 if (!function_exists('require_csrf')) {
     /**
      * Validate CSRF token for session-authenticated POST/PUT/PATCH/DELETE requests.
-     * Skips validation for Bearer token auth (agent API).
+     * Skips validation for agent requests (Bearer token or Ed25519 signature).
      */
     function require_csrf(): void
     {
@@ -86,7 +90,7 @@ if (!function_exists('require_csrf')) {
             return;
         }
 
-        // If Bearer token auth is present, skip CSRF (agents don't use cookies)
+        // Если Bearer-токен (legacy-агент) — CSRF не нужен, куки не используются.
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
         if (empty($authHeader) && function_exists('getallheaders')) {
             $headers = getallheaders();
@@ -96,6 +100,19 @@ if (!function_exists('require_csrf')) {
             $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
         }
         if ($authHeader && preg_match('/Bearer\s+/i', $authHeader)) {
+            return;
+        }
+
+        // Если пришла подпись Ed25519 — это тоже агент, не браузер.
+        // Без этой проверки подписанные POST (метрики, ack команд) падали бы
+        // на CSRF, потому что заголовка Authorization у них больше нет.
+        // Требуются ВСЕ три заголовка: одного мусорного X-Agent-Signature
+        // недостаточно, чтобы выпросить обход CSRF. Кросс-доменный XHR с этими
+        // заголовками отсекает preflight (python_web_server.py не выдаёт
+        // Access-Control-Allow-Headers для X-Agent-*), а form их не ставит вовсе.
+        if (!empty($_SERVER['HTTP_X_AGENT_SIGNATURE'])
+            && !empty($_SERVER['HTTP_X_AGENT_NODE_ID'])
+            && !empty($_SERVER['HTTP_X_AGENT_TIMESTAMP'])) {
             return;
         }
 
@@ -139,14 +156,35 @@ if (!function_exists('log_auth_event')) {
 }
 
 if (!function_exists('require_api_auth')) {
+    /**
+     * Единая точка аутентификации API.
+     *
+     * Порядок:
+     *   1. сессия админа (браузер);
+     *   2. Ed25519-подпись агента (agent_auth.php);
+     *   3. legacy Bearer-токен — пока ноды не переведены на подписи.
+     *
+     * @return array{user:?int, node:?array, scopes:?array, auth:?string}
+     *   user  — id админа, null для агента;
+     *   node  — ['id','name'] для агента, null для админа;
+     *   scopes— список прав агента, у админа null;
+     *   auth  — 'session' | 'ed25519' | 'legacy'.
+     */
     function require_api_auth(PDO $pdo): array
     {
-        if (session_status() === PHP_SESSION_NONE) {
+        // Заголовки уже ушли — сессию не поднять, а пытаться бессмысленно.
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
             session_start();
         }
 
-        $nodeInfo = null;
-        if (isset($_SESSION['user_id'])) {
+        // Заголовки подписи есть — значит это запрос агента, а не браузера.
+        // Сессию в этой ветке не берём: иначе мусорный X-Agent-Signature вместе
+        // с кукой обошёл бы require_csrf() в ветке сессии.
+        $signatureHeaders = agent_request_header('X-Agent-Node-Id') !== ''
+            || agent_request_header('X-Agent-Timestamp') !== ''
+            || agent_request_header('X-Agent-Signature') !== '';
+
+        if (!$signatureHeaders && isset($_SESSION['user_id'])) {
             $userId = (int)$_SESSION['user_id'];
             // Validate CSRF for session-authenticated state-changing requests
             require_csrf();
@@ -154,34 +192,21 @@ if (!function_exists('require_api_auth')) {
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();
             }
-            return ['user' => $userId, 'node' => null];
+            return ['user' => $userId, 'node' => null, 'scopes' => null, 'auth' => 'session'];
         }
 
-        // Пробуем получить заголовок Authorization разными способами
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        if (empty($authHeader) && function_exists('getallheaders')) {
-            $headers = getallheaders();
-            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-        }
-        // Также пробуем через REDIRECT_HTTP_AUTHORIZATION (для некоторых конфигураций)
-        if (empty($authHeader)) {
-            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-        }
-        
-        if ($authHeader && preg_match('/Bearer\s+(.+)/i', $authHeader, $m)) {
-            $token = trim($m[1]);
-            
-            $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
-            $stmt->execute([$token]);
-            $nodeInfo = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($nodeInfo) {
-                if (session_status() === PHP_SESSION_ACTIVE) {
-                    session_write_close();
-                }
-                return ['user' => null, 'node' => $nodeInfo];
+        // Ed25519 (приоритет) либо legacy Bearer, если подписи не было вовсе.
+        $agent = authenticate_agent($pdo);
+        if ($agent !== null) {
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
             }
-        } else {
-            error_log("[require_api_auth] No Authorization header found");
+            return [
+                'user'   => null,
+                'node'   => ['id' => $agent['node_id'], 'name' => $agent['name']],
+                'scopes' => $agent['scopes'],
+                'auth'   => $agent['auth'],
+            ];
         }
 
         if (session_status() === PHP_SESSION_ACTIVE) {

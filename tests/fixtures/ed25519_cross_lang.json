@@ -1,0 +1,17 @@
+{
+  "_comment": "Кросс-языковая сверка формата подписи. Обе стороны обязаны принимать один и тот же canonical message.",
+  "message_b64": "R0VUCi9hcGkvbm9kZXMucGhwP2lkPTEmYWN0aW9uPWdldC1jb21tYW5kCjE3MjcwMDAwMDAK",
+  "message_text": "GET\n/api/nodes.php?id=1&action=get-command\n1727000000\n",
+  "timestamp": 1727000000,
+  "path": "/api/nodes.php?id=1&action=get-command",
+  "method": "GET",
+  "python": {
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA3aj7igPKyKxbfmUO/miqS2vHrmwZpjkWJprhOp6S4k4=\n-----END PUBLIC KEY-----\n",
+    "signature_b64": "jsE9vdwzvtOBxKgQl2T+Q0QwbqzJP6c/zFVQUAYYY92U+lTDZMUXFGB9Sg/kUlLCyhtvJCTmf1oXsH0UIqegBw=="
+  },
+  "php": {
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEALi9p6clzfqzyzTuVShDFi5bVWbvzjf6C9aHDM6ygasw=\n-----END PUBLIC KEY-----\n",
+    "signature_b64": "RaYqdjEqD2+eJ4JuAXRpQVopX/RPjBYJsjY+BWWVpZrPF/+e22AdUr8e7WohqjUv42y8NskZIVLBrwYTClD6CA==",
+    "public_key_raw_b64": "Li9p6clzfqzyzTuVShDFi5bVWbvzjf6C9aHDM6ygasw="
+  }
+}
