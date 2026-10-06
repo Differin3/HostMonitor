@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover
     Ed25519PrivateKey = None
     InvalidSignature = Exception
     serialization = None
+    Ed25519PublicKey = None
 
 try:
     from .runtime import _log
@@ -105,17 +106,16 @@ class AgentAuth:
         try:
             pubk = serialization.load_pem_public_key(pubkey_pem.encode("utf-8", errors="replace"))
             msg = AgentAuth.build_message(method, path, timestamp, body)
-            # base64 decode sig (maybe url)
             sig = base64.b64decode(_b64url_to_b64(sig_b64))
             if len(sig) != 64:
-                # try raw
                 try:
                     sig = base64.b64decode(sig_b64)
                 except Exception:
                     pass
-            pubk.verify(sig, msg)
-            return True
-        except InvalidSignature:
-            return False
+            try:
+                pubk.verify(sig, msg)
+                return True
+            except Exception:
+                return False
         except Exception:
             return False
