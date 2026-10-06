@@ -394,6 +394,16 @@ if (!function_exists('log_agent_request')) {
      */
     function log_agent_request(PDO $pdo, int $nodeId, string $endpoint, string $method, string $authType, int $status = 200): void
     {
+        // Коллекторы метрик/умных дисков/UPnP пишут last_seen сами и ходят
+        // каждые секунды — шуметь такими строками в аудите бессмысленно,
+        // таблица вырастет на миллионы записей за сутки.
+        $selfStampingCollectors = ['/api/metrics.php', '/api/smart.php', '/api/upnp.php'];
+        foreach ($selfStampingCollectors as $skipPrefix) {
+            if (strpos($endpoint, $skipPrefix) === 0) {
+                return;
+            }
+        }
+
         try {
             $stmt = $pdo->prepare(
                 'INSERT INTO agent_requests_log (node_id, endpoint, method, auth_type, status, ip_address)
