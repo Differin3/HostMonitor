@@ -223,6 +223,11 @@ jobs:
           bash -n install.sh
           bash tests/test_install_db_choice.sh
 
+      - name: Статусы ответов веб-сервера
+        # php-cgi печатает «Status: 405 Method Not Allowed», а проверялся весь
+        # хвост на цифры — все ошибки API уходили клиенту как 200.
+        run: python3 tests/test_web_server_status.py
+
   # Криптография и enrollment живут только при живой MySQL: проверяем и
   # кросс-языковую сверку подписи (Python подписала → PHP приняла), и
   # повторное использование одноразового кода, и replay-защиту.

@@ -70,6 +70,61 @@ if not FRONTEND_ROOT.exists():
     sys.stderr.write(f"ПРЕДУПРЕЖДЕНИЕ: Директория {FRONTEND_ROOT} не найдена.\n")
 
 
+def _parse_cgi_status(line: str):
+    """Код из строки CGI вида «Status: 405 Method Not Allowed» (и без reason-фразы).
+
+    php-cgi всегда печатает reason-фразу, поэтому проверять на чистые цифры
+    весь хвост нельзя: раньше статус молча оставался 200 и клиенты не
+    отличали 401/403/429 от успешного ответа.
+    """
+    parts = line.split(" ", 1)
+    if len(parts) != 2:
+        return None
+    rest = parts[1].strip()
+    if not rest:
+        return None
+    code = rest.split()[0]
+    return int(code) if code.isdigit() else None
+
+
+def _parse_cgi_headers(header_blob: bytes):
+    """Разбирает CGI-заголовки php-cgi.
+
+    Возвращает (status_code, headers, location, set_cookies); Location при
+    статусе 200 превращается в 302 — PHP отдаёт редиректы без кода.
+    """
+    try:
+        header_lines = header_blob.decode("iso-8859-1").split("\r\n")
+    except Exception:
+        header_lines = header_blob.decode("utf-8", errors="ignore").split("\n")
+
+    status_code = 200
+    headers = []
+    location = None
+    set_cookies = []
+    for line in header_lines:
+        if not line.strip():
+            continue
+        if line.lower().startswith("status:"):
+            parsed = _parse_cgi_status(line)
+            if parsed is not None:
+                status_code = parsed
+            continue
+        if ":" in line:
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            headers.append((key, value))
+            if key.lower() == "location":
+                location = value
+            elif key.lower() == "set-cookie":
+                set_cookies.append(value)
+
+    if location and status_code == 200:
+        status_code = 302
+    return status_code, headers, location, set_cookies
+
+
 class PHPRequestHandler(SimpleHTTPRequestHandler):
     extensions_map = {
         **SimpleHTTPRequestHandler.extensions_map,
@@ -154,30 +209,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
         return buf, b""
 
     def _send_php_headers(self, header_blob: bytes, payload_prefix: bytes = b"") -> int:
-        try:
-            header_lines = header_blob.decode("iso-8859-1").split("\r\n")
-        except Exception:
-            header_lines = header_blob.decode("utf-8", errors="ignore").split("\n")
-
-        status_code = 200
-        response_headers = []
-        location_header = None
-        for line in header_lines:
-            if not line.strip():
-                continue
-            if line.lower().startswith("status:"):
-                parts = line.split(" ", 1)
-                if len(parts) == 2 and parts[1].strip().split()[0].isdigit():
-                    status_code = int(parts[1].strip().split()[0])
-                continue
-            if ":" in line:
-                key, value = line.split(":", 1)
-                response_headers.append((key.strip(), value.strip()))
-                if key.strip().lower() == "location":
-                    location_header = value.strip()
-
-        if location_header and status_code == 200:
-            status_code = 302
+        status_code, response_headers, _, _ = _parse_cgi_headers(header_blob)
 
         self.send_response(status_code)
         for key, value in response_headers:
@@ -354,11 +386,6 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
                 header_blob = b"Content-Type: text/html; charset=utf-8\r\n"
                 payload = stdout
         
-        try:
-            header_lines = header_blob.decode("iso-8859-1").split("\r\n")
-        except:
-            header_lines = header_blob.decode("utf-8", errors='ignore').split("\n")
-        
         # Логируем только ошибки (DEBUG отключен для экономии места)
         if os.environ.get("DEBUG"):
             sys.stderr.write(f"DEBUG: Размер payload: {len(payload)} байт\n")
@@ -370,35 +397,11 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             else:
                 sys.stderr.write(f"DEBUG: Payload пустой!\n")
 
-        status_code = 200
-        response_headers = []
-        location_header = None
-        set_cookie_headers = []
-        for line in header_lines:
-            if not line.strip():
-                continue
-            if line.lower().startswith("status:"):
-                parts = line.split(" ", 1)
-                if len(parts) == 2 and parts[1].strip().isdigit():
-                    status_code = int(parts[1].strip())
-                continue
-            if ":" in line:
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = value.strip()
-                response_headers.append((key, value))
-                if key.lower() == "location":
-                    location_header = value
-                elif key.lower() == "set-cookie":
-                    set_cookie_headers.append(value)
-                    if os.environ.get("DEBUG"):
-                        sys.stderr.write(f"DEBUG: Set-Cookie заголовок: {value[:100]}\n")
-        
+        status_code, response_headers, location_header, _ = _parse_cgi_headers(header_blob)
+
         # Если есть Location заголовок - это редирект, нужно установить правильный статус код
         if location_header:
-            # PHP обычно отправляет редирект со статусом 200, но нужно 302
-            if status_code == 200:
-                status_code = 302  # Found - временный редирект
+            # Правильный 302 выставляет разбор: PHP обычно отдаёт редирект со статусом 200
             sys.stderr.write(f"Редирект на: {location_header} (статус: {status_code})\n")
         elif len(payload) == 0 and status_code == 200:
             # Если тело пустое, но статус 200 - это проблема
