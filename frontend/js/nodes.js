@@ -1236,3 +1236,8 @@ function applyImport() {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="upload"></i> Импортировать'; if (window.lucide) lucide.createIcons(); }
     });
 }
+
+function openEnrollWizard() {
+    showToast('Enroll не реализован в этом шаге (UI-обновление добавим далее)', 'info');
+}
+window.openEnrollWizard = openEnrollWizard;
