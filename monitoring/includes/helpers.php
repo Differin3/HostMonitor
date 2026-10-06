@@ -198,6 +198,16 @@ if (!function_exists('require_api_auth')) {
         // Ed25519 (приоритет) либо legacy Bearer, если подписи не было вовсе.
         $agent = authenticate_agent($pdo);
         if ($agent !== null) {
+            // Аудит каждого агентского запроса (кроме самопишущих коллекторов).
+            if (function_exists('log_agent_request')) {
+                log_agent_request(
+                    $pdo,
+                    (int)$agent['node_id'],
+                    agent_request_path(),
+                    $_SERVER['REQUEST_METHOD'] ?? 'GET',
+                    (string)$agent['auth']
+                );
+            }
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();
             }
