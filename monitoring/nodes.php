@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/layout.php';
 
 $actions = '<button class="primary" type="button" onclick="addNode()"><i data-lucide="plus"></i> Создать ноду</button>'
+    . ' <button class="btn-outline" type="button" onclick="openEnrollWizard()"><i data-lucide="link"></i> Подключить ноду (Enroll)</button>'
     . ' <button class="btn-outline" type="button" onclick="exportNodes()" title="Экспорт списка нод"><i data-lucide="download"></i> Экспорт</button>'
     . ' <button class="btn-outline" type="button" onclick="document.getElementById(\'nodes-import-file\').click()" title="Импорт нод из JSON"><i data-lucide="upload"></i> Импорт</button>'
     . '<input type="file" id="nodes-import-file" accept=".json,application/json" style="display:none" onchange="importNodesFile(this)">';
