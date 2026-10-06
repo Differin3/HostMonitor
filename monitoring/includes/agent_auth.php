@@ -419,3 +419,57 @@ if (!function_exists('log_agent_request')) {
         }
     }
 }
+
+if (!function_exists('agent_generate_keypair')) {
+    /**
+     * Генерация пары Ed25519 для новой/ротируемой ноды.
+     *
+     * Панель хранит ТОЛЬКО публичный ключ (SPKI PEM в nodes.public_key).
+     * Приватный ключ отдаётся один раз в config (seed 32 байта в base64)
+     * и после невосстановим — иначе утечка одной ноды снова открыла бы все.
+     *
+     * Возвращает seed_b64, public_pem, public_b64, fingerprint или null.
+     */
+    function agent_generate_keypair(): ?array
+    {
+        try {
+            $keypair = sodium_crypto_sign_keypair();
+            $secret  = sodium_crypto_sign_secretkey($keypair); // 64 Б: seed||public
+            $rawPub  = sodium_crypto_sign_publickey($keypair);
+        } catch (Throwable $e) {
+            agent_log_auth_failure('keypair generation failed: ' . $e->getMessage());
+            return null;
+        }
+        $seed = substr($secret, 0, 32);
+        if ($seed === false || strlen($seed) !== 32 || strlen((string)$rawPub) !== 32) {
+            agent_log_auth_failure('keypair generation produced invalid material');
+            return null;
+        }
+        // RFC 8410: SPKI всегда 44 байта = 12 байт заголовка + 32 байта ключа.
+        // Собираем вручную: sodium отдаёт сырые байты, а не DER/PEM.
+        $spki = hex2bin('302a300506032b6570032100') . $rawPub;
+        $pem  = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($spki), 64, "\n") . "-----END PUBLIC KEY-----";
+        return [
+            'seed_b64'    => base64_encode($seed),
+            'public_pem'  => $pem,
+            'public_b64'  => base64_encode($rawPub),
+            'fingerprint' => agent_key_fingerprint($pem),
+        ];
+    }
+}
+
+if (!function_exists('agent_node_auth_method')) {
+    /**
+     * Способ аутентификации ноды: 'ed25519' | 'legacy' | null.
+     */
+    function agent_node_auth_method(array $node): ?string
+    {
+        if (!empty($node['public_key'])) {
+            return 'ed25519';
+        }
+        if (!empty($node['node_token'])) {
+            return 'legacy';
+        }
+        return null;
+    }
+}
