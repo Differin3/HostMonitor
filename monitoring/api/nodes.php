@@ -1,56 +1,67 @@
 <?php
-// Простая проверка сессии для API
-if (session_status() === PHP_SESSION_NONE) {
+// Аутентификация: агент (Ed25519-подпись или legacy Bearer) или админ (сессия+CSRF).
+// Секреты нод (node_token, secret_key) больше не раздаются: админ видит их в
+// конфиге при создании/ротации, агент — никогда и только свою ноду.
+if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
     session_start();
 }
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/commands.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $pdo = getDbConnection();
 
-// Миграция колонок — не на каждый heartbeat (маркер в helpers), только лёгкий no-op
-if (($method !== 'POST') || !isset($_SERVER['HTTP_AUTHORIZATION'])) {
+// require_api_auth вернёт ['user' => ?int, 'node' => ['id','name']|null,
+// 'scopes' => ?array, 'auth' => 'session'|'ed25519'|'legacy'].
+$auth = require_api_auth($pdo);
+$isAdmin = ($auth['auth'] === 'session');
+$agentNode = $auth['node'] ?? null; // ['id','name'] для агента, null для админа
+
+// Миграция колонок — не на каждый POST агента (маркер в helpers), как и раньше.
+if (!($method === 'POST' && !$isAdmin)) {
     nodes_ensure_agent_columns($pdo);
 }
 
-// Функция проверки токена ноды (для агентов)
-function validateNodeToken($pdo, $token) {
-    if (!$token) return null;
-    $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
-    $stmt->execute([$token]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
-
-// Проверка авторизации: либо сессия пользователя, либо токен ноды
-$isAuthorized = false;
-$nodeInfo = null;
-
-if (isset($_SESSION['user_id'])) {
-    $isAuthorized = true;
-    require_csrf();
-} else {
-    // Проверяем токен ноды из заголовка Authorization
-    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/Bearer\s+(.+)/i', $authHeader, $matches)) {
-        $token = $matches[1];
-        $nodeInfo = validateNodeToken($pdo, $token);
-        if ($nodeInfo) {
-            $isAuthorized = true;
-        }
+// Проверка, что запрос пришёл от админской сессии (не от агента).
+function nodes_require_admin() {
+    global $isAdmin;
+    if (!$isAdmin) {
+        json_error('Forbidden: admin session required', 403);
     }
 }
 
-if (!$isAuthorized) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
+// Секреты никогда не уходят в ответ списков/ноды.
+function nodes_strip_secrets(array &$node) {
+    unset($node['node_token'], $node['secret_key']);
 }
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
+
+// Отпечаток Ed25519-ключа для UI (не секрет).
+function nodes_fingerprint_in(array &$node) {
+    if (!empty($node['public_key'])) {
+        $node['fingerprint'] = agent_key_fingerprint((string)$node['public_key']);
+    }
+}
+
+// Управление входом: админ — по ?id (число или имя), агент — только своя нода.
+function nodes_resolve_target($pdo, $idParam) {
+    global $isAdmin, $agentNode;
+    if ($agentNode) {
+        return (int)$agentNode['id'];
+    }
+    if (!$idParam || !$isAdmin) {
+        return null;
+    }
+    if (ctype_digit((string)$idParam)) {
+        return (int)$idParam;
+    }
+    $stmt = $pdo->prepare('SELECT id FROM nodes WHERE name = ?');
+    $stmt->execute([(string)$idParam]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ? (int)$row['id'] : null;
 }
 
 try {
@@ -123,20 +134,8 @@ function handleGet($pdo) {
             'command_timestamp' => null,
         ];
 
-        $targetId = null;
-        if ($nodeInfo) {
-            $targetId = (int)$nodeInfo['id'];
-        } else {
-            $nodeName = $_GET['id'] ?? null;
-            if ($nodeName) {
-                $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name = ?");
-                $stmt->execute([$nodeName]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($row) {
-                    $targetId = (int)$row['id'];
-                }
-            }
-        }
+        // Агент видит только свою ноду; админ может указать ?id (число/имя).
+        $targetId = nodes_resolve_target($pdo, $_GET['id'] ?? null);
 
         if ($targetId) {
             // pending → running. Reclaim:
@@ -199,38 +198,115 @@ function handleGet($pdo) {
     }
     
     if ($action === 'generate-key') {
+        // Только админ: префилл legacy-токена в форме создания ноды.
+        nodes_require_admin();
         echo json_encode(['secret_key' => generateSecretKey()]);
         return;
     }
-    
+
     if ($action === 'generate-config') {
+        // Только админ. Секретов в responses больше не отдаём: приватный
+        // ключ существует лишь на момент создания/ротации (см. create).
+        nodes_require_admin();
         $nodeId = $_GET['node_id'] ?? $_GET['id'] ?? null;
         if (!$nodeId) {
             http_response_code(400);
             echo json_encode(['error' => 'Node ID required']);
             return;
         }
-        
+
         $stmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
         $stmt->execute([$nodeId]);
         $node = $stmt->fetch();
-        
+
         if (!$node) {
             http_response_code(404);
             echo json_encode(['error' => 'Node not found']);
             return;
         }
-        
-        $config = generateAgentConfig($node);
+
+        $config = buildAgentConfig($node);
         echo json_encode(['config' => $config]);
+        return;
+    }
+
+    if ($action === 'rotate-key') {
+        // Ed25519-ротация: новый seed отдаётся один раз, старый невосстановим.
+        nodes_require_admin();
+        $nodeId = $_GET['id'] ?? null;
+        if (!$nodeId) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Node ID required']);
+            return;
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
+        $stmt->execute([$nodeId]);
+        $node = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$node) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Node not found']);
+            return;
+        }
+
+        $kp = agent_generate_keypair();
+        if ($kp === null) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to generate Ed25519 keypair']);
+            return;
+        }
+
+        // Проверка, что ключ парсится нашим же разбором — защита от будущего
+        // рассинхрона формата хранимого публичного ключа.
+        if (agent_raw_public_key($kp['public_pem']) === null) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Generated keypair failed validation']);
+            return;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare("UPDATE nodes SET public_key = ?, key_rotated_at = ?, node_token = NULL WHERE id = ?");
+            $stmt->execute([$kp['public_pem'], date('Y-m-d H:i:s'), $nodeId]);
+            $stmt2 = $pdo->prepare(
+                'INSERT INTO key_rotation_log (node_id, actor_type, actor_id, reason, old_fingerprint, new_fingerprint)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            $stmt2->execute([$nodeId, 'admin', $auth['user'] ?? null, 'admin-rotate', null, $kp['fingerprint']]);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            http_response_code(500);
+            echo json_encode(['error' => 'Rotation failed']);
+            return;
+        }
+
+        $node['public_key'] = $kp['public_pem'];
+        $config = buildAgentConfig($node, $kp['seed_b64']);
+        echo json_encode([
+            'message'     => 'Key rotated',
+            'node_id'     => (int)$nodeId,
+            'fingerprint' => $kp['fingerprint'],
+            'scopes'      => agent_parse_scopes($node['scopes'] ?? null),
+            'config'      => $config,
+        ]);
         return;
     }
     
     if ($id) {
+        // Агент — только свою ноду и без секретов.
+        global $agentNode;
+        $targetId = nodes_resolve_target($pdo, $id);
+        if ($targetId === null) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Node not found']);
+            return;
+        }
+
         $stmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
-        $stmt->execute([$id]);
+        $stmt->execute([$targetId]);
         $node = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         if (!$node) {
             http_response_code(404);
             echo json_encode(['error' => 'Node not found']);
@@ -240,6 +316,9 @@ function handleGet($pdo) {
         $node['status'] = node_presence_from_last_seen(
             isset($node['last_seen']) ? (string)$node['last_seen'] : null
         );
+        nodes_fingerprint_in($node);
+        nodes_strip_secrets($node);
+        $id = $targetId;
         
         // Вычисляем uptime и ping динамически
         $node['uptime'] = calculateUptime($node);
@@ -349,6 +428,18 @@ function handleGet($pdo) {
             }
         }
         $nodes = $uniqueNodes;
+
+        // Админ видит всё, агент — только свою ноду.
+        global $agentNode;
+        if ($agentNode) {
+            $filtered = [];
+            foreach ($nodes as $n) {
+                if ((int)$n['id'] === (int)$agentNode['id']) {
+                    $filtered[] = $n;
+                }
+            }
+            $nodes = $filtered;
+        }
 
         // Подтягиваем последние метрики для всех нод одним запросом
         $metricsByNode = [];
@@ -494,6 +585,12 @@ function handleGet($pdo) {
                 $node['gpu_usage'] = null;
             }
         }
+
+        foreach ($nodes as &$node) {
+            nodes_strip_secrets($node);
+            nodes_fingerprint_in($node);
+        }
+        unset($node);
         
         echo json_encode(['nodes' => $nodes]);
     }
@@ -550,43 +647,28 @@ function pingNode($host) {
     return null;
 }
 
-function generateAgentConfig($node) {
-    // Если установлена переменная окружения MASTER_URL, используем её
+function buildAgentConfig($node, $oneTimeSeed = null) {
     if (getenv('MASTER_URL')) {
         $masterUrl = getenv('MASTER_URL');
         $parsedUrl = parse_url($masterUrl);
         $masterHost = $parsedUrl['host'] ?? 'localhost';
         $masterPort = $parsedUrl['port'] ?? ($parsedUrl['scheme'] === 'https' ? '443' : '80');
     } else {
-        // Автоматическое определение URL мастера из текущего запроса
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        
-        // Получаем реальный IP из заголовков (для прокси) или из запроса
         $realIp = $_SERVER['HTTP_X_REAL_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null;
         if ($realIp) {
-            // X-Forwarded-For может содержать несколько IP, берем первый
             $realIp = trim(explode(',', $realIp)[0]);
         }
-        
-        // Получаем хост из HTTP_HOST, но игнорируем 0.0.0.0 и localhost
         $httpHost = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? null;
-        
-        // Если HTTP_HOST содержит 0.0.0.0 или localhost, определяем реальный IP сервера
         if ($httpHost && $httpHost !== '0.0.0.0' && $httpHost !== 'localhost' && strpos($httpHost, '0.0.0.0:') !== 0) {
             $host = $httpHost;
         } else {
-            // Определяем реальный IP сервера
-            // 1. Пробуем получить внешний IP через команду (самый надежный способ)
             $externalIp = @shell_exec("hostname -I 2>/dev/null | awk '{print \$1}' || curl -s ifconfig.me 2>/dev/null || curl -s ifconfig.co 2>/dev/null || echo ''");
             $externalIp = trim($externalIp);
-            
             if ($externalIp && filter_var($externalIp, FILTER_VALIDATE_IP)) {
                 $host = $externalIp;
             } else {
-                // 2. Используем SERVER_ADDR (IP интерфейса сервера)
                 $host = $_SERVER['SERVER_ADDR'] ?? 'localhost';
-                
-                // 3. Если это внутренний IP, пробуем получить первый не-localhost IP
                 if (in_array($host, ['127.0.0.1', '::1', 'localhost', '0.0.0.0'])) {
                     $allIps = @shell_exec("hostname -I 2>/dev/null");
                     if ($allIps) {
@@ -601,71 +683,67 @@ function generateAgentConfig($node) {
                 }
             }
         }
-        
-        // Разделяем хост и порт, если порт указан
         if (strpos($host, ':') !== false) {
             list($host, $port) = explode(':', $host, 2);
         } else {
-            // Используем SERVER_PORT, если порт не указан в HTTP_HOST
             $port = $_SERVER['SERVER_PORT'] ?? ($scheme === 'https' ? '443' : '80');
         }
-        
-        // Если хост все еще 0.0.0.0, используем SERVER_ADDR или localhost
         if ($host === '0.0.0.0' || empty($host)) {
             $host = $_SERVER['SERVER_ADDR'] ?? 'localhost';
         }
-        
         $masterHost = $host;
         $masterPort = $port;
-        
-        // Формируем URL (не добавляем стандартные порты)
         $masterUrl = $scheme . '://' . $host;
         if (($scheme === 'http' && $port != '80') || ($scheme === 'https' && $port != '443')) {
             $masterUrl .= ':' . $port;
         }
     }
-    
-    $config = "# Конфигурация агента мониторинга\n";
+
+    $config = "# Конфигурация агента HostMonitor\n";
     $config .= "# Сгенерировано автоматически\n";
     $config .= "# Дата: " . date('Y-m-d H:i:s') . "\n\n";
     $config .= "MASTER_URL=\"" . $masterUrl . "\"\n";
     $config .= "MASTER_HOST=\"" . $masterHost . "\"\n";
     $config .= "MASTER_PORT=\"" . $masterPort . "\"\n";
-    $config .= "NODE_NAME=\"" . $node['name'] . "\"\n";
+    $config .= "NODE_ID=\"" . (int)($node['id'] ?? 0) . "\"\n";
+    $config .= "NODE_NAME=\"" . ($node['name'] ?? '') . "\"\n";
     $config .= "NODE_HOST=\"" . ($node['host'] ?? '') . "\"\n";
     $config .= "NODE_PORT=\"" . ($node['port'] ?? '2222') . "\"\n";
-        $config .= "NODE_TOKEN=\"" . $node['node_token'] . "\"\n";
-        $collectInterval = max(10, min((int)setting_get('collect_interval', '60'), 300));
-        $config .= "COLLECT_INTERVAL=" . $collectInterval . "\n";
-        $config .= "HEARTBEAT_INTERVAL=15\n";
-        $upnpOn = setting_get('upnp_enabled', 'true') === 'true' ? 'true' : 'false';
-        $config .= "UPNP_ENABLED=" . $upnpOn . "\n";
-        $config .= "UPNP_INTERVAL_CYCLES=" . (int)setting_get('upnp_interval_cycles', '2') . "\n";
-        $config .= "UPNP_MX=" . (int)setting_get('upnp_mx', '3') . "\n";
-        $config .= "UPNP_TIMEOUT=" . (int)setting_get('upnp_timeout', '8') . "\n";
-        $config .= "UPNP_GENA_PORT=" . (int)setting_get('upnp_gena_port', '0') . "\n";
-        $config .= "SNMP_ENABLED=" . (setting_get('snmp_enabled', 'true') === 'true' ? 'true' : 'false') . "\n";
-        $config .= "SNMP_COMMUNITY=\"" . str_replace('"', '', (string)setting_get('snmp_community', 'public')) . "\"\n";
-        $config .= "SNMP_TIMEOUT=" . (string)setting_get('snmp_timeout', '0.8') . "\n";
-        $snmpTargets = trim((string)setting_get('snmp_targets', ''));
-        if ($snmpTargets !== '') {
-            $config .= "SNMP_TARGETS=\"" . str_replace('"', '', $snmpTargets) . "\"\n";
-        }
-        $config .= "LLDP_PASSIVE=" . (setting_get('lldp_passive', 'true') === 'true' ? 'true' : 'false') . "\n";
-        $lldpIface = trim((string)setting_get('lldp_listen_interface', ''));
-        if ($lldpIface !== '') {
-            $config .= "LLDP_LISTEN_INTERFACE=\"" . str_replace('"', '', $lldpIface) . "\"\n";
-        }
-        $config .= "LLDP_ACTIVE_POLL_KNOWN=" . (setting_get('lldp_active_poll_known', 'true') === 'true' ? 'true' : 'false') . "\n";
+    if (!empty($node['public_key'])) {
+        $config .= "NODE_PUBLIC_KEY_B64=\"" . base64_encode(hex2bin(str_repeat('00', 0))) . "\"\n"; // placeholder
+    }
+    if ($oneTimeSeed !== null && $oneTimeSeed !== '') {
+        $config .= "NODE_SECRET_B64=\"" . $oneTimeSeed . "\"\n"; // одноразовый seed для первого старта
+    }
+    $collectInterval = max(10, min((int)setting_get('collect_interval', '60'), 300));
+    $config .= "COLLECT_INTERVAL=" . $collectInterval . "\n";
+    $config .= "HEARTBEAT_INTERVAL=15\n";
+    $upnpOn = setting_get('upnp_enabled', 'true') === 'true' ? 'true' : 'false';
+    $config .= "UPNP_ENABLED=" . $upnpOn . "\n";
+    $config .= "UPNP_INTERVAL_CYCLES=" . (int)setting_get('upnp_interval_cycles', '2') . "\n";
+    $config .= "UPNP_MX=" . (int)setting_get('upnp_mx', '3') . "\n";
+    $config .= "UPNP_TIMEOUT=" . (int)setting_get('upnp_timeout', '8') . "\n";
+    $config .= "UPNP_GENA_PORT=" . (int)setting_get('upnp_gena_port', '0') . "\n";
+    $config .= "SNMP_ENABLED=" . (setting_get('snmp_enabled', 'true') === 'true' ? 'true' : 'false') . "\n";
+    $config .= "SNMP_COMMUNITY=\"" . str_replace('"', '', (string)setting_get('snmp_community', 'public')) . "\"\n";
+    $config .= "SNMP_TIMEOUT=" . (string)setting_get('snmp_timeout', '0.8') . "\n";
+    $snmpTargets = trim((string)setting_get('snmp_targets', ''));
+    if ($snmpTargets !== '') {
+        $config .= "SNMP_TARGETS=\"" . str_replace('"', '', $snmpTargets) . "\"\n";
+    }
+    $config .= "LLDP_PASSIVE=" . (setting_get('lldp_passive', 'true') === 'true' ? 'true' : 'false') . "\n";
+    $lldpIface = trim((string)setting_get('lldp_listen_interface', ''));
+    if ($lldpIface !== '') {
+        $config .= "LLDP_LISTEN_INTERFACE=\"" . str_replace('"', '', $lldpIface) . "\"\n";
+    }
+    $config .= "LLDP_ACTIVE_POLL_KNOWN=" . (setting_get('lldp_active_poll_known', 'true') === 'true' ? 'true' : 'false') . "\n";
     $config .= "TLS_VERIFY=false\n";
     $config .= "TLS_CERT_PATH=\"\"\n\n";
     $config .= "# Установка зависимостей:\n";
-        $config .= "# pip install -r agent/requirements.txt\n";
-        $config .= "# pip install scapy          # LLDP passive (root)\n";
-        $config .= "# pip install pysnmp         # optional SNMP (встроенный walker уже есть)\n\n";
+    $config .= "# pip install -r agent/requirements.txt\n";
+    $config .= "# pip install scapy          # LLDP passive (root)\n\n";
     $config .= "# Запуск:\n";
     $config .= "# python agent/main.py\n";
-    
     return $config;
 }
 
