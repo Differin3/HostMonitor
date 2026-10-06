@@ -1238,6 +1238,117 @@ function applyImport() {
 }
 
 function openEnrollWizard() {
-    showToast('Enroll не реализован в этом шаге (UI-обновление добавим далее)', 'info');
+    const modal = document.getElementById('enroll-wizard-modal');
+    const genBtn = document.getElementById('enroll-gen-btn');
+    const copyBtn = document.getElementById('enroll-copy-btn');
+    const codeInput = document.getElementById('enroll-code');
+    const cmdBox = document.getElementById('enroll-cmd');
+    const step1 = document.getElementById('enroll-step-1');
+    const step2 = document.getElementById('enroll-step-2');
+    const bindChk = document.getElementById('enroll-bind-node');
+    const nodeWrap = document.getElementById('enroll-node-wrap');
+    const nodeSel = document.getElementById('enroll-node-select');
+    const closeBtn = document.getElementById('enroll-wizard-close');
+    const cancelBtn = document.getElementById('enroll-wizard-cancel');
+    const copyCmdBtn = document.getElementById('enroll-copy-cmd');
+
+    if (!modal) {
+        showToast('Модалка Enroll не найдена', 'error');
+        return;
+    }
+
+    function esc(s){ return String(s).replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[c])); }
+
+    modal.classList.remove('hidden');
+    setTimeout(() => modal.classList.add('active'), 10);
+    step1.style.display = 'block';
+    step2.style.display = 'none';
+    codeInput.value = '';
+    copyBtn.disabled = true;
+    cmdBox.textContent = '';
+    bindChk.checked = false;
+    nodeWrap.style.display = 'none';
+    if (nodeSel) {
+        nodeSel.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Выберите ноду';
+        nodeSel.appendChild(opt);
+    }
+
+    // populate nodes list
+    fetchJson('').then(data => {
+        const nodes = data.nodes || [];
+        if (!nodeSel) return;
+        for (const n of nodes) {
+            const opt = document.createElement('option');
+            opt.value = n.id;
+            opt.textContent = n.name + (n.host?(' ('+n.host+')'):'');
+            nodeSel.appendChild(opt);
+        }
+    }).catch(()=>{});
+
+    bindChk.onchange = () => {
+        nodeWrap.style.display = bindChk.checked ? 'block' : 'none';
+    };
+
+    function close() {
+        modal.classList.remove('active');
+        setTimeout(() => modal.classList.add('hidden'), 200);
+    }
+
+    closeBtn.onclick = close;
+    cancelBtn.onclick = close;
+    document.addEventListener('keydown', function onKey(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown', onKey); } }, {once:true});
+
+    copyBtn.onclick = async () => {
+        const v = codeInput.value.trim();
+        if (!v) return;
+        try { await navigator.clipboard.writeText(v); showToast('Код скопирован', 'success'); } catch(_) {}
+    };
+    copyCmdBtn.onclick = async () => {
+        const v = cmdBox.textContent;
+        if (!v) return;
+        try { await navigator.clipboard.writeText(v); showToast('Команда скопирована', 'success'); } catch(_) {}
+    };
+
+    genBtn.onclick = async () => {
+        genBtn.disabled = true;
+        const orig = genBtn.innerHTML;
+        genBtn.innerHTML = '<span class="btn-spinner"></span> Генерация...';
+        try {
+            const payload = {};
+            if (bindChk.checked && nodeSel && nodeSel.value) {
+                payload.node_id = parseInt(nodeSel.value);
+            }
+            const res = await fetch(`${API_BASE}/enrollment/create.php`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const t = await res.text();
+                let j; try{j=JSON.parse(t);}catch(e){j={error:'HTTP '+res.status};}
+                throw new Error(j.error||'Ошибка');
+            }
+            const j = await res.json();
+            codeInput.value = j.token || '';
+            copyBtn.disabled = !codeInput.value;
+            const origin = window.location.origin;
+            const path = window.location.pathname.replace(/\/[^\/]*$/, '/');
+            const master = origin + (path.includes('/monitoring') ? path.replace(/monitoring\/$/, '') : path.replace(/\/$/, '') + '/monitoring');
+            cmdBox.textContent = `cd /opt/monitoring && python3 -m pip install -q cryptography 2>/dev/null; python3 agent/enroll.py --master "${master}" --token "${j.token}"`;
+            step2.style.display = 'block';
+            if (window.lucide) lucide.createIcons();
+        } catch(e) {
+            showToast(e.message, 'error');
+        } finally {
+            genBtn.disabled = false;
+            genBtn.innerHTML = orig;
+        }
+    };
+
+    if (window.lucide) lucide.createIcons();
 }
 window.openEnrollWizard = openEnrollWizard;
