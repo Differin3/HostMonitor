@@ -13,6 +13,17 @@
  */
 declare(strict_types=1);
 
+if (!function_exists('mb_strlen')) {
+    function mb_strlen($s, $enc = null) {
+        return strlen((string)$s);
+    }
+}
+if (!function_exists('mb_substr')) {
+    function mb_substr($s, $start, $length = null, $enc = null) {
+        return $length === null ? substr((string)$s, $start) : substr((string)$s, $start, $length);
+    }
+}
+
 if (!defined('COMMAND_MAX_TTL_ABS')) {
     define('COMMAND_MAX_TTL_ABS', 3600);
 }
