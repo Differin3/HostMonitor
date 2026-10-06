@@ -76,6 +76,13 @@ jobs:
         # БД проверяется отдельно.
         run: php tests/test_jobs.php
 
+      - name: Тесты аутентификации агентов
+        # Формат подписи, разбор Ed25519-ключа, scopes, replay-защита и
+        # кросс-языковая сверка с Python (tests/fixtures/ed25519_cross_lang.json).
+        # Без TEST_DB_DSN интеграционные проверки помечаются как skip — в CI
+        # MySQL нет; полный прогон: TEST_DB_DSN=... php tests/test_auth.php
+        run: php tests/test_auth.php
+
       - name: Слепок API db_config
         # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
         # только чтения исходников, подключения к БД не нужно.
@@ -215,3 +222,48 @@ jobs:
           set -euo pipefail
           bash -n install.sh
           bash tests/test_install_db_choice.sh
+
+  # Криптография и enrollment живут только при живой MySQL: проверяем и
+  # кросс-языковую сверку подписи (Python подписала → PHP приняла), и
+  # повторное использование одноразового кода, и replay-защиту.
+  security:
+    name: Аутентификация агентов (PHP + MySQL)
+    runs-on: ubuntu-22.04
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: monitoring
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Тесты аутентификации (с БД)
+        # Ed25519, scopes, replay, legacy-режим, отсутствие отката на Bearer.
+        # Схему и миграцию тест поднимает сам (tests/lib/test_db.php).
+        env:
+          TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=monitoring'
+          TEST_DB_USER: root
+          TEST_DB_PASS: test
+        run: php tests/test_auth.php
+
+      - name: Тесты enrollment E2E (с БД)
+        # Поднимает панель на php -S, входит админом, выдаёт код, меняет его
+        # на ключ и делает подписанный запрос.
+        env:
+          TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=monitoring'
+          TEST_DB_USER: root
+          TEST_DB_PASS: test
+        run: php tests/test_enroll.php
