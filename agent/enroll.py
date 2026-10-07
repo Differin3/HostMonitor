@@ -10,15 +10,14 @@ from pathlib import Path
 try:
     import requests
 except Exception:
-    print("ERROR: requests not installed", file=sys.stderr)
-    sys.exit(1)
+    requests = None
 
 try:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives import serialization
 except Exception:
-    print("ERROR: cryptography not installed", file=sys.stderr)
-    sys.exit(1)
+    Ed25519PrivateKey = None
+    serialization = None
 
 
 def main():
@@ -28,6 +27,13 @@ def main():
     p.add_argument("--name", help="override node name (optional)")
     p.add_argument("--config", default="node.conf", help="write config to this file")
     args = p.parse_args()
+
+    if requests is None:
+        print("ERROR: requests not installed", file=sys.stderr)
+        sys.exit(1)
+    if Ed25519PrivateKey is None or serialization is None:
+        print("ERROR: cryptography not installed", file=sys.stderr)
+        sys.exit(1)
 
     master = args.master.rstrip("/")
     if not master.endswith("/api"):
