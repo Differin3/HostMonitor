@@ -25,6 +25,10 @@
     --bg-card-hover: rgba(44, 44, 50, 0.88);
     --text-primary: #f4f5f7;
     --text-muted: #9aa3b2;
+    --text-secondary: #c7d1e0;
+    --text-tertiary: #94a3b8;
+    --bg-elev: rgba(40, 40, 46, 0.6);
+    --border: rgba(255, 255, 255, 0.08);
     --border-color: rgba(255, 255, 255, 0.08);
     --accent: #3b82f6;
     --accent-hover: #60a5fa;
@@ -87,6 +91,10 @@ body.light {
     --bg-card-hover: #f1f5f9;
     --text-primary: #0f172a;
     --text-muted: #64748b;
+    --text-secondary: #475569;
+    --text-tertiary: #64748b;
+    --bg-elev: #f1f5f9;
+    --border: #e2e8f0;
     --border-color: #e2e8f0;
 
 }
