@@ -1,12 +1,11 @@
     <!-- Модальное окно подключения ноды (Enroll) -->
     <div class="modal hidden" id="enroll-wizard-modal">
         <div class="modal-dialog" style="max-width: 640px;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Подключить ноду (Enroll)</h2>
-                    <button class="modal-close" id="enroll-wizard-close" type="button"><i data-lucide="x"></i></button>
-                </div>
-                <div class="modal-body">
+            <div class="modal-header">
+                <h2>Подключить ноду (Enroll)</h2>
+                <button class="icon" id="enroll-wizard-close" type="button">&times;</button>
+            </div>
+            <div style="padding:20px; display:flex; flex-direction:column; gap:16px;">
                 <div id="enroll-step-1">
                     <p style="margin:0; color:var(--text-secondary); font-size:13px">Сгенерируйте одноразовый код для подключения агента к панели.</p>
                     <div style="display:flex; gap:12px; margin-top:12px; align-items:center;">
@@ -39,10 +38,9 @@
                     </div>
                 </div>
             </div>
-                <div class="modal-actions" style="padding-top:16px; border-top:1px solid var(--border);">
-                    <button type="button" class="btn-outline" id="enroll-wizard-cancel">Закрыть</button>
-                </div>
             </div>
+            <div class="modal-actions" style="border-top:1px solid var(--border); padding:16px 20px;">
+                <button type="button" class="btn-outline" id="enroll-wizard-cancel">Закрыть</button>
             </div>
         </div>
     </div>
