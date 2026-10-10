@@ -141,6 +141,13 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             rel = parsed.path[len("/frontend/") :]
             return str(FRONTEND_ROOT / rel)
 
+        # Handle case where /monitoring/ prefix is part of URL but files live under WEB_ROOT
+        # WEB_ROOT is /opt/monitoring/monitoring, so /monitoring/foo should map to WEB_ROOT/foo
+        if clean_path.lower().startswith("monitoring/"):
+            clean_path = clean_path[11:]  # len("monitoring/")
+        elif clean_path.lower() == "monitoring":
+            clean_path = ""
+
         if clean_path == "":
             clean_path = "index.php"
         return str(base / clean_path)
