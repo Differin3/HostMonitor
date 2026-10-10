@@ -10,7 +10,7 @@
                 <div id="enroll-step-1">
                     <p style="margin:0; color:var(--text-secondary); font-size:13px">Сгенерируйте одноразовый код для подключения агента к панели.</p>
                     <div style="display:flex; gap:12px; margin-top:12px; align-items:center;">
-                        <input type="text" id="enroll-code" readonly style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elev); color:var(--text); font-family: monospace; font-size:14px; letter-spacing:2px; text-align:center;" placeholder="AAAA-BBBB">
+                        <input type="text" id="enroll-code" readonly style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elev); color:var(--text-primary); font-family: monospace; font-size:14px; letter-spacing:2px; text-align:center;" placeholder="AAAA-BBBB">
                         <button type="button" class="btn-outline" id="enroll-gen-btn"><i data-lucide="refresh-cw"></i> Сгенерировать</button>
                         <button type="button" class="btn-outline" id="enroll-copy-btn" disabled><i data-lucide="copy"></i> Копировать</button>
                     </div>
@@ -22,7 +22,7 @@
                             <input type="checkbox" id="enroll-bind-node"> Привязать к существующей ноде
                         </label>
                         <div style="margin-top:8px; display:none;" id="enroll-node-wrap">
-                            <select id="enroll-node-select" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elev); color:var(--text);">
+                            <select id="enroll-node-select" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elev); color:var(--text-primary);">
                             </select>
                         </div>
                     </div>
@@ -30,7 +30,7 @@
 
                 <div id="enroll-step-2" style="display:none; border-top:1px solid var(--border); padding-top:16px;">
                     <p style="margin:0 0 8px 0; color:var(--text-secondary); font-size:13px">Выполните на сервере агента:</p>
-                    <div style="background:var(--bg-elev); border:1px solid var(--border); border-radius:10px; padding:12px; font-family: monospace; font-size:12px; color:var(--text); overflow-x:auto; white-space:pre-wrap;" id="enroll-cmd"></div>
+                    <div style="background:var(--bg-elev); border:1px solid var(--border); border-radius:10px; padding:12px; font-family: monospace; font-size:12px; color:var(--text-primary); overflow-x:auto; white-space:pre-wrap;" id="enroll-cmd"></div>
                     <div style="margin-top:8px; display:flex; gap:8px;">
                         <button type="button" class="btn-outline" id="enroll-copy-cmd"><i data-lucide="copy"></i> Копировать команду</button>
                     </div>
