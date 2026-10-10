@@ -1108,11 +1108,11 @@ input[type="checkbox"]:disabled {
 
 .modal-body {
     flex: 1;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
     padding: 20px 28px 0;
     color: var(--text-primary);
+    gap: 16px;
 }
 
 
