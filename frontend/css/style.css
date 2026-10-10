@@ -23,6 +23,7 @@
     --bg-sidebar: rgba(22, 22, 24, 0.78);
     --bg-card: rgba(28, 28, 32, 0.72);
     --bg-card-hover: rgba(44, 44, 50, 0.88);
+    --text: var(--text-primary);
     --text-primary: #f4f5f7;
     --text-muted: #9aa3b2;
     --text-secondary: #c7d1e0;
@@ -89,6 +90,7 @@ body.light {
     --bg-sidebar: #e2e8f0;  
     --bg-card: #ffffff;
     --bg-card-hover: #f1f5f9;
+    --text: var(--text-primary);
     --text-primary: #0f172a;
     --text-muted: #64748b;
     --text-secondary: #475569;
