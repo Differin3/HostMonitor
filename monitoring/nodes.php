@@ -26,7 +26,6 @@
                         </div>
                     </div>
                 </div>
-
                 <div id="enroll-step-2" style="display:none; border-top:1px solid var(--border); padding-top:16px;">
                     <p style="margin:0 0 8px 0; color:var(--text-secondary); font-size:13px">Выполните на сервере агента:</p>
                     <div style="background:var(--bg-elev); border:1px solid var(--border); border-radius:10px; padding:12px; font-family: monospace; font-size:12px; color:var(--text-primary); overflow-x:auto; white-space:pre-wrap;" id="enroll-cmd"></div>
@@ -38,9 +37,11 @@
                     </div>
                 </div>
             </div>
-            </div>
             <div class="modal-actions" style="border-top:1px solid var(--border); padding:16px 20px;">
                 <button type="button" class="btn-outline" id="enroll-wizard-cancel">Закрыть</button>
             </div>
         </div>
     </div>
+
+<?php
+render_layout_end(['/frontend/js/nodes.js']);
