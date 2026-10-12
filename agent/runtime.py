@@ -1,14 +1,67 @@
 # Общие помощники агента: конфиг, логирование, HTTP с ретраями, health-сервер
+import json as _json  # сериализация тела для Ed25519-подписи
 import os  # окружение
 import pathlib  # пути
 import requests  # HTTP-запросы
 import time  # таймеры
+from urllib.parse import urlsplit, urlencode  # путь для подписи
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from datetime import datetime  # время
 from typing import Optional  # аннотации вычисляются на импорте (Python < 3.14)
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+# Единая точка подписи: main.py регистрирует AgentAuth, как только он готов,
+# и все исходящие запросы к панели (не только transport) уходят с X-Agent-*.
+_agent_ed25519_auth = None
+
+
+def set_agent_ed25519_auth(auth) -> None:
+    global _agent_ed25519_auth
+    _agent_ed25519_auth = auth
+
+
+def _sign_request(method: str, url: str, kwargs: dict) -> None:
+    # Добавляет Ed25519-подпись в исходящий запрос (мутирует kwargs).
+    # Путь подписывается ровно так, как его увидит панель: REQUEST_URI
+    # с query string (см. agent_auth.php / agent_request_path).
+    auth = _agent_ed25519_auth
+    if auth is None or not getattr(auth, "can_sign", False):
+        return
+    parsed = urlsplit(url)
+    path = parsed.path
+    if parsed.query:
+        path += "?" + parsed.query
+    elif kwargs.get("params"):
+        query = urlencode(kwargs["params"])
+        if query:
+            path += "?" + query
+    body = b""
+    if "data" in kwargs:
+        raw = kwargs["data"]
+        body = raw if isinstance(raw, bytes) else str(raw).encode("utf-8", errors="replace")
+    elif "json" in kwargs:
+        # Сериализуем один раз и отправляем как data=: панель подписывает
+        # тело php://input ровно в тех байтах, что ушли на провод.
+        # allow_nan=False — как в requests: NaN/Infinity не должны молча
+        # уходить, иначе панель не сможет прочитать JSON.
+        body = _json.dumps(kwargs["json"], allow_nan=False).encode("utf-8", errors="replace")
+        kwargs["data"] = body
+        kwargs.pop("json")
+    headers = dict(kwargs.get("headers") or {})
+    sig = auth.sign_request(method, path, body)
+    headers.update(sig)
+    headers.setdefault("Content-Type", "application/json")
+    kwargs["headers"] = headers
+
+
+def _request_once(method: str, url: str, **kwargs) -> Optional[requests.Response]:
+    # Один запрос с подписью: без ретраев (heartbeat, короткие вспомогательные).
+    _sign_request(method, url, kwargs)
+    timeout = kwargs.pop("timeout", 10)
+    return requests.request(method, url, timeout=timeout, **kwargs)
 
 
 def load_node_conf(path: str = "node.conf") -> None:
@@ -58,6 +111,8 @@ def load_node_conf(path: str = "node.conf") -> None:
               'ALLOW_DANGEROUS_COMMANDS', 'ALLOW_AGENT_UPDATES',
               'SNMP_COMMUNITY', 'SMART_INTERVAL',
             'MASTER_URL_INSECURE',
+            # Ed25519-enroll: ключи, которые пишет agent/enroll.py
+            'NODE_ID', 'NODE_SECRET_B64', 'NODE_PUBLIC_KEY_B64',
         }
         _BLOCKED_CONF_KEYS = {
             'LD_PRELOAD', 'LD_LIBRARY_PATH', 'PYTHONPATH', 'PYTHONSTARTUP',
@@ -117,12 +172,13 @@ def _log(msg: str) -> None:
 
 def _request_with_retry(method: str, url: str, **kwargs) -> Optional[requests.Response]:
     # HTTP-запрос с повторами и задержкой
-    timeout = kwargs.pop("timeout", 10)
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     retry_delay = int(os.getenv("RETRY_DELAY", "5"))
     for attempt in range(1, max_retries + 1):
         try:
-            resp = requests.request(method, url, timeout=timeout, **kwargs)
+            # Подпись пересчитывается на каждый attempt: timestamp не протухнет
+            # во время паузы между ретраями (панель режет >60 c).
+            resp = _request_once(method, url, **kwargs)
             return resp
         except Exception as e:
             _log(f"request error ({attempt}/{max_retries}) {method} {url}: {e}")

@@ -8,9 +8,9 @@ import time  # таймеры
 from threading import Lock  # фоновый поток
 
 try:
-    from .runtime import _log, load_node_conf, start_health_server
+    from .runtime import _log, load_node_conf, start_health_server, set_agent_ed25519_auth
 except ImportError:
-    from runtime import _log, load_node_conf, start_health_server
+    from runtime import _log, load_node_conf, start_health_server, set_agent_ed25519_auth
 
 try:
     from . import upnp as upnp_mod
@@ -69,6 +69,11 @@ class MonitoringAgent(
                 self.auth = AgentAuth(nid, os.getenv("NODE_SECRET_B64"))
                 if self.auth.can_sign:
                     _log(f"Ed25519 auth enabled for node_id={nid}")
+                    # Все исходящие запросы к панели подписываются автоматически.
+                    try:
+                        set_agent_ed25519_auth(self.auth)
+                    except Exception:
+                        pass
         except Exception as e:
             _log(f"auth init failed: {e}")
         # Храним предыдущие значения для расчета расхода трафика
@@ -293,12 +298,16 @@ if __name__ == "__main__":
     print(f"  COLLECT_INTERVAL: {collect_interval}")
 
     if not node_token:
-        print("[agent] ERROR: NODE_TOKEN is not set. Please configure the agent.")
-        print(f"[agent] MASTER_URL: {master_url}")
-        print(f"[agent] NODE_NAME: {node_name}")
-        print(f"[agent] NODE_TOKEN from env: {'set' if os.getenv('NODE_TOKEN') else 'NOT SET'}")
-        print("[agent] Check that node.conf exists and contains NODE_TOKEN=...")
-        exit(1)
+        has_ed25519 = bool(os.getenv("NODE_ID") and os.getenv("NODE_SECRET_B64"))
+        if not has_ed25519:
+            print("[agent] ERROR: neither NODE_TOKEN nor Ed25519 keys (NODE_ID+NODE_SECRET_B64) are set.")
+            print(f"[agent]       Please configure the agent.")
+            print(f"[agent] MASTER_URL: {master_url}")
+            print(f"[agent] NODE_NAME: {node_name}")
+            print(f"[agent] NODE_TOKEN from env: {'set' if os.getenv('NODE_TOKEN') else 'NOT SET'}")
+            print("[agent] Check that node.conf exists and contains NODE_TOKEN=... (legacy)")
+            print("[agent] or run: python3 agent/enroll.py --master <panel> --token <enroll-code> (Ed25519)")
+            exit(1)
     
     print(f"[agent] Initializing agent with token length: {len(node_token)}")
     agent = MonitoringAgent(master_url=master_url, node_name=node_name, node_token=node_token)
