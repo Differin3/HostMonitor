@@ -319,7 +319,6 @@ function openEditModal(node) {
     // Заполняем форму
     editForm.name.value = node.name ?? '';
     editForm.host.value = node.host ?? '';
-    editForm.port.value = node.port ?? 2222;
     editForm.country.value = node.country ?? '';
     
     // Загружаем провайдеров и устанавливаем значение
@@ -467,7 +466,6 @@ const handleEditSubmit = async (event) => {
     const payload = {
         name: editForm.name.value.trim(),
         host: editForm.host.value.trim(),
-        port: Number(editForm.port.value) || 2222,
         country: editForm.country?.value || null,
         provider_name: providerName,
     };
@@ -1138,7 +1136,7 @@ function openEnrollWizard(boundNodeId = null) {
     setTimeout(() => modal.classList.add('active'), 10);
     step1.style.display = 'block';
     step2.style.display = 'none';
-    codeInput.value = '';
+    codeInput.textContent = '•••• — код появится после генерации';
     copyBtn.disabled = true;
     cmdBox.textContent = '';
     bindChk.checked = false;
@@ -1182,7 +1180,7 @@ function openEnrollWizard(boundNodeId = null) {
     document.addEventListener('keydown', function onKey(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown', onKey); } }, {once:true});
 
     copyBtn.onclick = async () => {
-        const v = codeInput.value.trim();
+        const v = (codeInput.textContent || '').trim();
         if (!v) return;
         try { await navigator.clipboard.writeText(v); showToast('Код скопирован', 'success'); } catch(_) {}
     };
@@ -1213,8 +1211,8 @@ function openEnrollWizard(boundNodeId = null) {
                 throw new Error(j.error||'Ошибка');
             }
             const j = await res.json();
-            codeInput.value = j.token || '';
-            copyBtn.disabled = !codeInput.value;
+            codeInput.textContent = j.token || '•••• — код появится после генерации';
+            copyBtn.disabled = !(j.token || '').trim();
             // Публичный адрес панели определяет сервер (учёт reverse-proxy/NPM),
             // локальный origin — только аварийный fallback.
             const fallbackOrigin = window.location.origin;
