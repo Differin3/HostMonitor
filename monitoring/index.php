@@ -261,10 +261,10 @@ HTML;
     </section>
 
     <div class="modal hidden" id="dash-detail-modal" aria-hidden="true">
-        <div class="modal-dialog" style="max-width: 820px;">
+        <div class="modal-content" style="max-width: 820px;">
             <div class="modal-header">
                 <h2 id="dash-detail-title">Подробная статистика</h2>
-                <button class="icon" type="button" id="dash-detail-close" aria-label="Закрыть">&times;</button>
+                <button class="modal-close" type="button" id="dash-detail-close" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body" id="dash-detail-body">
                 <div class="dash-detail-kpis" id="dash-detail-kpis"></div>

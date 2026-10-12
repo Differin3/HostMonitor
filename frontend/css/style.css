@@ -1108,9 +1108,10 @@ input[type="checkbox"]:disabled {
 
 .modal-body {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 20px 28px 0;
+    padding: 20px 28px 16px;
     color: var(--text-primary);
     gap: 16px;
 }
@@ -1304,6 +1305,101 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .form-loading *:where(input, select, button) {
     pointer-events: none;
+}
+
+/* ——— Modal: единые составные части для всех модалок ——— */
+.modal-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.modal-note > i,
+.modal-note > svg {
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.modal-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.modal-check-row:hover {
+    color: var(--text-primary);
+}
+
+.modal-check-row input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+.modal-code {
+    padding: 14px 16px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+}
+
+.modal-enroll-code {
+    padding: 14px;
+    border: 1px dashed rgba(59, 130, 246, 0.5);
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.07);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-align: center;
+}
+
+.modal-step + .modal-step {
+    border-top: 1px solid var(--border-color);
+    padding-top: 18px;
+}
+
+.modal-footnote {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-tertiary);
+}
+
+/* Окна на базе .modal-content: шапка/футер выровнены с .modal-body */
+.modal-content .modal-header {
+    padding-left: 28px;
+    padding-right: 28px;
+}
+
+.modal-content .modal-actions {
+    margin: 0;
+    padding: 16px 28px 20px;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .btn-spinner {
@@ -4249,7 +4345,7 @@ body.light .date-picker-footer {
 
 /* ——— UPnP: интерактивные плашки и окно деталей ——— */
 .upnp-dev-body {
-    overflow: visible;
+    overflow-y: auto;
 }
 
 .upnp-dev {

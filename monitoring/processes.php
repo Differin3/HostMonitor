@@ -45,8 +45,8 @@ render_layout_start('Процессы', 'processes', '<button class="primary" on
     <div id="process-logs-modal" class="modal" style="display: none;">
         <div class="modal-content" style="max-width: 90%; width: 1200px; max-height: 90vh;">
             <div class="modal-header">
-                <h3 id="modal-process-name">Логи процесса</h3>
-                <button class="modal-close" onclick="closeProcessLogsModal()">&times;</button>
+                <h2 id="modal-process-name">Логи процесса</h2>
+                <button class="modal-close" onclick="closeProcessLogsModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px; max-height: calc(90vh - 120px);">
                 <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">

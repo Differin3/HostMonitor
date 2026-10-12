@@ -180,7 +180,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         <div class="modal-dialog">
             <div class="modal-header">
                 <h2>Биллинг нода</h2>
-                <button class="icon" onclick="closeBillingModal()">&times;</button>
+                <button class="modal-close" onclick="closeBillingModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <form id="billing-form">
                 <input type="hidden" name="node_id" id="billing-node-id">
@@ -236,7 +236,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         <div class="modal-dialog">
             <div class="modal-header">
                 <h2>Платежная запись</h2>
-                <button class="icon" onclick="closePaymentModal()">&times;</button>
+                <button class="modal-close" onclick="closePaymentModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <form id="payment-form">
                 <div class="form-field">
@@ -282,7 +282,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         <div class="modal-dialog">
             <div class="modal-header">
                 <h2>Провайдер</h2>
-                <button class="icon" onclick="closeProviderModal()">&times;</button>
+                <button class="modal-close" onclick="closeProviderModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <form id="provider-form">
                 <input type="hidden" name="provider_id" id="provider-edit-id" value="">
@@ -323,7 +323,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         <div class="modal-dialog">
             <div class="modal-header">
                 <h2>Обновить дату оплаты</h2>
-                <button class="icon" onclick="closeUpdatePaymentDateModal()">&times;</button>
+                <button class="modal-close" onclick="closeUpdatePaymentDateModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
             </div>
             <form id="update-payment-date-form">
                 <input type="hidden" name="node_id" id="update-payment-node-id">

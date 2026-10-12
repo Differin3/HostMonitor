@@ -47,10 +47,7 @@ render_layout_start('Контейнеры', $activeSlug, '<button class="primary
     <div id="container-logs-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="container-logs-title">
-                    <i data-lucide="file-text" style="width: 24px; height: 24px; margin-right: 8px;"></i>
-                    Логи контейнера
-                </h2>
+                <h2 id="container-logs-title">Логи контейнера</h2>
                 <button class="modal-close" onclick="closeContainerLogsModal()">
                     <i data-lucide="x"></i>
                 </button>

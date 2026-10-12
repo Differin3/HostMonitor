@@ -100,6 +100,7 @@ render_layout_start(
                     <label class="full">Описание<input type="text" name="description" value="HostMonitor"></label>
                 </div>
                 <div class="modal-actions">
+                    <button type="button" class="btn-outline" onclick="closeModal()">Отмена</button>
                     <button type="submit" class="primary">Создать mapping</button>
                 </div>
             </form>
@@ -107,7 +108,7 @@ render_layout_start(
     </div>
 
     <div class="modal hidden" id="upnp-details-modal">
-        <div class="modal-dialog upnp-dev-dialog" style="max-width: 780px;">
+        <div class="modal-content upnp-dev-dialog" style="max-width: 780px;">
             <div class="modal-header">
                 <h2 id="upnp-details-title">Устройство</h2>
                 <button class="modal-close" type="button" id="upnp-details-close"><i data-lucide="x"></i></button>
