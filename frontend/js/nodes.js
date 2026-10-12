@@ -5,7 +5,6 @@ const API_URL = `${API_BASE}/nodes.php`;
 let nodesState = [];
 let editingNodeId = null;
 let refreshTimer = null;
-let generatedNodeToken = null;
 
 // DOM элементы (будут инициализированы при загрузке)
 let tableBody, tableWrapper, tableLoader, createModal, editModal, createForm, editForm, toast;
@@ -226,9 +225,7 @@ function addNode() {
         }
     }
     editingNodeId = null;
-    generatedNodeToken = null;
     createForm.reset();
-    generateNewKey('create');
     openCreateModal();
 }
 
@@ -237,8 +234,6 @@ window.refreshSelectedNodes = refreshSelectedNodes;
 window.deleteSelectedNodes = deleteSelectedNodes;
 window.refreshNode = refreshNode;
 window.refreshAllNodes = refreshAllNodes;
-window.generateNewKey = generateNewKey;
-window.copySecretKey = copySecretKey;
 window.copyConfig = copyConfig;
 
 function openCreateModal() {
@@ -435,10 +430,6 @@ const handleCreateSubmit = async (event) => {
     const payload = {
         name: createForm.name.value.trim(),
         host: createForm.host.value.trim(),
-        port: Number(createForm.port.value) || 2222,
-        country: createForm.country?.value || null,
-        secret_key: createForm.secret_key?.value || null,
-        node_token: generatedNodeToken || null,
         provider_name: document.getElementById('provider-select-create')?.value.trim() || null,
     };
     
@@ -449,12 +440,11 @@ const handleCreateSubmit = async (event) => {
             body: JSON.stringify(payload),
         });
         if (result && result.id) {
-            showToast('Нода создана успешно', 'success');
+            showToast('Нода создана. Скопируйте команду подключения.', 'success');
             closeCreateModal();
-            // Обновляем список нод с небольшой задержкой, чтобы БД успела обновиться
-            setTimeout(() => {
-                loadNodes();
-            }, 500);
+            // Обновляем список и сразу открываем команду enroll для новой ноды
+            loadNodes();
+            openEnrollWizard(result.id);
         } else {
             throw new Error(result?.error || 'Неизвестная ошибка');
         }
@@ -496,94 +486,6 @@ const handleEditSubmit = async (event) => {
     }
 };
 
-function generateNewKey(type = 'create') {
-    const inputId = type === 'create' ? 'secret-key-input-create' : 'secret-key-input-edit';
-    fetch(`${API_URL}?action=generate-key`)
-        .then(res => res.text())
-        .then(text => {
-            const data = text ? JSON.parse(text) : {};
-            const key = data.secret_key || '';
-            const input = document.getElementById(inputId);
-            if (input) input.value = key;
-            if (type === 'create' && key) {
-                generatedNodeToken = key;
-            }
-        })
-        .catch(() => {
-            // Генерируем локально если API недоступен
-            const key = btoa(Array.from(crypto.getRandomValues(new Uint8Array(64))).join(''));
-            const input = document.getElementById(inputId);
-            if (input) input.value = key;
-            if (type === 'create') {
-                generatedNodeToken = key;
-            }
-        });
-}
-
-function copySecretKey(type = 'create') {
-    const inputId = type === 'create' ? 'secret-key-input-create' : 'secret-key-input-edit';
-    const input = document.getElementById(inputId);
-    if (!input) return;
-    input.select();
-    document.execCommand('copy');
-    showToast('Ключ скопирован', 'success');
-}
-
-function getConfigText(name, host, port, token) {
-    // Автоматическое определение URL мастера из текущего URL
-    const currentUrl = new URL(window.location.href);
-    let masterHost = currentUrl.hostname;
-    let masterPort = currentUrl.port;
-    
-    // Если порт не указан в URL, используем стандартные порты
-    if (!masterPort) {
-        masterPort = currentUrl.protocol === 'https:' ? '443' : '80';
-    }
-    
-    // Формируем URL мастера
-    let masterUrl = `${currentUrl.protocol}//${masterHost}`;
-    // Добавляем порт только если это не стандартный порт
-    if ((currentUrl.protocol === 'http:' && masterPort !== '80') || 
-        (currentUrl.protocol === 'https:' && masterPort !== '443')) {
-        masterUrl += `:${masterPort}`;
-    }
-    
-    return `# Конфигурация агента HostMonitor
-# Сгенерировано автоматически
-# Дата: ${new Date().toLocaleString('ru-RU')}
-
-MASTER_URL="${masterUrl}"
-MASTER_HOST="${masterHost}"
-MASTER_PORT="${masterPort}"
-NODE_NAME="${name}"
-NODE_HOST="${host}"
-NODE_PORT="${port}"
-NODE_TOKEN="${token}"
-COLLECT_INTERVAL=60
-HEARTBEAT_INTERVAL=15
-UPNP_ENABLED=true
-UPNP_INTERVAL_CYCLES=2
-UPNP_MX=3
-UPNP_TIMEOUT=8
-UPNP_GENA_PORT=0
-SNMP_ENABLED=true
-SNMP_COMMUNITY="public"
-SNMP_TIMEOUT=0.8
-# SNMP_TARGETS="192.168.1.1,192.168.1.2"
-LLDP_PASSIVE=true
-# LLDP_LISTEN_INTERFACE=eth0
-LLDP_ACTIVE_POLL_KNOWN=true
-TLS_VERIFY=false
-
-# Установка зависимостей:
-# pip install -r agent/requirements.txt
-# pip install scapy   # LLDP passive (root)
-
-# Запуск:
-# python agent/main.py
-`;
-}
-
 async function copyTextToClipboard(text) {
     try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -607,60 +509,33 @@ async function copyTextToClipboard(text) {
     }
 }
 
-async function copyConfig(type = 'create') {
-    if (!createForm && type === 'create') return;
-    const form = type === 'create' ? createForm : editForm;
-
-    // Редактирование существующей ноды — конфиг с API (как «Скачать»)
-    if (type === 'edit') {
-        const nodeId = form?.dataset?.nodeId || document.getElementById('node-edit-form')?.dataset?.nodeId;
-        if (!nodeId) {
-            showToast('Откройте ноду для копирования конфига', 'warning');
+async function copyConfig(type = 'edit') {
+    // Конфиг агента теперь генерирует панель (config с сервера, включает MASTER_URL/ключи).
+    const nodeId = editForm?.dataset?.nodeId || document.getElementById('node-edit-form')?.dataset?.nodeId;
+    if (!nodeId) {
+        showToast('Откройте ноду для копирования конфига', 'warning');
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE}/nodes.php?id=${encodeURIComponent(nodeId)}&action=generate-config`, { credentials: 'include' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
+        if (data.error) {
+            showToast(data.error, 'error');
             return;
         }
-        try {
-            const response = await fetch(`${API_BASE}/nodes.php?id=${encodeURIComponent(nodeId)}&action=generate-config`, { credentials: 'include' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const text = await response.text();
-            const data = text ? JSON.parse(text) : {};
-            if (data.error) {
-                showToast(data.error, 'error');
-                return;
-            }
-            const config = data.config || '';
-            if (!config) {
-                showToast('Конфиг не найден', 'error');
-                return;
-            }
-            const ok = await copyTextToClipboard(config);
-            showToast(ok ? 'Конфиг скопирован' : 'Не удалось скопировать конфиг', ok ? 'success' : 'error');
-        } catch (error) {
-            console.error('copyConfig edit', error);
-            showToast('Ошибка копирования конфига', 'error');
+        const config = data.config || '';
+        if (!config) {
+            showToast('Конфиг не найден', 'error');
+            return;
         }
-        return;
+        const ok = await copyTextToClipboard(config);
+        showToast(ok ? 'Конфиг скопирован' : 'Не удалось скопировать конфиг', ok ? 'success' : 'error');
+    } catch (error) {
+        console.error('copyConfig', error);
+        showToast('Ошибка копирования конфига', 'error');
     }
-    
-    const name = form.name.value.trim();
-    const host = form.host.value.trim();
-    const port = form.port.value || '2222';
-    const token = (generatedNodeToken
-        || document.getElementById('secret-key-input-create')?.value
-        || form.secret_key?.value
-        || '').trim();
-    
-    if (!name || !host) {
-        showToast('Заполните имя и хост перед копированием конфига', 'warning');
-        return;
-    }
-    if (!token) {
-        showToast('Сгенерируйте секретный ключ перед копированием конфига', 'warning');
-        return;
-    }
-    
-    const configText = getConfigText(name, host, port, token);
-    const ok = await copyTextToClipboard(configText);
-    showToast(ok ? 'Конфиг скопирован' : 'Не удалось скопировать конфиг', ok ? 'success' : 'error');
 }
 
 async function exportNodeConfig(nodeId) {
@@ -1237,7 +1112,7 @@ function applyImport() {
     });
 }
 
-function openEnrollWizard() {
+function openEnrollWizard(boundNodeId = null) {
     const modal = document.getElementById('enroll-wizard-modal');
     const genBtn = document.getElementById('enroll-gen-btn');
     const copyBtn = document.getElementById('enroll-copy-btn');
@@ -1285,6 +1160,11 @@ function openEnrollWizard() {
             opt.value = n.id;
             opt.textContent = n.name + (n.host?(' ('+n.host+')'):'');
             nodeSel.appendChild(opt);
+        }
+        if (boundNodeId) {
+            bindChk.checked = true;
+            nodeWrap.style.display = 'block';
+            nodeSel.value = String(boundNodeId);
         }
     }).catch(()=>{});
 
@@ -1335,9 +1215,10 @@ function openEnrollWizard() {
             const j = await res.json();
             codeInput.value = j.token || '';
             copyBtn.disabled = !codeInput.value;
-            const origin = window.location.origin;
-            const path = window.location.pathname.replace(/\/[^\/]*$/, '/');
-            const master = origin + (path.includes('/monitoring') ? path.replace(/monitoring\/$/, '') : path.replace(/\/$/, '') + '/monitoring');
+            // Публичный адрес панели определяет сервер (учёт reverse-proxy/NPM),
+            // локальный origin — только аварийный fallback.
+            const fallbackOrigin = window.location.origin;
+            const master = (j.master_url || fallbackOrigin).replace(/\/+$/, '');
             cmdBox.textContent = `cd /opt/monitoring && python3 -m pip install -q cryptography 2>/dev/null; python3 agent/enroll.py --master "${master}" --token "${j.token}"`;
             step2.style.display = 'block';
             if (window.lucide) lucide.createIcons();

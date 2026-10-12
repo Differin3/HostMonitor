@@ -1030,3 +1030,133 @@ if (!function_exists('client_ip')) {
         return $remote;
     }
 }
+
+if (!function_exists('panel_is_internal_host')) {
+    /** true для адресов, которые агент снаружи не сможет использовать как MASTER_URL. */
+    function panel_is_internal_host(string $host): bool
+    {
+        $host = strtolower(trim($host, "[]"));
+        return $host === ''
+            || $host === 'localhost'
+            || $host === '127.0.0.1'
+            || $host === '::1'
+            || $host === '0.0.0.0'
+            || str_starts_with($host, '127.');
+    }
+}
+
+if (!function_exists('panel_request_scheme')) {
+    /** Схема исходного запроса с учётом reverse-proxy (NPM/nginx). */
+    function panel_request_scheme(): string
+    {
+        $proto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        if ($proto === 'https' || $proto === 'http') {
+            return $proto;
+        }
+        $https = (string)($_SERVER['HTTPS'] ?? '');
+        if ($https !== '' && strtolower($https) !== 'off') {
+            return 'https';
+        }
+        return 'http';
+    }
+}
+
+if (!function_exists('panel_normalize_public_target')) {
+    /**
+     * Приводит "host[:port]" или URL к виду scheme://host[:port], отсекая
+     * localhost/loopback. Возвращает null, если адрес непригоден для агента.
+     */
+    function panel_normalize_public_target(string $value, string $defaultScheme = 'https'): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (!preg_match('~^[a-z][a-z0-9+.\-]*://~i', $value)) {
+            $value = $defaultScheme . '://' . $value;
+        }
+        $parts = parse_url($value);
+        if (!is_array($parts) || empty($parts['host'])) {
+            return null;
+        }
+        $host = (string)$parts['host'];
+        if (panel_is_internal_host($host)) {
+            return null;
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? $defaultScheme));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            $scheme = $defaultScheme;
+        }
+        $base = $scheme . '://' . $host;
+        $port = isset($parts['port']) ? (int)$parts['port'] : null;
+        if ($port !== null && !(($scheme === 'http' && $port === 80) || ($scheme === 'https' && $port === 443))) {
+            $base .= ':' . $port;
+        }
+        return $base;
+    }
+}
+
+if (!function_exists('panel_public_base_url')) {
+    /**
+     * Публичный базовый URL панели для MASTER_URL в конфигах агентов.
+     *
+     * Порядок определения:
+     *   1) заголовки текущего запроса (X-Forwarded-Proto/Host → Host) — когда
+     *      панель стоит за reverse-proxy (Nginx Proxy Manager), который шлёт
+     *      публичный Host;
+     *   2) настройка public_url панели;
+     *   3) env MASTER_URL, затем сетевой адрес хоста (аварийный fallback).
+     */
+    function panel_public_base_url(): string
+    {
+        $scheme = panel_request_scheme();
+
+        $hostHeader = trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? ''))[0]);
+        if ($hostHeader === '') {
+            $hostHeader = trim(explode(',', (string)($_SERVER['HTTP_HOST'] ?? ''))[0]);
+        }
+        if ($hostHeader === '') {
+            $hostHeader = (string)($_SERVER['SERVER_NAME'] ?? '');
+        }
+        $candidate = panel_normalize_public_target($hostHeader, $scheme);
+        if ($candidate !== null) {
+            return $candidate;
+        }
+
+        if (function_exists('setting_get')) {
+            $configured = trim((string)setting_get('public_url', ''));
+            if ($configured !== '') {
+                $candidate = panel_normalize_public_target($configured, $scheme);
+                if ($candidate !== null) {
+                    return $candidate;
+                }
+            }
+        }
+
+        $env = trim((string)(getenv('MASTER_URL') ?: ''));
+        if ($env !== '') {
+            $candidate = panel_normalize_public_target($env, $scheme);
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+
+        $ip = trim((string)(getenv('MASTER_IP') ?: ''));
+        if ($ip === '') {
+            $hostname = @gethostname();
+            if (is_string($hostname) && $hostname !== '') {
+                $resolved = trim((string)@gethostbyname($hostname));
+                if ($resolved !== $hostname) {
+                    $ip = $resolved;
+                }
+            }
+        }
+        if ($ip === '') {
+            $ip = (string)($_SERVER['SERVER_ADDR'] ?? '');
+        }
+        if ($ip === '' || panel_is_internal_host($ip)) {
+            $ip = 'localhost';
+        }
+        return $scheme . '://' . $ip;
+    }
+}

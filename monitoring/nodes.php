@@ -56,20 +56,6 @@ render_layout_start('Ноды', 'nodes', $actions);
             
             <form id="node-create-form">
                     <div class="form-field">
-                        <label class="form-label">Секретный ключ (SECRET_KEY)</label>
-                        <div class="input-with-icon">
-                            <i data-lucide="key" class="input-icon"></i>
-                            <input type="text" name="secret_key" id="secret-key-input-create" readonly class="secret-key-input">
-                            <button type="button" class="btn-copy" onclick="copySecretKey('create')" title="Копировать">
-                                <i data-lucide="copy"></i>
-                            </button>
-                            <button type="button" class="btn-refresh" onclick="generateNewKey('create')" title="Сгенерировать новый">
-                                <i data-lucide="refresh-cw"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="form-field">
                         <label class="form-label">Внутреннее имя *</label>
                         <div class="input-with-icon">
                             <i data-lucide="tag" class="input-icon"></i>
@@ -78,43 +64,10 @@ render_layout_start('Ноды', 'nodes', $actions);
                     </div>
                     
                     <div class="form-field">
-                        <label class="form-label">Страна</label>
-                        <div class="input-with-icon">
-                            <i data-lucide="map-pin" class="input-icon"></i>
-                            <select name="country" class="country-select">
-                                <option value="">Выберите страну</option>
-                                <option value="RU">🇷🇺 Россия</option>
-                                <option value="NL">🇳🇱 Нидерланды</option>
-                                <option value="DE">🇩🇪 Германия</option>
-                                <option value="US">🇺🇸 США</option>
-                                <option value="GB">🇬🇧 Великобритания</option>
-                                <option value="FR">🇫🇷 Франция</option>
-                                <option value="PL">🇵🇱 Польша</option>
-                                <option value="FI">🇫🇮 Финляндия</option>
-                                <option value="SG">🇸🇬 Сингапур</option>
-                                <option value="JP">🇯🇵 Япония</option>
-                                <option value="CN">🇨🇳 Китай</option>
-                                <option value="IN">🇮🇳 Индия</option>
-                                <option value="BR">🇧🇷 Бразилия</option>
-                                <option value="CA">🇨🇦 Канада</option>
-                                <option value="AU">🇦🇺 Австралия</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="form-field">
                         <label class="form-label">Домен или IP-адрес *</label>
                         <div class="input-with-icon">
                             <i data-lucide="globe" class="input-icon"></i>
-                            <input type="text" name="host" required placeholder="192.168.1.1" value="192.168.1.1">
-                        </div>
-                    </div>
-                    
-                    <div class="form-field">
-                        <label class="form-label">Порт узла *</label>
-                        <div class="input-with-icon">
-                            <i data-lucide="server" class="input-icon"></i>
-                            <input type="number" name="port" required value="2222" min="1" max="65535">
+                            <input type="text" name="host" required placeholder="192.168.1.1">
                         </div>
                     </div>
                     
@@ -130,13 +83,11 @@ render_layout_start('Ноды', 'nodes', $actions);
                     </div>
                     
                     <div class="form-field">
-                        <label class="form-label">Конфигурация агента</label>
-                        <button type="button" class="btn-copy-config-full" onclick="copyConfig('create')">
-                            <i data-lucide="copy"></i> Копировать конфиг
-                        </button>
+                        <label class="form-label">Подключение агента</label>
                         <div class="form-hint">
                             <i data-lucide="info"></i>
-                            Конфиг будет сгенерирован после создания ноды
+                            После создания откроется команда подключения (Enroll, Ed25519). Приватный ключ генерирует агент, панель его не раздаёт.
+                        </div>
                     </div>
                 </div>
                 
