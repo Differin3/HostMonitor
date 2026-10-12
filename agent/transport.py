@@ -9,10 +9,10 @@ import time  # таймеры
 from threading import Thread
 from datetime import datetime  # время
 try:
-    from .runtime import _log, _get_verify, _request_with_retry
+    from .runtime import _log, _get_verify, _request_once, _request_with_retry
     from .auth import AgentAuth
 except ImportError:
-    from runtime import _log, _get_verify, _request_with_retry
+    from runtime import _log, _get_verify, _request_once, _request_with_retry
     try:
         from auth import AgentAuth
     except Exception:
@@ -760,7 +760,8 @@ class TransportMixin:
             except Exception:
                 pass
             try:
-                resp = requests.post(
+                resp = _request_once(
+                    "POST",
                     f"{self.master_url}/api/nodes.php?action=heartbeat",
                     json=payload,
                     headers=getattr(self, "signed_headers", self.headers),

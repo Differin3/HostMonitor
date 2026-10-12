@@ -121,7 +121,7 @@ function generateFaviconUrl($url) {
 }
 
 function handleGet($pdo) {
-    global $nodeInfo;
+    global $auth;
     $id = $_GET['id'] ?? null;
     $action = $_GET['action'] ?? null;
     
@@ -269,7 +269,7 @@ function handleGet($pdo) {
             $stmt = $pdo->prepare("UPDATE nodes SET public_key = ?, key_rotated_at = ?, node_token = NULL WHERE id = ?");
             $stmt->execute([$kp['public_pem'], date('Y-m-d H:i:s'), $nodeId]);
             $stmt2 = $pdo->prepare(
-                'INSERT INTO key_rotation_log (node_id, actor_type, actor_id, reason, old_fingerprint, new_fingerprint)
+                'INSERT INTO key_rotation_log (node_id, actor_type, actor_id, reason, old_key_fp, new_key_fp)
                  VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt2->execute([$nodeId, 'admin', $auth['user'] ?? null, 'admin-rotate', null, $kp['fingerprint']]);
@@ -792,8 +792,8 @@ function handlePost($pdo) {
     
     // Heartbeat от агента: POST /api/nodes.php?action=heartbeat
     if ($action === 'heartbeat') {
-        global $nodeInfo;
-        if (!$nodeInfo) {
+        global $agentNode;
+        if (!$agentNode) {
             http_response_code(401);
             echo json_encode(['error' => 'Unauthorized']);
             exit;
@@ -801,7 +801,7 @@ function handlePost($pdo) {
 
         // Не вызываем nodes_ensure_agent_columns на heartbeat — маркер/миграцию делает UI/старт
         
-        $nodeId = $nodeInfo['id'];
+        $nodeId = $agentNode['id'];
         $data = json_decode((string)file_get_contents('php://input'), true);
         if (!is_array($data)) {
             $data = [];
@@ -844,7 +844,7 @@ function handlePost($pdo) {
     
     // Отчет о статусе команды от агента: POST /api/nodes.php?id={name}&action=command-status
     if ($action === 'command-status') {
-        global $nodeInfo;
+        global $agentNode, $isAdmin;
         $data = json_decode(file_get_contents('php://input'), true);
         if (!$data) {
             http_response_code(400);
@@ -852,14 +852,19 @@ function handlePost($pdo) {
             return;
         }
         
-        // Если запрос от агента с токеном, используем node_id из токена
+        // Агент (Ed25519 или legacy) — только свою ноду; админ — по имени или id.
         $targetNodeId = null;
-        if ($nodeInfo) {
-            $targetNodeId = $nodeInfo['id'];
-        } else {
-            // Иначе ищем по имени или id
+        if ($agentNode) {
+            $targetNodeId = $agentNode['id'];
+        } elseif ($isAdmin) {
+            $lookup = trim((string)$nodeId);
+            if ($lookup === '') {
+                http_response_code(400);
+                echo json_encode(['error' => 'Node id required']);
+                return;
+            }
             $stmt = $pdo->prepare("SELECT * FROM nodes WHERE name = ? OR id = ?");
-            $stmt->execute([$nodeId, $nodeId]);
+            $stmt->execute([$lookup, $lookup]);
             $node = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$node) {
                 http_response_code(404);
@@ -867,6 +872,10 @@ function handlePost($pdo) {
                 return;
             }
             $targetNodeId = $node['id'];
+        } else {
+            http_response_code(403);
+            echo json_encode(['error' => 'Forbidden: admin or owning agent required']);
+            return;
         }
         
         $commandStatus = $data['status'] ?? 'completed'; // completed / failed / pending
@@ -1243,6 +1252,9 @@ function refreshAllNodes($pdo) {
 }
 
 function executeNodeAction($pdo, $nodeId, $action) {
+    // Команды нодам ставит только админ: агент не должен управлять чужими нодами.
+    nodes_require_admin();
+
     $stmt = $pdo->prepare("SELECT * FROM nodes WHERE id = ?");
     $stmt->execute([$nodeId]);
     $node = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -1,11 +1,51 @@
 #!/bin/bash
 # Установка агента HostMonitor на ноде (Linux/FreeBSD). База данных агенту не нужна.
 # Поддержка: Debian/Ubuntu, CentOS/RHEL/Fedora/Rocky/Alma, Arch, FreeBSD (TrueNAS Core/Scale)
+#
+# Использование:
+#   install_agent.sh [REPO_URL] [BRANCH] [INSTALL_DIR]
+#   install_agent.sh --enroll <КОД> --master <URL> [--node-name <ИМЯ>] --force
+#
+#   --enroll <КОД>   обменять одноразовый код из панели («Подключить ноду (Enroll)»)
+#                    на Ed25519-ключ и создать node.conf БЕЗ токена;
+#   --master <URL>   URL панели для enroll (https://panel/ или https://panel/monitoring);
+#   --node-name <ИМЯ> имя ноды, если не определять из hostname;
+#   --node-id <ID>   принудительный node_id для существующей ноды (перекрывает enroll);
+#   --force          пересоздать node.conf, даже если он уже есть;
+#   --fix-url        обновить только MASTER_URL в существующем node.conf;
+#   -h|--help        показать справку.
 set -euo pipefail
 
-REPO_URL="${1:-https://github.com/Differin3/HostMonitor}"
-BRANCH="${2:-main}"
-INSTALL_DIR="${3:-/opt/monitoring}"
+# ─── Разбор опций ─────────────────────────────────────────────────────────────
+POS_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --enroll)
+            if [[ -z "${2:-}" ]]; then
+                echo "[install_agent] ERROR: --enroll требует одноразовый код из панели" >&2
+                exit 1
+            fi
+            ENROLL_TOKEN="$2"; shift 2 ;;
+        --master)     MASTER_URL="${2:-}"; shift 2 ;;
+        --node-name)  NODE_NAME="${2:-}"; shift 2 ;;
+        --node-id)    NODE_ID="${2:-}"; shift 2 ;;
+        --force)      FORCE=true; shift ;;
+        --fix-url)    FIX_URL=true; shift ;;
+        -h|--help)
+            sed -n '2,14p' "$0"
+            exit 0 ;;
+        *) POS_ARGS+=("$1"); shift ;;
+    esac
+done
+
+REPO_URL="${POS_ARGS[0]:-https://github.com/Differin3/HostMonitor}"
+BRANCH="${POS_ARGS[1]:-main}"
+INSTALL_DIR="${POS_ARGS[2]:-/opt/monitoring}"
+
+# Случайный SNMP community вместо "public": соседние устройства в сети не
+# должны опрашиваться по стандартному community чужими.
+SNMP_COMMUNITY_VALUE="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 16)"
+SNMP_COMMUNITY_VALUE="${SNMP_COMMUNITY_VALUE:-hostmonitor$(date +%s | tail -c 5)}"
 
 # ─── Детекция платформы (ОС + специализированная система) ─────────────────────
 IS_TRUENAS=false
@@ -452,6 +492,48 @@ fi
 # ─── Конфигурация агента ─────────────────────────────────────────────────────
 NODE_CONF="${INSTALL_DIR}/agent/node.conf"
 
+# Enroll: обмен одноразового кода из панели на Ed25519-ключ. Создаёт node.conf
+# с NODE_ID/NODE_SECRET_B64/NODE_PUBLIC_KEY_B64 — токен не нужен.
+if [[ -n "${ENROLL_TOKEN:-}" ]]; then
+    if [[ -f "${NODE_CONF}" && "${FORCE:-}" != "true" ]]; then
+        echo "[install_agent] node.conf уже есть (${NODE_CONF}). Для переустановки добавьте --force."
+    else
+        ENROLL_MASTER="${MASTER_URL:-}"
+        if [[ -z "${ENROLL_MASTER}" && -f "${NODE_CONF}" ]]; then
+            ENROLL_MASTER="$(grep '^MASTER_URL=' "${NODE_CONF}" | head -1 | cut -d= -f2- | tr -d '"')"
+        fi
+        if [[ -z "${ENROLL_MASTER}" ]]; then
+            echo "[install_agent] ERROR: для enroll нужен URL панели: --master https://panel/ (или MASTER_URL=...)" >&2
+            exit 1
+        fi
+        sudo mkdir -p "$(dirname "${NODE_CONF}")"
+        ENROLL_CMD=(sudo -u "${SERVICE_USER}" "${VENV_PYTHON}" "${INSTALL_DIR}/agent/enroll.py" \
+                --master "${ENROLL_MASTER}" --token "${ENROLL_TOKEN}" --config "${NODE_CONF}")
+        if [[ -n "${NODE_NAME:-}" ]]; then
+            ENROLL_CMD+=(--name "${NODE_NAME}")
+        fi
+        "${ENROLL_CMD[@]}" || {
+            echo "[install_agent] ERROR: enroll не удался — проверьте код (живёт 15 минут)." >&2
+            exit 1
+        }
+        sudo chown "${SERVICE_USER}:${SERVICE_USER}" "${NODE_CONF}"
+        sudo chmod 640 "${NODE_CONF}"
+        echo "[install_agent] Enroll успешен: нода подключена по Ed25519 (NODE_TOKEN не нужен)."
+    fi
+fi
+
+# --fix-url: обновляем только MASTER_URL в существующем конфиге
+if [[ -n "${FIX_URL:-}" && -f "${NODE_CONF}" && -n "${MASTER_URL:-}" ]]; then
+    sudo sed -i "s|^MASTER_URL=.*|MASTER_URL=\"${MASTER_URL}\"|" "${NODE_CONF}"
+    echo "[install_agent] MASTER_URL обновлён на ${MASTER_URL}"
+fi
+
+# --node-id: фиксируем привязку к существующей ноде (перекрывает код enroll)
+if [[ -n "${NODE_ID:-}" && -f "${NODE_CONF}" ]] && ! grep -q '^NODE_ID=' "${NODE_CONF}"; then
+    echo "NODE_ID=${NODE_ID}" | sudo tee -a "${NODE_CONF}" >/dev/null
+    echo "[install_agent] NODE_ID=${NODE_ID} добавлен в node.conf"
+fi
+
 # Если конфиг передан через переменную окружения – копируем
 if [[ -n "${NODE_CONF_SRC:-}" && -f "${NODE_CONF_SRC}" ]]; then
     sudo cp "${NODE_CONF_SRC}" "${NODE_CONF}"
@@ -490,7 +572,7 @@ UPNP_MX=3
 UPNP_TIMEOUT=8
 UPNP_GENA_PORT=0
 SNMP_ENABLED=true
-SNMP_COMMUNITY="public"
+SNMP_COMMUNITY="${SNMP_COMMUNITY_VALUE}"
 SNMP_TIMEOUT=0.8
 # SNMP_TARGETS="192.168.1.1"
 LLDP_PASSIVE=true
@@ -525,7 +607,7 @@ if [[ -f "${NODE_CONF}" ]]; then
     }
     ensure_conf_key "UPNP_ENABLED" 'UPNP_ENABLED=true'
     ensure_conf_key "SNMP_ENABLED" 'SNMP_ENABLED=true'
-    ensure_conf_key "SNMP_COMMUNITY" 'SNMP_COMMUNITY="public"'
+    ensure_conf_key "SNMP_COMMUNITY" 'SNMP_COMMUNITY="'"${SNMP_COMMUNITY_VALUE}"'"'
     ensure_conf_key "SNMP_TIMEOUT" 'SNMP_TIMEOUT=0.8'
     ensure_conf_key "LLDP_PASSIVE" 'LLDP_PASSIVE=true'
     ensure_conf_key "LLDP_ACTIVE_POLL_KNOWN" 'LLDP_ACTIVE_POLL_KNOWN=true'
@@ -551,6 +633,12 @@ echo ""
 echo "=========================================="
 echo "Агент не использует MySQL — он шлёт JSON на панель."
 echo ""
+echo "Вариант A (Ed25519, рекомендуется):"
+echo "  В панели: Ноды → «Подключить ноду (Enroll)» → сгенерировать код, затем:"
+echo "    install_agent.sh --enroll <КОД> --master https://panel/"
+echo "  Нода подключится по Ed25519-подписи, NODE_TOKEN не нужен."
+echo ""
+echo "Вариант B (legacy Bearer-токен):"
 echo "1. В панели: Ноды → Создать ноду → скопировать / скачать конфиг"
 echo "2. При необходимости отредактируйте: sudo nano ${NODE_CONF}"
 if $IS_FREEBSD; then
