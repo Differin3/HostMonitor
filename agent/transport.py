@@ -11,12 +11,14 @@ from datetime import datetime  # время
 try:
     from .runtime import _log, _get_verify, _request_once, _request_with_retry
     from .auth import AgentAuth
+    from .commands import command_is_allowed
 except ImportError:
     from runtime import _log, _get_verify, _request_once, _request_with_retry
     try:
         from auth import AgentAuth
     except Exception:
         AgentAuth = None
+    from commands import command_is_allowed
 
 
 def _env_true(name, default=False):
@@ -212,7 +214,15 @@ class TransportMixin:
         # Причина последнего провала: её читает run_pending_command и
         # отправляет на панель, иначе UI показывает голое «ошибка».
         self._command_error = ''
-        
+
+        # Default-deny: канал команд доверяем только панели, но подстраховываемся
+        # от произвольной строки (компромисс панели / порча last_command).
+        if not command_is_allowed(command):
+            _log(f"BLOCKED: unknown command '{command}' (not in agent allow-list)")
+            self._command_error = ('Команда не входит в список разрешённых агентом '
+                                   '(agent/commands.py). Выполнение отклонено.')
+            return False
+
         try:
             if command in ('check-agent-update', 'check-agent-updates'):
                 result = self.check_agent_update()

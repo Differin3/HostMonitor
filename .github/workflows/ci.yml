@@ -181,6 +181,10 @@ jobs:
         # с origin и клоном создаётся в /tmp, сеть подменена заглушками.
         run: python tests/test_agent_update.py
 
+      - name: Тесты allow-list команд агента
+        # Default-deny: неизвестная команда не исполняется и объясняет причину.
+        run: python tests/test_commands.py
+
       - name: Рабочее дерево не пачкается
         run: |
           set -euo pipefail

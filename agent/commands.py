@@ -1,4 +1,8 @@
 # commands.py - обработка команд агента
+#
+# Единый список разрешённых команд (default-deny). Панель может прислать
+# произвольную строку (например, если её скомпрометировали), поэтому агент
+# исполняет только известные команды, а неизвестные отклоняет до выполнения.
 import json
 from typing import Optional, Dict, Any
 
@@ -6,6 +10,32 @@ try:
     from .runtime import _log, _get_verify, _request_with_retry
 except ImportError:
     from runtime import _log, _get_verify, _request_with_retry
+
+
+# Первый токен команды. Совпадает с полным набором, который формирует панель:
+# agent_update.php, containers.php, processes.php, ports.php, upnp.php,
+# updates.php, api/nodes.php (node-action).
+ALLOWED_COMMAND_PREFIXES = frozenset({
+    'check-agent-update', 'check-agent-updates',
+    'update-agent', 'upgrade-agent',
+    'check-updates',
+    'install-updates', 'install-update-batch', 'install-update',
+    'sync',
+    'docker-logs', 'docker',
+    'get-process-logs',
+    'kill', 'restart',
+    'reboot', 'shutdown',
+    'firewall',
+    'upnp',
+})
+
+
+def command_is_allowed(command: str) -> bool:
+    """True, если команда входит в allow-list агента (проверяется первый токен)."""
+    cmd = (command or '').strip()
+    if not cmd:
+        return False
+    return cmd.split(maxsplit=1)[0] in ALLOWED_COMMAND_PREFIXES
 
 
 class CommandsMixin:
