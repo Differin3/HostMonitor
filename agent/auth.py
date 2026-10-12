@@ -1,6 +1,8 @@
 # auth.py - Ed25519 аутентификация агента
 # Формат подписи: METHOD\nPATH\nTIMESTAMP\nBODY (UTF-8)
 # Заголовки: X-Agent-Node-Id, X-Agent-Timestamp, X-Agent-Signature (base64url/base64)
+from __future__ import annotations
+
 import base64
 import json
 import os
