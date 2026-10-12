@@ -2,6 +2,7 @@
 // Настройка сессий для PHP-CGI
 ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');
+ini_set('session.use_strict_mode', '1');
 ini_set('session.cookie_samesite', 'Lax');
 session_start();
 header('X-Content-Type-Options: nosniff');
@@ -107,53 +108,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 $pdo = getDbConnection();
-                users_ensure_totp_columns($pdo);
-                $stmt = $pdo->prepare("SELECT id, username, password_hash, role, totp_enabled FROM users WHERE username = ?");
-                $stmt->execute([$username]);
-                $user = $stmt->fetch();
 
-                if ($user && password_verify($password, $user['password_hash'])) {
-                    // Если включена 2FA — переходим к вводу кода (кроме доверенных устройств)
-                    if (!empty($user['totp_enabled'])) {
-                        $trustedToken = (string)($_COOKIE['hm_trusted'] ?? '');
-                        if ($trustedToken === '' || !trusted_device_verify($pdo, (int)$user['id'], $trustedToken)) {
-                            $_SESSION['pending_2fa'] = [
-                                'id' => (int)$user['id'],
-                                'username' => $user['username'],
-                                'role' => $user['role'],
-                                'ts' => time(),
-                            ];
-                            session_write_close();
-                            header('Location: login.php?totp=1');
-                            exit;
-                        }
+                // Rate-limit по username (аккаунт, а не только IP): таблица
+                // login_attempts. Дополняет IP-лимит выше — защищает аккаунты,
+                // на которые идут распределённые подборы с разных адресов.
+                // Таблицы может не быть (миграция 001 не применена) — тогда
+                // молча остаёмся на IP-лимите, не ломая вход.
+                $usernameLocked = false;
+                if ($username !== '') {
+                    try {
+                        $cleanup = $pdo->prepare("DELETE FROM login_attempts WHERE created_at < (NOW() - INTERVAL ? SECOND)");
+                        $cleanup->execute([$rlWindow]);
+                        $failedQ = $pdo->prepare("SELECT COUNT(*) FROM login_attempts
+                            WHERE username = ? AND success = 0
+                              AND created_at > (NOW() - INTERVAL ? SECOND)");
+                        $failedQ->execute([$username, $rlWindow]);
+                        $usernameLocked = (int)$failedQ->fetchColumn() >= $rlMax;
+                    } catch (Throwable $e) {
+                        $usernameLocked = false;
                     }
+                }
 
-                    session_regenerate_id(true);
-                    $_SESSION['user_id'] = $user['id'];
-                    $_SESSION['username'] = $user['username'];
-                    $_SESSION['role'] = $user['role'];
-                    $_SESSION['last_activity'] = time();
-                    session_register($pdo, (int)$user['id']);
-
-                    // Clear attempts on success
-                    unset($attempts[$clientIp]);
-                    file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
-
-                    log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
-
-                    session_write_close();
-                    header('Location: index.php');
-                    exit;
+                if ($usernameLocked) {
+                    $error = 'Слишком много неудачных попыток. Попробуйте через 15 минут.';
+                    log_auth_event($pdo, null, $username, 'failed', false, 'Username rate-limited');
                 } else {
-                    $error = 'Неверный логин или пароль';
+                    users_ensure_totp_columns($pdo);
+                    $stmt = $pdo->prepare("SELECT id, username, password_hash, role, totp_enabled FROM users WHERE username = ?");
+                    $stmt->execute([$username]);
+                    $user = $stmt->fetch();
 
-                    // Record failed attempt
-                    $ipAttempts[] = $now;
-                    $attempts[$clientIp] = $ipAttempts;
-                    file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+                    if ($user && password_verify($password, $user['password_hash'])) {
+                        // Если включена 2FA — переходим к вводу кода (кроме доверенных устройств)
+                        if (!empty($user['totp_enabled'])) {
+                            $trustedToken = (string)($_COOKIE['hm_trusted'] ?? '');
+                            if ($trustedToken === '' || !trusted_device_verify($pdo, (int)$user['id'], $trustedToken)) {
+                                $_SESSION['pending_2fa'] = [
+                                    'id' => (int)$user['id'],
+                                    'username' => $user['username'],
+                                    'role' => $user['role'],
+                                    'ts' => time(),
+                                ];
+                                session_write_close();
+                                header('Location: login.php?totp=1');
+                                exit;
+                            }
+                        }
 
-                    log_auth_event($pdo, null, $username, 'failed', false, 'Invalid credentials');
+                        session_regenerate_id(true);
+                        $_SESSION['user_id'] = $user['id'];
+                        $_SESSION['username'] = $user['username'];
+                        $_SESSION['role'] = $user['role'];
+                        $_SESSION['last_activity'] = time();
+                        session_register($pdo, (int)$user['id']);
+
+                        // Clear attempts on success
+                        unset($attempts[$clientIp]);
+                        file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+                        try {
+                            $del = $pdo->prepare("DELETE FROM login_attempts WHERE username = ?");
+                            $del->execute([$user['username']]);
+                        } catch (Throwable $e) {
+                            // таблицы нет — не критично
+                        }
+
+                        log_auth_event($pdo, $user['id'], $user['username'], 'login', true, 'Successful login');
+
+                        session_write_close();
+                        header('Location: index.php');
+                        exit;
+                    } else {
+                        $error = 'Неверный логин или пароль';
+
+                        // Record failed attempt
+                        $ipAttempts[] = $now;
+                        $attempts[$clientIp] = $ipAttempts;
+                        file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+                        try {
+                            $ins = $pdo->prepare("INSERT INTO login_attempts (username, ip_address, success, message) VALUES (?, ?, 0, 'invalid credentials')");
+                            $ins->execute([$username, substr($clientIp, 0, 45)]);
+                        } catch (Throwable $e) {
+                            // таблицы нет — остаёмся на IP-лимите
+                        }
+
+                        log_auth_event($pdo, null, $username, 'failed', false, 'Invalid credentials');
+                    }
                 }
             } catch (Exception $e) {
                 $error = 'Ошибка подключения к базе данных';

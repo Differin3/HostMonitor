@@ -143,6 +143,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Rate-limit входов по username (см. login.php и migrations/001_ed25519_auth.sql)
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    ip_address VARCHAR(45) NULL,
+    success TINYINT(1) NOT NULL DEFAULT 0,
+    message VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_username_created (username, created_at),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- Таблица провайдеров
 CREATE TABLE IF NOT EXISTS providers (
     id INT AUTO_INCREMENT PRIMARY KEY,
