@@ -181,4 +181,5 @@ echo json_encode([
     'ttl_seconds' => $ttl,
     'node_id'     => $nodeId,
     'node_name'   => isset($boundNode) ? (string)$boundNode['name'] : null,
+    'master_url'  => panel_public_base_url(),
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

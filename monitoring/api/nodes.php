@@ -648,56 +648,11 @@ function pingNode($host) {
 }
 
 function buildAgentConfig($node, $oneTimeSeed = null) {
-    if (getenv('MASTER_URL')) {
-        $masterUrl = getenv('MASTER_URL');
-        $parsedUrl = parse_url($masterUrl);
-        $masterHost = $parsedUrl['host'] ?? 'localhost';
-        $masterPort = $parsedUrl['port'] ?? ($parsedUrl['scheme'] === 'https' ? '443' : '80');
-    } else {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $realIp = $_SERVER['HTTP_X_REAL_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null;
-        if ($realIp) {
-            $realIp = trim(explode(',', $realIp)[0]);
-        }
-        $httpHost = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? null;
-        if ($httpHost && $httpHost !== '0.0.0.0' && $httpHost !== 'localhost' && strpos($httpHost, '0.0.0.0:') !== 0) {
-            $host = $httpHost;
-        } else {
-            $externalIp = @shell_exec("hostname -I 2>/dev/null | awk '{print \$1}' || curl -s ifconfig.me 2>/dev/null || curl -s ifconfig.co 2>/dev/null || echo ''");
-            $externalIp = trim($externalIp);
-            if ($externalIp && filter_var($externalIp, FILTER_VALIDATE_IP)) {
-                $host = $externalIp;
-            } else {
-                $host = $_SERVER['SERVER_ADDR'] ?? 'localhost';
-                if (in_array($host, ['127.0.0.1', '::1', 'localhost', '0.0.0.0'])) {
-                    $allIps = @shell_exec("hostname -I 2>/dev/null");
-                    if ($allIps) {
-                        $ips = array_filter(array_map('trim', explode(' ', trim($allIps))));
-                        foreach ($ips as $ip) {
-                            if ($ip && $ip !== '127.0.0.1' && $ip !== '::1' && filter_var($ip, FILTER_VALIDATE_IP)) {
-                                $host = $ip;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (strpos($host, ':') !== false) {
-            list($host, $port) = explode(':', $host, 2);
-        } else {
-            $port = $_SERVER['SERVER_PORT'] ?? ($scheme === 'https' ? '443' : '80');
-        }
-        if ($host === '0.0.0.0' || empty($host)) {
-            $host = $_SERVER['SERVER_ADDR'] ?? 'localhost';
-        }
-        $masterHost = $host;
-        $masterPort = $port;
-        $masterUrl = $scheme . '://' . $host;
-        if (($scheme === 'http' && $port != '80') || ($scheme === 'https' && $port != '443')) {
-            $masterUrl .= ':' . $port;
-        }
-    }
+    // Публичный URL панели: заголовки запроса (за NPM/nginx) → public_url → infer.
+    $masterUrl = panel_public_base_url();
+    $parsedUrl = parse_url($masterUrl);
+    $masterHost = $parsedUrl['host'] ?? 'localhost';
+    $masterPort = $parsedUrl['port'] ?? ((($parsedUrl['scheme'] ?? 'http') === 'https') ? '443' : '80');
 
     $config = "# Конфигурация агента HostMonitor\n";
     $config .= "# Сгенерировано автоматически\n";
@@ -707,11 +662,6 @@ function buildAgentConfig($node, $oneTimeSeed = null) {
     $config .= "MASTER_PORT=\"" . $masterPort . "\"\n";
     $config .= "NODE_ID=\"" . (int)($node['id'] ?? 0) . "\"\n";
     $config .= "NODE_NAME=\"" . ($node['name'] ?? '') . "\"\n";
-    $config .= "NODE_HOST=\"" . ($node['host'] ?? '') . "\"\n";
-    $config .= "NODE_PORT=\"" . ($node['port'] ?? '2222') . "\"\n";
-    if (!empty($node['public_key'])) {
-        $config .= "NODE_PUBLIC_KEY_B64=\"" . base64_encode(hex2bin(str_repeat('00', 0))) . "\"\n"; // placeholder
-    }
     if ($oneTimeSeed !== null && $oneTimeSeed !== '') {
         $config .= "NODE_SECRET_B64=\"" . $oneTimeSeed . "\"\n"; // одноразовый seed для первого старта
     }
@@ -963,10 +913,7 @@ function handlePost($pdo) {
     
     $name = $data['name'] ?? '';
     $host = $data['host'] ?? '';
-    $port = (int)($data['port'] ?? 2222);
     $country = $data['country'] ?? null;
-    $secretKey = $data['secret_key'] ?? generateSecretKey();
-    $nodeToken = $data['node_token'] ?? generateNodeToken();
     
     $providerName = trim((string)($data['provider_name'] ?? ''));
     $providerName = $providerName !== '' ? $providerName : null;
@@ -1005,18 +952,13 @@ function handlePost($pdo) {
     $hasBillingFields = in_array('billing_amount', $existingColumns);
     
     // Строим запрос динамически в зависимости от наличия колонок
-    $columns = ['name', 'host', 'port'];
-    $values = [$name, $host, $port];
+    $columns = ['name', 'host'];
+    $values = [$name, $host];
     
     if ($hasCountry) {
         $columns[] = 'country';
         $values[] = $country;
     }
-    
-    $columns[] = 'secret_key';
-    $columns[] = 'node_token';
-    $values[] = $secretKey;
-    $values[] = $nodeToken;
     
     if ($hasProviderName) {
         $columns[] = 'provider_name';
@@ -1049,7 +991,7 @@ function handlePost($pdo) {
         $id = $pdo->lastInsertId();
         
         http_response_code(201);
-        echo json_encode(['id' => $id, 'message' => 'Node created', 'node_token' => $nodeToken]);
+        echo json_encode(['id' => $id, 'message' => 'Node created']);
     } catch (PDOException $e) {
         http_response_code(500);
         error_log("Error creating node: " . $e->getMessage());
