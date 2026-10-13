@@ -83,7 +83,7 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
-    error_log('nodes.php error: ' . $e->getMessage());
+    error_log('[nodes] nodes.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }
@@ -843,13 +843,6 @@ function handlePost($pdo) {
         $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
         $currentCmd = trim((string)($current['last_command'] ?? ''));
         
-        error_log("=== COMMAND STATUS UPDATE ===");
-        error_log("Node ID: {$targetNodeId}");
-        error_log("Command from request: {$command}");
-        error_log("Status from request: {$commandStatus}");
-        error_log("Current command in DB: " . ($currentCmd !== '' ? $currentCmd : 'NULL'));
-        error_log("Current status in DB: " . ($current['command_status'] ?? 'NULL'));
-
         // Не затираем чужую/новую команду: очищаем слот только если совпадает
         $sameCommand = ($command === '' || $currentCmd === '' || $command === $currentCmd);
         
@@ -867,16 +860,16 @@ function handlePost($pdo) {
                 );
                 $updateStmt->execute([$targetNodeId]);
             }
-            error_log("Command marked failed (kept last_command={$currentCmd})");
+            error_log("[nodes] command marked failed (node={$targetNodeId}, command={$currentCmd})");
         } elseif ($commandStatus === 'completed' && $sameCommand) {
             $updateStmt = $pdo->prepare(
                 "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL, command_result = NULL WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
-            error_log("Command cleared: status={$commandStatus}, last_command=NULL");
+            error_log("[nodes] command cleared (node={$targetNodeId}, status={$commandStatus})");
         } elseif ($commandStatus === 'completed' || $commandStatus === 'failed') {
             // Старый отчёт после постановки новой команды — игнор (без touch last_seen)
-            error_log("Ignored stale command-status for '{$command}' (current='{$currentCmd}')");
+            error_log("[nodes] ignored stale command-status (node={$targetNodeId}, command={$command}, current={$currentCmd})");
             echo json_encode([
                 'status' => 'ok',
                 'success' => true,
@@ -890,13 +883,8 @@ function handlePost($pdo) {
                 "UPDATE nodes SET command_status = ? WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
-            error_log("Command status updated: status={$commandStatus}");
+            error_log("[nodes] command status updated (node={$targetNodeId}, status={$commandStatus})");
         }
-        
-        $verifyStmt = $pdo->prepare("SELECT last_command, command_status FROM nodes WHERE id = ?");
-        $verifyStmt->execute([$targetNodeId]);
-        $verified = $verifyStmt->fetch(PDO::FETCH_ASSOC);
-        error_log("After update - command: " . ($verified['last_command'] ?? 'NULL') . ", status: " . ($verified['command_status'] ?? 'NULL'));
         
         echo json_encode(['status' => 'ok', 'success' => true, 'message' => 'Command status updated', 'command_status' => $commandStatus]);
         return;
@@ -994,7 +982,7 @@ function handlePost($pdo) {
         echo json_encode(['id' => $id, 'message' => 'Node created']);
     } catch (PDOException $e) {
         http_response_code(500);
-        error_log("Error creating node: " . $e->getMessage());
+        error_log("[nodes] error creating node: " . $e->getMessage());
         echo json_encode(['error' => 'Internal server error']);
     }
 }
@@ -1153,7 +1141,7 @@ function handleDelete($pdo) {
         echo json_encode(['message' => 'Node deleted', 'success' => true]);
     } catch (PDOException $e) {
         http_response_code(500);
-        error_log("Error deleting node: " . $e->getMessage());
+        error_log("[nodes] error deleting node: " . $e->getMessage());
         echo json_encode(['error' => 'Internal server error']);
     }
 }

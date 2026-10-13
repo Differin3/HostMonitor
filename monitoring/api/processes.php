@@ -51,14 +51,8 @@ if ($method === 'GET' && isset($_GET['logs']) && $_GET['logs'] == '1' && isset($
     );
     $stmt->execute([$command, $nodeId]);
     
-    // Логируем для отладки
-    error_log("Process logs command queued: node_id={$nodeId}, node_name={$node['name']}, pid={$pid}, command={$command}");
-    
-    // Проверяем что команда действительно сохранена (по id и по name для агента)
-    $checkStmt = $pdo->prepare("SELECT id, name, last_command, command_status FROM nodes WHERE id = ? OR name = ?");
-    $checkStmt->execute([$nodeId, $node['name']]);
-    $check = $checkStmt->fetch(PDO::FETCH_ASSOC);
-    error_log("Command saved check: id={$check['id']}, name={$check['name']}, command=" . ($check['last_command'] ?? 'NULL') . ", status=" . ($check['command_status'] ?? 'NULL'));
+    // Ставим команду в очередь
+    error_log("[processes] logs command queued (node={$nodeId}, pid={$pid})");
     
     // Возвращаем статус что команда поставлена, фронтенд будет делать polling
     echo json_encode([
@@ -129,18 +123,12 @@ if ($method === 'POST' && isset($_GET['action']) && $_GET['action'] === 'command
     $command = $data['command'] ?? '';
     $logs = $data['logs'] ?? [];
     
-    error_log("Received command result from node_id={$nodeId}, command={$command}, logs_count=" . count($logs));
+    error_log("[processes] command result stored (node={$nodeId}, command={$command}, logs=" . count($logs) . ")");
     
     // Сохраняем результат команды
     $resultJson = json_encode($logs, JSON_UNESCAPED_UNICODE);
     $stmt = $pdo->prepare("UPDATE nodes SET command_result = ?, command_status = 'completed' WHERE id = ?");
     $stmt->execute([$resultJson, $nodeId]);
-    
-    // Проверяем что результат сохранен
-    $checkStmt = $pdo->prepare("SELECT command_result, command_status FROM nodes WHERE id = ?");
-    $checkStmt->execute([$nodeId]);
-    $check = $checkStmt->fetch(PDO::FETCH_ASSOC);
-    error_log("Command result saved: status=" . ($check['command_status'] ?? 'NULL') . ", result_length=" . (strlen($check['command_result'] ?? '')));
     
     echo json_encode([
         'success' => true,
@@ -215,7 +203,7 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
-    error_log('processes.php error: ' . $e->getMessage());
+    error_log('[processes] processes.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }

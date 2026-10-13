@@ -158,16 +158,34 @@ def load_node_conf(path: str = "node.conf") -> None:
 
 def _get_verify():
     # Параметр verify для requests: путь к сертификату или булево из конфига
+    global _tls_warning_logged
     tls_cert_path = os.getenv("TLS_CERT_PATH", "")
     tls_verify = os.getenv("TLS_VERIFY", "true").lower() == "true"
-    if not tls_verify and not tls_cert_path:
-        _log("WARNING: TLS verification is DISABLED (TLS_VERIFY=false). All connections are vulnerable to MITM attacks.")
+    # Предупреждение печатаем один раз за процесс, а не на каждом запросе
+    # (_get_verify вызывается ~17 раз за цикл).
+    if not tls_verify and not tls_cert_path and not _tls_warning_logged:
+        _tls_warning_logged = True
+        _log(
+            "TLS verification is DISABLED (TLS_VERIFY=false). "
+            "All connections are vulnerable to MITM attacks.",
+            level="warning",
+        )
     return tls_cert_path or tls_verify
 
 
-def _log(msg: str) -> None:
-    # Простой лог с временем в stdout
-    print(f"[agent] {datetime.now().isoformat()} {msg}")
+# Уровни логирования: debug < info < warning < error. LOG_LEVEL из node.conf.
+# По умолчанию info — подробные шаги циклов (debug) в проде не пишутся.
+_LOG_LEVELS = {"debug": 10, "info": 20, "warning": 30, "warn": 30, "error": 40}
+_tls_warning_logged = False
+
+
+def _log(msg: str, level: str = "info") -> None:
+    # Структурная строка: [agent] <ISO-время> <LEVEL> <сообщение>.
+    # flush=True — иначе journald получает логи пачками с задержкой.
+    lvl = str(level).strip().lower()
+    if _LOG_LEVELS.get(lvl, 20) < _LOG_LEVELS.get(os.getenv("LOG_LEVEL", "info").strip().lower(), 20):
+        return
+    print(f"[agent] {datetime.now().isoformat()} {lvl.upper():<7} {msg}", flush=True)
 
 
 def _request_with_retry(method: str, url: str, **kwargs) -> Optional[requests.Response]:
