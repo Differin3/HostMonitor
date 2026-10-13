@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/log_helpers.php';
+
 if (!function_exists('str_contains')) {
     function str_contains(string $haystack, string $needle): bool
     {

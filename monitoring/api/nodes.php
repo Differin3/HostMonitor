@@ -83,7 +83,7 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
-    error_log('[nodes] nodes.php error: ' . $e->getMessage());
+    app_log_error('[nodes] nodes.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }
@@ -860,16 +860,16 @@ function handlePost($pdo) {
                 );
                 $updateStmt->execute([$targetNodeId]);
             }
-            error_log("[nodes] command marked failed (node={$targetNodeId}, command={$currentCmd})");
+            app_log("[nodes] command marked failed (node={$targetNodeId}, command={$currentCmd})", 'warning');
         } elseif ($commandStatus === 'completed' && $sameCommand) {
             $updateStmt = $pdo->prepare(
                 "UPDATE nodes SET command_status = ?, last_command = NULL, command_timestamp = NULL, command_result = NULL WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
-            error_log("[nodes] command cleared (node={$targetNodeId}, status={$commandStatus})");
+            app_log("[nodes] command cleared (node={$targetNodeId}, status={$commandStatus})");
         } elseif ($commandStatus === 'completed' || $commandStatus === 'failed') {
             // Старый отчёт после постановки новой команды — игнор (без touch last_seen)
-            error_log("[nodes] ignored stale command-status (node={$targetNodeId}, command={$command}, current={$currentCmd})");
+            app_log("[nodes] ignored stale command-status (node={$targetNodeId}, command={$command}, current={$currentCmd})", 'warning');
             echo json_encode([
                 'status' => 'ok',
                 'success' => true,
@@ -883,7 +883,7 @@ function handlePost($pdo) {
                 "UPDATE nodes SET command_status = ? WHERE id = ?"
             );
             $updateStmt->execute([$commandStatus, $targetNodeId]);
-            error_log("[nodes] command status updated (node={$targetNodeId}, status={$commandStatus})");
+            app_log("[nodes] command status updated (node={$targetNodeId}, status={$commandStatus})", 'debug');
         }
         
         echo json_encode(['status' => 'ok', 'success' => true, 'message' => 'Command status updated', 'command_status' => $commandStatus]);
@@ -982,7 +982,7 @@ function handlePost($pdo) {
         echo json_encode(['id' => $id, 'message' => 'Node created']);
     } catch (PDOException $e) {
         http_response_code(500);
-        error_log("[nodes] error creating node: " . $e->getMessage());
+        app_log_error("[nodes] error creating node: " . $e->getMessage());
         echo json_encode(['error' => 'Internal server error']);
     }
 }
@@ -1141,7 +1141,7 @@ function handleDelete($pdo) {
         echo json_encode(['message' => 'Node deleted', 'success' => true]);
     } catch (PDOException $e) {
         http_response_code(500);
-        error_log("[nodes] error deleting node: " . $e->getMessage());
+        app_log_error("[nodes] error deleting node: " . $e->getMessage());
         echo json_encode(['error' => 'Internal server error']);
     }
 }
@@ -1206,7 +1206,7 @@ function executeNodeAction($pdo, $nodeId, $action) {
             ]);
             return;
         }
-        error_log("[executeNodeAction] WARNING: Dangerous command '{$action}' executed for node {$nodeId}");
+        app_log("[executeNodeAction] dangerous command '{$action}' executed for node {$nodeId}", 'warning');
     }
     
     // Сохраняем команду в БД для выполнения агентом

@@ -95,22 +95,30 @@ def load_node_conf(path: str = "node.conf") -> None:
             continue
     
     if not cfg_path:
-        print(f"[agent] Error: node.conf not found. Searched in:")
+        _log("Error: node.conf not found. Searched in:", level="warning")
         for p in possible_paths:
             exists = "✓" if p.exists() else "✗"
-            print(f"  {exists} {p}")
-        print(f"[agent] Please create node.conf in one of these locations with NODE_TOKEN, MASTER_URL, NODE_NAME")
+            _log(f"  {exists} {p}", level="debug")
+        _log("Please create node.conf with NODE_TOKEN, MASTER_URL, NODE_NAME", level="warning")
         return
     
-    print(f"[agent] Loading node.conf from: {cfg_path}")
+    _log(f"Loading node.conf from: {cfg_path}", level="debug")
     try:
         loaded_count = 0
         _ALLOWED_CONF_KEYS = {
             'NODE_TOKEN', 'MASTER_URL', 'NODE_NAME', 'COLLECT_INTERVAL',
-            'HEALTH_PORT', 'TLS_VERIFY', 'TLS_CERT_PATH',
+            'HEALTH_PORT', 'HEARTBEAT_INTERVAL', 'TLS_VERIFY', 'TLS_CERT_PATH',
               'ALLOW_DANGEROUS_COMMANDS', 'ALLOW_AGENT_UPDATES',
               'SNMP_COMMUNITY', 'SMART_INTERVAL',
             'MASTER_URL_INSECURE',
+            'LOG_LEVEL',
+            # retry/backoff
+            'MAX_RETRIES', 'RETRY_DELAY',
+            # UPnP / LLDP / SNMP (читаются в topology/network/snmp)
+            'UPNP_ENABLED', 'UPNP_MX', 'UPNP_TIMEOUT', 'UPNP_GENA_PORT',
+            'UPNP_INTERVAL_CYCLES',
+            'LLDP_PASSIVE', 'LLDP_LISTEN_INTERFACE', 'LLDP_ACTIVE_POLL_KNOWN',
+            'SNMP_ENABLED', 'SNMP_TARGETS', 'SNMP_TIMEOUT',
             # Ed25519-enroll: ключи, которые пишет agent/enroll.py
             'NODE_ID', 'NODE_SECRET_B64', 'NODE_PUBLIC_KEY_B64',
         }
@@ -135,10 +143,10 @@ def load_node_conf(path: str = "node.conf") -> None:
             val = val.strip()
             if key:
                 if key in _BLOCKED_CONF_KEYS:
-                    print(f"[agent] WARNING: ignoring dangerous key '{key}' in node.conf")
+                    _log(f"WARNING: ignoring dangerous key '{key}' in node.conf", level="warning")
                     continue
                 if key not in _ALLOWED_CONF_KEYS:
-                    print(f"[agent] WARNING: ignoring unknown key '{key}' in node.conf (not in allowlist)")
+                    _log(f"WARNING: ignoring unknown key '{key}' in node.conf (not in allowlist)", level="warning")
                     continue
                 # Перезаписываем переменные окружения из node.conf (приоритет выше дефолтных)
                 os.environ[key] = val
@@ -146,12 +154,12 @@ def load_node_conf(path: str = "node.conf") -> None:
                 # Логируем важные переменные (без значений для безопасности)
                 if key in ["NODE_TOKEN", "MASTER_URL", "NODE_NAME"]:
                     if key == "NODE_TOKEN":
-                        print(f"[agent] Loaded {key}={'set (len=' + str(len(val)) + ')' if val else '(empty)'}")
+                        _log(f"Loaded {key}={'set (len=' + str(len(val)) + ')' if val else '(empty)'}", level="debug")
                     else:
-                        print(f"[agent] Loaded {key}=***")
-        print(f"[agent] Loaded {loaded_count} variables from node.conf")
+                        _log(f"Loaded {key}=***", level="debug")
+        _log(f"Loaded {loaded_count} variables from node.conf", level="debug")
     except Exception as e:
-        print(f"[agent] Error loading node.conf: {e}")
+        _log(f"Error loading node.conf: {e}", level="error")
         import traceback
         traceback.print_exc()
 

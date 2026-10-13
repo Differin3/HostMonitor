@@ -55,11 +55,12 @@ node_telemetry) живут в БД и имеют UI-фильтры.
 Единый формат строки журнала:
 
 ```
-[origin] <ISO-8601> <LEVEL> <message>
+[origin] <ISO-8601> <LEVEL> req=<id> <message>
 ```
 
-- `origin` — `agent`, `web`, `php`, `jobs`.
+- `origin` — `agent`, `php`, `access`; `jobs` пишет через `[php]`/`[jobs]`.
 - `LEVEL` — `DEBUG` < `INFO` < `WARNING` < `ERROR`.
+- `req=<id>` — идентификатор запроса (см. §4), у агента/housekeeping его нет.
 
 | Уровень   | Что писать                                                     |
 |-----------|----------------------------------------------------------------|
@@ -76,10 +77,10 @@ node_telemetry) живут в БД и имеют UI-фильтры.
   включить через `LOG_LEVEL=debug`.
 - Одно событие — одна строка. Баннеры и self-check вырезаются.
 
-## 4. Конфигурация
+## 4. Конфигурация и correlation id
 
-Агент читает `LOG_LEVEL` из окружения (его поднимает `load_node_conf()` из
-`node.conf`):
+Агент и PHP читают `LOG_LEVEL` из окружения (агент — через `load_node_conf()`
+из `node.conf`):
 
 ```
 LOG_LEVEL=debug   # debug | info | warning | error, по умолчанию info
@@ -93,10 +94,21 @@ NODE_NAME=msk-gate-01
 LOG_LEVEL=info
 ```
 
-## 5. Что сделано в P0
+**Correlation id.** `scripts/python_web_server.py` генерирует на каждый запрос
+`req=<8 hex>`, отдаёт его в заголовке `X-Request-Id`, кладёт в окружение
+php-cgi (`HTTP_X_HM_REQUEST_ID`) и указывает в строках access-log и
+неформатированного stderr. В PHP запись делается через `app_log()` (см. §5) —
+она подхватывает тот же `req`, поэтому событие агента→панели и ошибка PHP в
+одном запросе сходятся по id.
+
+## 5. Что сделано
+
+### P0 — не терять логи и убрать шум
 
 - `[P0]` `agent/runtime.py`: уровни `_LOG_LEVELS`, фильтрация по `LOG_LEVEL`,
-  `flush=True`, однократное TLS-предупреждение (`_tls_warning_logged`).
+  `flush=True`, однократное TLS-предупреждение (`_tls_warning_logged`);
+  `print()` в `load_node_conf` переведены на `_log()`, в allowlist добавлены
+  читаемые ключи (`LOG_LEVEL`, `UPNP_*`, `LLDP_*`, `SNMP_*`, retry).
 - `[P0]` `agent/main.py`: цикловые логи → `debug`, провалы → `error`,
   деградация → `warning`; стартовые `print()` заменены на `_log()`.
 - `[P0]` `agent/transport.py`: «Sending metrics», «Metrics sent», heartbeat,
@@ -111,19 +123,38 @@ LOG_LEVEL=info
 - `[P0]` `monitoring/api/nodes.php`, `updates.php`, `processes.php`: удалены
   отладочные баннеры и self-check-запросы, оставшиеся `error_log()` получили
   тег.
+- `[P0]` `agent/main.py`: исправлен порядок импорта `AgentAuth` — Ed25519-подпись
+  агента реально включается (раньше import шёл после блокирующего `__main__`).
+
+### P1 — единый формат, request_id, lldp
+
+- `[P1]` `monitoring/includes/log_helpers.php`: `app_log($msg, $level, $context)`,
+  `app_log_debug/warning/error`. Формат `[php] <ISO> <LEVEL> req=<id> <msg>`,
+  фильтрация по `LOG_LEVEL`, request-id из `HTTP_X_HM_REQUEST_ID`. Подключён в
+  `includes/helpers.php`.
+- `[P1]` `scripts/python_web_server.py`: `req=<id>` на запрос (`X-Request-Id`,
+  окружение php-cgi, access-log); `_log_php_stderr()` пропускает уже
+  отформатированные `[php] …` строки как есть и оборачивает нативные
+  Notice/Warning, добавляя метод/путь/req.
+- `[P1]` `agent/lldp_discovery.py`: три `print()` → `_log(..., level=...)`;
+  `agent/docker.py`: `print(Error collecting ports)` → `_log(error)`.
+- `[P1]` API-логи `nodes.php`/`updates.php`/`processes.php` переведены на
+  `app_log()` с уровнями (`debug` для обычных событий, `warning`/`error` для
+  сбоев).
 
 Эффект на МСК (msk-gate-01): журнал агента при `LOG_LEVEL=info` содержит
 только старт/состояние и одну строку TLS-warning; PHP-`Notice` панели
-(например `smart.php`) больше не теряются.
+(например `smart.php`) больше не теряются и коррелируют по `req=` с
+access-log.
 
 ## 6. Дорожная карта
 
 - `[P0]` Не терять логи, убрать шум и self-check, ввести уровни/flush.
-- `[P1]` Ввести общий формат `[origin] <ISO> <LEVEL>` для PHP и веб-сервера
-  (обёртка над `error_log`, `request_id` на запрос), причёсать
-  `agent/lldp_discovery.py`.
+- `[P1]` Единый формат `[origin] <ISO> <LEVEL> req=<id>` для PHP/веб-сервера,
+  `app_log()`, причёсать `lldp_discovery`/`docker`.
 - `[P2]` Убрать дубль auth-логов (`monitoring/auth_logs.php` и вкладка `auth`
-  в `logs.php` читают одну таблицу `auth_logs`), свести UI-фильтры.
+  в `logs.php` читают одну таблицу `auth_logs`), свести UI-фильтры; перевести
+  остальные PHP-`error_log()` на `app_log()`.
 - `[P3]` Разделить каналы `access`/`app` при росте нагрузки (вынести access
   log в отдельный файл с ротацией), при необходимости — централизация в
   journald-remote / Loki.

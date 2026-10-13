@@ -289,7 +289,7 @@ class DockerMixin:
                                     'process_name': process_name
                                 })
         except Exception as e:
-            print(f"Error collecting ports: {e}")
+            _log(f"Error collecting ports: {e}", level="error")
         return ports
 
     def send_containers(self, containers):
