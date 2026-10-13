@@ -263,7 +263,7 @@ class NetworkMixin:
                     'tx_bytes': io_counters.bytes_sent if io_counters else 0
                 })
         except Exception as e:
-            _log(f"Error collecting network interfaces: {e}")
+            _log(f"Error collecting network interfaces: {e}", level="error")
         return interfaces
 
     def send_network_interfaces(self, interfaces, neighbors=None):
@@ -282,7 +282,7 @@ class NetworkMixin:
                 body = (resp.text or '')[:200]
             except Exception:
                 body = ''
-        _log(f"Error sending network interfaces: HTTP {resp.status_code if resp else 'no response'} {body}".strip())
+        _log(f"Error sending network interfaces: HTTP {resp.status_code if resp else 'no response'} {body}".strip(), level="error")
         return False
 
     def _on_lldp_device(self, info):
@@ -300,7 +300,7 @@ class NetworkMixin:
             prev = self.lldp_cache.get(key) or {}
             prev.update({k: v for k, v in row.items() if v not in (None, "", [])})
             self.lldp_cache[key] = prev
-        _log(f"LLDP passive neighbor: {name or key} ip={ip or '-'} mac={mac or '-'}")
+        _log(f"LLDP passive neighbor: {name or key} ip={ip or '-'} mac={mac or '-'}", level="debug")
 
     def _get_known_hosts(self):
         """IP известных устройств: UPnP hosts + SNMP_TARGETS + LLDP cache."""
@@ -373,7 +373,7 @@ class NetworkMixin:
                 try:
                     info = lldp_mod.enrich_host(ip, info)
                 except Exception as e:
-                    _log(f"LLDP enrich {ip}: {e}")
+                    _log(f"LLDP enrich {ip}: {e}", level="debug")
             push(lldp_mod.device_from_lldp(info))
 
         if not enabled:
@@ -384,7 +384,7 @@ class NetworkMixin:
             try:
                 neighbors = lldp_mod.poll_remote_table(host)
             except Exception as e:
-                _log(f"LLDP SNMP poll {host}: {e}")
+                _log(f"LLDP SNMP poll {host}: {e}", level="warning")
                 neighbors = []
             for nb in neighbors:
                 info = dict(nb)
@@ -445,7 +445,7 @@ class NetworkMixin:
             push(lldp_mod.device_from_lldp(nb_info))
 
         self._lldp_devices = list(devices)
-        _log(f"LLDP poll produced {len(devices)} device(s), cache={len(self.lldp_cache)}")
+        _log(f"LLDP poll produced {len(devices)} device(s), cache={len(self.lldp_cache)}", level="debug")
         return devices
 
     @staticmethod

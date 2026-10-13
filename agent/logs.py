@@ -102,7 +102,7 @@ class LogsMixin:
                     'timestamp': now,
                 })
         except Exception as e:
-            _log(f"Error collecting process logs: {e}")
+            _log(f"Error collecting process logs: {e}", level="error")
         return logs[:limit]
 
     def _systemd_unit_for_pid(self, pid):
@@ -131,7 +131,7 @@ class LogsMixin:
                 if parsed:
                     rows.append(parsed)
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-            _log(f"journalctl failed ({query_args}): {e}")
+            _log(f"journalctl failed ({query_args}): {e}", level="warning")
         return rows
 
     def _parse_journal_short_iso(self, line):
@@ -245,7 +245,7 @@ class LogsMixin:
             path = self._log_cursor_path()
             path.write_text(json.dumps(self._log_cursors), encoding="utf-8")
         except Exception as e:
-            _log(f"Failed to save log cursors: {e}")
+            _log(f"Failed to save log cursors: {e}", level="warning")
 
     @staticmethod
     def _parse_journal_iso(line: str):
@@ -322,7 +322,7 @@ class LogsMixin:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         except Exception as e:
-            _log(f"journalctl system logs failed: {e}")
+            _log(f"journalctl system logs failed: {e}", level="warning")
 
         if not parsed:
             for log_file in ("/var/log/syslog", "/var/log/messages"):
@@ -517,7 +517,7 @@ class LogsMixin:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         except Exception as e:
-            _log(f"journalctl ssh logs failed: {e}")
+            _log(f"journalctl ssh logs failed: {e}", level="warning")
 
         if not parsed:
             for auth_file in ("/var/log/auth.log", "/var/log/secure"):
@@ -553,7 +553,7 @@ class LogsMixin:
 
         logs = self._only_new_logs("ssh_fp", parsed)
         logs = self._collapse_ssh_duplicates(logs)
-        _log(f"collect_ssh_auth_logs: new={len(logs)}")
+        _log(f"collect_ssh_auth_logs: new={len(logs)}", level="debug")
         return logs
 
     @staticmethod
@@ -628,32 +628,32 @@ class LogsMixin:
             logs.extend(system_logs)
             ssh_logs = self.collect_ssh_auth_logs(limit=200)
             logs.extend(ssh_logs)
-            _log(f"collect_logs: system={len(system_logs)}, ssh_auth={len(ssh_logs)}, total={len(logs)}")
+            _log(f"collect_logs: system={len(system_logs)}, ssh_auth={len(ssh_logs)}, total={len(logs)}", level="debug")
         except Exception as e:
-            _log(f"Error collecting logs: {e}")
+            _log(f"Error collecting logs: {e}", level="error")
         return logs
 
     def send_logs(self, logs):
         # Отправка логов на сервер (с детальным логированием по SSH-логам)
         if not logs:
-            _log("send_logs: nothing to send (0 logs)")
+            _log("send_logs: nothing to send (0 logs)", level="debug")
             return True
         total = len(logs)
         ssh_auth_count = sum(1 for l in logs if l.get("type") == "auth_ssh")
         container_count = sum(1 for l in logs if l.get("type") == "container")
         other_count = total - ssh_auth_count - container_count
-        _log(f"send_logs: total={total}, ssh_auth={ssh_auth_count}, container={container_count}, other={other_count}")
+        _log(f"send_logs: total={total}, ssh_auth={ssh_auth_count}, container={container_count}, other={other_count}", level="debug")
         if ssh_auth_count > 0:
             try:
                 sample = next(l for l in logs if l.get("type") == "auth_ssh")
                 msg = str(sample.get("message", ""))[:200]
                 proc = sample.get("process", "")
                 ts = sample.get("timestamp", "")
-                _log(f"send_logs: ssh_auth sample ts={ts}, process={proc}, msg={msg}")
+                _log(f"send_logs: ssh_auth sample ts={ts}, process={proc}, msg={msg}", level="debug")
             except StopIteration:
                 pass
             except Exception as e:
-                _log(f"send_logs: error while logging ssh_auth sample: {e}")
+                _log(f"send_logs: error while logging ssh_auth sample: {e}", level="warning")
         resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/logs.php",
@@ -663,11 +663,13 @@ class LogsMixin:
             timeout=20,
         )
         ok = bool(resp and resp.status_code in (200, 201))
-        _log(f"send_logs: result status={resp.status_code if resp else 'no response'}, ok={ok}")
+        _log(f"send_logs: result status={resp.status_code if resp else 'no response'}, ok={ok}", level="debug")
+        if not ok:
+            _log(f"send_logs: failed to send {total} logs (status={resp.status_code if resp else 'no response'})", level="error")
         if resp:
             try:
                 data = resp.json()
-                _log(f"send_logs: response json={data}")
+                _log(f"send_logs: response json={data}", level="debug")
             except Exception as e:
-                _log(f"send_logs: failed to parse response json: {e}, text={resp.text[:200] if hasattr(resp, 'text') else ''}")
+                _log(f"send_logs: failed to parse response json: {e}, text={resp.text[:200] if hasattr(resp, 'text') else ''}", level="warning")
         return ok
