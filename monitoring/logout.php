@@ -10,7 +10,7 @@ if (isset($_SESSION['user_id'])) {
         $pdo = getDbConnection();
         log_auth_event($pdo, $_SESSION['user_id'], $_SESSION['username'] ?? 'unknown', 'logout', true, 'User logged out');
     } catch (Exception $e) {
-        error_log("Error logging logout: " . $e->getMessage());
+        app_log_warning("Error logging logout: " . $e->getMessage());
     }
 }
 

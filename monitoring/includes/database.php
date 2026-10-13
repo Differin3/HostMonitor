@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/log_helpers.php';
 
 function getDbConnection(bool $reset = false) {
     static $pdo = null;
@@ -48,7 +49,7 @@ function getDbConnection(bool $reset = false) {
             return $pdo;
         } catch (Throwable $e) {
             $primaryErr = $e->getMessage();
-            error_log('Database connection error (primary): ' . $primaryErr);
+            app_log_error('Database connection error (primary): ' . $primaryErr);
             if (!$replicaOn) {
                 throw new Exception('Не удалось подключиться к базе данных');
             }
@@ -65,7 +66,7 @@ function getDbConnection(bool $reset = false) {
             }
             return $pdo;
         } catch (Throwable $e) {
-            error_log('Database connection error (replica): ' . $e->getMessage());
+            app_log_error('Database connection error (replica): ' . $e->getMessage());
         }
     }
 
@@ -75,7 +76,7 @@ function getDbConnection(bool $reset = false) {
             db_ha_state_save('primary', '');
             return $pdo;
         } catch (Throwable $e) {
-            error_log('Database connection error (primary retry): ' . $e->getMessage());
+            app_log_error('Database connection error (primary retry): ' . $e->getMessage());
         }
     }
 

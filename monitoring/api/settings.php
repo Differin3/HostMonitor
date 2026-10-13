@@ -70,9 +70,9 @@ try {
         'settings' => settings_public(),
     ], JSON_UNESCAPED_UNICODE);
 } catch (InvalidArgumentException $e) {
-    error_log('settings.php error: ' . $e->getMessage());
+    app_log_warning('settings.php error: ' . $e->getMessage());
     json_error('Invalid request', 400);
 } catch (Throwable $e) {
-    error_log('settings.php error: ' . $e->getMessage());
+    app_log_error('settings.php error: ' . $e->getMessage());
     json_error('Internal server error', 500);
 }

@@ -47,7 +47,7 @@ if (!function_exists('json_error')) {
 if (!function_exists('json_exception')) {
     function json_exception(Throwable $e, bool $expose = false): void
     {
-        error_log('[monitoring-api] ' . $e->getMessage());
+        app_log_error('[monitoring-api] ' . $e->getMessage());
         $msg = $expose ? $e->getMessage() : 'Internal server error';
         json_error($msg, 500);
     }
@@ -152,7 +152,7 @@ if (!function_exists('log_auth_event')) {
             $stmt = $pdo->prepare("INSERT INTO auth_logs (user_id, username, ip_address, event_type, success, message) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$userId, $username, $ipAddress, $eventType, $success ? 1 : 0, $message]);
         } catch (Exception $e) {
-            error_log("Error logging auth event: " . $e->getMessage());
+            app_log_warning("Error logging auth event: " . $e->getMessage());
         }
     }
 }
@@ -483,7 +483,7 @@ if (!function_exists('nodes_ensure_agent_columns')) {
                 @file_put_contents($marker, (string)time());
             }
         } catch (Throwable $e) {
-            error_log('[nodes_ensure_agent_columns] ' . $e->getMessage());
+            app_log_warning('[nodes_ensure_agent_columns] ' . $e->getMessage());
         }
     }
 }
@@ -511,7 +511,7 @@ if (!function_exists('nodes_store_boot_time')) {
             $stmt = $pdo->prepare('UPDATE nodes SET boot_time = ? WHERE id = ?');
             $stmt->execute([$bootTs, $nodeId]);
         } catch (Throwable $e) {
-            error_log('[nodes_store_boot_time] ' . $e->getMessage());
+            app_log_warning('[nodes_store_boot_time] ' . $e->getMessage());
         }
     }
 }
@@ -551,11 +551,11 @@ if (!function_exists('nodes_ensure_agent_columns_all')) {
                     $results[] = ['role' => $role, 'ok' => true];
                 } catch (Throwable $e) {
                     $results[] = ['role' => $role, 'ok' => false, 'error' => $e->getMessage()];
-                    error_log('[nodes_ensure_agent_columns_all:' . $role . '] ' . $e->getMessage());
+                    app_log_warning('[nodes_ensure_agent_columns_all:' . $role . '] ' . $e->getMessage());
                 }
             }
         } catch (Throwable $e) {
-            error_log('[nodes_ensure_agent_columns_all] ' . $e->getMessage());
+            app_log_warning('[nodes_ensure_agent_columns_all] ' . $e->getMessage());
         }
 
         return $results;
@@ -640,7 +640,7 @@ if (!function_exists('users_ensure_totp_columns')) {
                 }
             }
         } catch (Throwable $e) {
-            error_log('[users_ensure_totp_columns] ' . $e->getMessage());
+            app_log_warning('[users_ensure_totp_columns] ' . $e->getMessage());
         }
     }
 }
@@ -744,7 +744,7 @@ if (!function_exists('totp_recovery_ensure_table')) {
                 INDEX idx_user (user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (Throwable $e) {
-            error_log('[totp_recovery_ensure_table] ' . $e->getMessage());
+            app_log_warning('[totp_recovery_ensure_table] ' . $e->getMessage());
         }
     }
 }
@@ -828,7 +828,7 @@ if (!function_exists('trusted_devices_ensure_table')) {
                 INDEX idx_expires (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (Throwable $e) {
-            error_log('[trusted_devices_ensure_table] ' . $e->getMessage());
+            app_log_warning('[trusted_devices_ensure_table] ' . $e->getMessage());
         }
     }
 }
@@ -917,7 +917,7 @@ if (!function_exists('user_sessions_ensure_table')) {
                 INDEX idx_last (last_activity)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (Throwable $e) {
-            error_log('[user_sessions_ensure_table] ' . $e->getMessage());
+            app_log_warning('[user_sessions_ensure_table] ' . $e->getMessage());
         }
     }
 }
@@ -946,7 +946,7 @@ if (!function_exists('session_register')) {
                 ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), user_agent = VALUES(user_agent), ip = VALUES(ip), last_activity = VALUES(last_activity)");
             $stmt->execute([$userId, $hash, $ua, $ip, $now, $now]);
         } catch (Throwable $e) {
-            error_log('[session_register] ' . $e->getMessage());
+            app_log_warning('[session_register] ' . $e->getMessage());
         }
     }
 }

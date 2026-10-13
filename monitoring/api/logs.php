@@ -112,39 +112,6 @@ try {
         $level = $_GET['level'] ?? null;
         $nodeId = $_GET['node_id'] ?? null;
 
-        if ($type === 'auth') {
-            $eventType = $_GET['event_type'] ?? null;
-            $pdo->exec("CREATE TABLE IF NOT EXISTS auth_logs (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT,
-                username VARCHAR(100),
-                ip_address VARCHAR(45),
-                event_type VARCHAR(20) NOT NULL,
-                success BOOLEAN DEFAULT FALSE,
-                message TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_user_id (user_id),
-                INDEX idx_event_type (event_type),
-                INDEX idx_timestamp (timestamp),
-                INDEX idx_ip_address (ip_address)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-            $where = "";
-            $params = [];
-            if ($eventType) {
-                $where .= " AND event_type = ?";
-                $params[] = $eventType;
-            }
-            if ($q !== '') {
-                $where .= " AND (username LIKE ? OR ip_address LIKE ? OR message LIKE ?)";
-                $like = logs_like($q);
-                array_push($params, $like, $like, $like);
-            }
-            [$logs, $total] = logs_fetch_page($pdo, "FROM auth_logs WHERE 1=1", $where, $params, $perPage, $offset);
-            echo json_encode(['logs' => $logs, 'page' => $page, 'per_page' => $perPage, 'total' => $total]);
-            exit;
-        }
-
         if ($type === 'processes') {
             $pid = isset($_GET['pid']) ? (int)$_GET['pid'] : null;
             $where = "";
@@ -312,7 +279,7 @@ try {
             try {
                 $inserted += logs_flush_batch($pdo, "INSERT INTO {$table} VALUES ", $batch, $BATCH_SIZE);
             } catch (Exception $e) {
-                error_log("[logs] batch insert into {$table} failed: " . $e->getMessage());
+                app_log_warning("[logs] batch insert into {$table} failed: " . $e->getMessage());
             }
         }
 
@@ -324,7 +291,7 @@ try {
     http_response_code(405);
     echo json_encode(['error' => 'Method not allowed']);
 } catch (Exception $e) {
-    error_log('logs.php error: ' . $e->getMessage());
+    app_log_error('logs.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }

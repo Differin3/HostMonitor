@@ -110,7 +110,7 @@ $fingerprint = 'sha256:' . substr(hash('sha256', $rawKey), 0, 32);
 try {
     $pdo = getDbConnection();
 } catch (Throwable $e) {
-    error_log('[enroll] db connection failed: ' . $e->getMessage());
+    app_log_error('[enroll] db connection failed: ' . $e->getMessage());
     json_error('Service unavailable', 503);
 }
 
@@ -128,7 +128,7 @@ $auditEnroll = static function (PDO $pdo, bool $success, string $detail) use ($c
         );
         $stmt->execute(['__enroll__', $clientIp, $success ? 1 : 0, $detail]);
     } catch (Throwable $e) {
-        error_log('[enroll] audit failed: ' . $e->getMessage());
+        app_log_warning('[enroll] audit failed: ' . $e->getMessage());
     }
 };
 
@@ -253,16 +253,16 @@ try {
     }
     // 42S02 — таблицы миграции ещё нет: это не ошибка кода, а неготовность.
     if ((string)$e->getCode() === '42S02') {
-        error_log('[enroll] migration not applied: ' . $e->getMessage());
+        app_log_warning('[enroll] migration not applied: ' . $e->getMessage());
         json_error('Enrollment is not configured', 503);
     }
-    error_log('[enroll] failed: ' . $e->getMessage());
+    app_log_error('[enroll] failed: ' . $e->getMessage());
     json_error('Internal server error', 500);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    error_log('[enroll] failed: ' . $e->getMessage());
+    app_log_error('[enroll] failed: ' . $e->getMessage());
     json_error('Internal server error', 500);
 }
 

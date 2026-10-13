@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $replicaPdo = db_try_connect($rep, 8);
                 db_copy_database($pdo, $replicaPdo);
             } catch (Throwable $e) {
-                error_log('Replica initial copy skipped: ' . $e->getMessage());
+                app_log_warning('Replica initial copy skipped: ' . $e->getMessage());
             }
         }
 

@@ -23,6 +23,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/log_helpers.php';
+
 if (!defined('AGENT_AUTH_CLOCK_SKEW')) {
     define('AGENT_AUTH_CLOCK_SKEW', 60);
 }
@@ -163,7 +165,7 @@ if (!function_exists('agent_log_auth_failure')) {
     function agent_log_auth_failure(string $reason, array $context = []): void
     {
         $suffix = $context ? ' ' . json_encode($context, JSON_UNESCAPED_UNICODE) : '';
-        error_log('[agent_auth] ' . $reason . $suffix);
+        app_log_warning('[agent_auth] ' . $reason . $suffix);
     }
 }
 

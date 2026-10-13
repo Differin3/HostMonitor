@@ -78,7 +78,7 @@ while (!connection_aborted()) {
             sse_emit('charts', dashboard_charts($pdo, $range));
         }
     } catch (Throwable $e) {
-        error_log('[sse] ' . $e->getMessage());
+        app_log_warning('[sse] ' . $e->getMessage());
         sse_emit('error', ['message' => 'snapshot_failed']);
     }
 
