@@ -4330,6 +4330,9 @@ body.light .date-picker-footer {
 }
 
 /* Иконка внутри поля не должна наезжать на текст ни в одном контейнере */
+.modal .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
+.modal .form-field .input-with-icon select,
+.modal .form-field .input-with-icon textarea,
 .settings-section .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
 .settings-section .form-field .input-with-icon select,
 .ha-grid .form-field .input-with-icon input:not([type="checkbox"]):not([type="file"]),
