@@ -52,7 +52,7 @@ if ($method === 'GET' && isset($_GET['logs']) && $_GET['logs'] == '1' && isset($
     $stmt->execute([$command, $nodeId]);
     
     // Ставим команду в очередь
-    error_log("[processes] logs command queued (node={$nodeId}, pid={$pid})");
+    app_log("[processes] logs command queued (node={$nodeId}, pid={$pid})", 'debug');
     
     // Возвращаем статус что команда поставлена, фронтенд будет делать polling
     echo json_encode([
@@ -123,7 +123,7 @@ if ($method === 'POST' && isset($_GET['action']) && $_GET['action'] === 'command
     $command = $data['command'] ?? '';
     $logs = $data['logs'] ?? [];
     
-    error_log("[processes] command result stored (node={$nodeId}, command={$command}, logs=" . count($logs) . ")");
+    app_log("[processes] command result stored (node={$nodeId}, command={$command}, logs=" . count($logs) . ")", 'debug');
     
     // Сохраняем результат команды
     $resultJson = json_encode($logs, JSON_UNESCAPED_UNICODE);
@@ -203,7 +203,7 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
-    error_log('[processes] processes.php error: ' . $e->getMessage());
+    app_log_error('[processes] processes.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }

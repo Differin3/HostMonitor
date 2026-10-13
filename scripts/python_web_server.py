@@ -188,21 +188,51 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
     def _is_sse_script(self, script_path: str) -> bool:
         return os.path.basename(script_path) == "sse.php"
 
+    # --- correlation id + единый формат логов ---
+    def handle_one_request(self):
+        # Новый id на каждый HTTP-запрос: связывает access-log, stderr php-cgi
+        # и (через HTTP_X_HM_REQUEST_ID) сообщения app_log() внутри PHP.
+        self.hm_request_id = os.urandom(4).hex()
+        self._hm_rid_sent = False
+        return super().handle_one_request()
+
+    def end_headers(self):
+        rid = getattr(self, "hm_request_id", "")
+        if rid and not getattr(self, "_hm_rid_sent", False):
+            self._hm_rid_sent = True
+            try:
+                self.send_header("X-Request-Id", rid)
+            except Exception:
+                pass
+        return super().end_headers()
+
+    def log_message(self, format, *args):
+        rid = getattr(self, "hm_request_id", "-")
+        sys.stderr.write(f"[access] {self.address_string()} req={rid} " + (format % args) + "\n")
+
     def _log_php_stderr(self, stderr: bytes) -> None:
         """Пишет stderr php-cgi в journal.
 
-        Сюда попадают PHP-ошибки и все вызовы error_log() (php.ini: error_log
-        пуст → CGI пишет в stderr). Раньше это выводилось только при ненулевом
-        коде возврата, поэтому диагностика успешных запросов терялась.
+        Сюда попадают PHP-ошибки и все вызовы error_log()/app_log() (php.ini:
+        error_log пуст → CGI пишет в stderr). Строки, уже отформатированные
+        app_log() (начинаются с "[php] "), проходят как есть — иначе терялась
+        бы корреляция по req=. Нативные PHP Notice/Warning оборачиваем,
+        добавляя метод, путь и request-id.
         """
         if not stderr:
             return
         text = stderr.decode(errors="ignore").strip()
         if not text:
             return
-        if len(text) > 4000:
-            text = text[:4000] + " …[обрезано]"
-        sys.stderr.write(f"[php] {self.command} {self.path} :: {text}\n")
+        if len(text) > 8000:
+            text = text[:8000] + " …[обрезано]"
+        rid = getattr(self, "hm_request_id", "-")
+        prefix = f"[php] {self.command} {self.path} req={rid} :: "
+        for line in text.splitlines():
+            if line.startswith("[php] "):
+                sys.stderr.write(line + "\n")
+            else:
+                sys.stderr.write(prefix + line + "\n")
 
     def send_error(self, code, message=None, explain=None):
         # Строка status-строки кодируется latin-1. Если в message или explain
@@ -281,7 +311,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
         proc.wait()
         if proc.returncode != 0 and proc.stderr:
             err = proc.stderr.read().decode(errors="ignore")
-            sys.stderr.write(f"SSE PHP завершился с кодом {proc.returncode}: {err}\n")
+            sys.stderr.write(f"[php] SSE завершился с кодом {proc.returncode} req={getattr(self, 'hm_request_id', '-')}: {err}\n")
 
     def _handle_php(self):
         parsed = urllib.parse.urlsplit(self.path)
@@ -323,6 +353,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
                 "HTTP_HOST": f"{self.server.server_address[0]}:{self.server.server_address[1]}",
                 "SERVER_SOFTWARE": "Python/HTTP",
                 "HTTP_COOKIE": self.headers.get("Cookie", ""),  # Передаем Cookie в PHP
+                "HTTP_X_HM_REQUEST_ID": getattr(self, "hm_request_id", ""),
             }
         )
         # Добавляем все HTTP заголовки
@@ -357,7 +388,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(b"Gateway Timeout: PHP CGI exceeded 20s (check DB / HA replica)\n")
-            sys.stderr.write(f"PHP CGI timeout: {script_path}\n")
+            sys.stderr.write(f"[php] CGI timeout: {script_path} req={getattr(self, 'hm_request_id', '-')}\n")
             return
 
         if proc.returncode != 0:
@@ -365,8 +396,8 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             error_msg = stderr.decode(errors='ignore').strip() if stderr else "Нет сообщения об ошибке"
             stdout_preview = stdout[:500].decode(errors='ignore') if stdout else "Нет вывода"
             sys.stderr.write(
-                f"[php ERROR] {self.command} {self.path} :: код {proc.returncode}: "
-                f"{error_msg[:4000]}\n"
+                f"[php ERROR] {self.command} {self.path} req={getattr(self, 'hm_request_id', '-')} :: "
+                f"код {proc.returncode}: {error_msg[:4000]}\n"
             )
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -381,7 +412,7 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
         self._log_php_stderr(stderr)
 
         if not stdout:
-            sys.stderr.write(f"[php WARN] PHP вернул пустой вывод для {script_path}\n")
+            sys.stderr.write(f"[php WARN] PHP вернул пустой вывод для {script_path} req={getattr(self, 'hm_request_id', '-')}\n")
             self.send_error(500, "PHP returned empty output")
             return
 

@@ -18,6 +18,11 @@ try:
 except ImportError:
     import snmp_if  # type: ignore
 
+try:
+    from .runtime import _log
+except ImportError:
+    from runtime import _log  # type: ignore
+
 # IEEE 802.1AB LLDP RemTable (1.0.8802.1.1.2.1.4.1)
 LLDP_REM_CHASSIS_SUBTYPE = "1.0.8802.1.1.2.1.4.1.1.4"
 LLDP_REM_CHASSIS_ID = "1.0.8802.1.1.2.1.4.1.1.5"
@@ -188,7 +193,7 @@ def _passive_sniff_loop(iface: Optional[str], on_device: Callable[[Dict[str, Any
     try:
         from scapy.all import Ether, sniff  # type: ignore
     except Exception as exc:
-        print(f"[lldp] scapy unavailable, passive LLDP disabled: {exc}", flush=True)
+        _log(f"scapy unavailable, passive LLDP disabled: {exc}", level="warning")
         return
 
     def _handle(pkt) -> None:
@@ -211,7 +216,7 @@ def _passive_sniff_loop(iface: Optional[str], on_device: Callable[[Dict[str, Any
                 _passive_seen.add(key)
             on_device(info)
         except Exception as exc:
-            print(f"[lldp] passive handle error: {exc}", flush=True)
+            _log(f"passive handle error: {exc}", level="debug")
 
     try:
         sniff(
@@ -223,7 +228,7 @@ def _passive_sniff_loop(iface: Optional[str], on_device: Callable[[Dict[str, Any
             quiet=True,
         )
     except Exception as exc:
-        print(f"[lldp] passive sniff failed: {exc}", flush=True)
+        _log(f"passive sniff failed: {exc}", level="warning")
 
 
 def start_passive(on_device: Callable[[Dict[str, Any]], None], iface: Optional[str] = None) -> bool:
