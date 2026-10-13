@@ -426,7 +426,21 @@ body.hm-nav-locked {
         max-height: 92dvh !important;
         margin: 0 !important;
         border-radius: 18px 18px 12px 12px !important;
+    }
+
+    /* .modal-content держит внутренний скролл в .modal-body */
+    .modal-content,
+    .confirm-dialog {
         overflow: hidden;
+    }
+
+    /* .modal-dialog — сам является скролл-контейнером (форма внутри):
+       без этого форма создания/редактирования обрезалась и не скроллилась. */
+    .modal-dialog {
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        padding: 20px 16px 16px !important;
     }
 
     .modal-body {
