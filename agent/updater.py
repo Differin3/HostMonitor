@@ -199,7 +199,7 @@ class UpdaterMixin:
             'updates': updates
         }
         
-        _log(f"Sending {len(updates)} updates to server")
+        _log(f"Sending {len(updates)} updates to server", level="debug")
         resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/updates.php?action=report",
@@ -210,10 +210,10 @@ class UpdaterMixin:
         )
         
         if resp and resp.status_code in (200, 201):
-            _log("Updates sent successfully")
+            _log("Updates sent successfully", level="debug")
             return True
         else:
-            _log(f"Failed to send updates: status={resp.status_code if resp else 'no response'}")
+            _log(f"Failed to send updates: status={resp.status_code if resp else 'no response'}", level="error")
             return False
 
     def report_update_result(self, package, success, version=None, message=None):
@@ -231,9 +231,9 @@ class UpdaterMixin:
             'node_name': self.node_name
         }
         
-        _log(f"Reporting update result for {package}: success={success}, version={version}")
-        _log(f"Data to send: {data}")
-        _log(f"URL: {self.master_url}/api/updates.php?action=result")
+        _log(f"Reporting update result for {package}: success={success}, version={version}", level="debug")
+        _log(f"Data to send: {data}", level="debug")
+        _log(f"URL: {self.master_url}/api/updates.php?action=result", level="debug")
         
         try:
             resp = _request_with_retry(
@@ -246,17 +246,17 @@ class UpdaterMixin:
             )
             
             if resp and resp.status_code in (200, 201):
-                _log(f"Update result reported successfully: status={resp.status_code}")
+                _log(f"Update result reported successfully: status={resp.status_code}", level="debug")
                 return True
             else:
-                _log(f"Failed to report update result: status={resp.status_code if resp else 'no response'}")
+                _log(f"Failed to report update result: status={resp.status_code if resp else 'no response'}", level="error")
                 if resp:
-                    _log(f"Response text: {resp.text[:200]}")
+                    _log(f"Response text: {resp.text[:200]}", level="debug")
                 return False
         except Exception as e:
-            _log(f"Exception while reporting update result: {e}")
+            _log(f"Exception while reporting update result: {e}", level="error")
             import traceback
-            _log(f"Traceback: {traceback.format_exc()}")
+            _log(f"Traceback: {traceback.format_exc()}", level="error")
             return False
 
     def install_root(self) -> pathlib.Path:

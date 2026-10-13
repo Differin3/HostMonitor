@@ -26,10 +26,10 @@ class TopologyMixin:
             devices = upnp_mod.discover(mx=mx, timeout=timeout)
             with self._upnp_lock:
                 self.upnp_devices = devices
-            _log(f"UPnP discovery found {len(devices)} device(s)")
+            _log(f"UPnP discovery found {len(devices)} device(s)", level="debug")
             return devices
         except Exception as e:
-            _log(f"UPnP discovery error: {e}")
+            _log(f"UPnP discovery error: {e}", level="warning")
             return []
 
     def send_upnp(self, devices):
@@ -44,9 +44,9 @@ class TopologyMixin:
             )
             if resp and resp.status_code in (200, 201):
                 return True
-            _log(f"UPnP send failed: {resp.status_code if resp else 'no response'}")
+            _log(f"UPnP send failed: {resp.status_code if resp else 'no response'}", level="warning")
         except Exception as e:
-            _log(f"Error sending UPnP data: {e}")
+            _log(f"Error sending UPnP data: {e}", level="error")
         return False
 
     def send_upnp_gone(self, udn: str):
@@ -63,7 +63,7 @@ class TopologyMixin:
             )
             return bool(resp and resp.status_code in (200, 201))
         except Exception as e:
-            _log(f"UPnP gone send failed: {e}")
+            _log(f"UPnP gone send failed: {e}", level="warning")
             return False
 
     def _on_upnp_event(self, kind: str, payload: dict):
