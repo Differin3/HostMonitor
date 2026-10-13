@@ -40,7 +40,7 @@ class TransportMixin:
         self._cycle_counter += 1
         metrics["cycle_id"] = self._cycle_counter
         data = {"metrics": metrics, "processes": processes}
-        _log(f"Sending metrics to {self.master_url}/api/metrics.php")
+        _log(f"Sending metrics to {self.master_url}/api/metrics.php", level="debug")
         resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/metrics.php",
@@ -50,7 +50,7 @@ class TransportMixin:
             timeout=20,
         )
         if not resp or resp.status_code not in (200, 201):
-            _log(f"Failed to send metrics: status={resp.status_code if resp else 'no response'}")
+            _log(f"Failed to send metrics: status={resp.status_code if resp else 'no response'}", level="error")
             # Буферизуем для повторной попытки в следующем цикле
             self._pending_metrics = metrics
             self._pending_processes = processes
@@ -60,15 +60,15 @@ class TransportMixin:
             resp_data = resp.json()
             if isinstance(resp_data, dict) and 'error' in resp_data:
                 error_msg = resp_data.get('error', 'Unknown error')
-                _log(f"Failed to send metrics: {error_msg} (status={resp.status_code})")
+                _log(f"Failed to send metrics: {error_msg} (status={resp.status_code})", level="error")
                 if 'Unauthorized' in error_msg:
-                    _log("Authorization failed. Check NODE_TOKEN in node.conf.")
+                    _log("Authorization failed. Check NODE_TOKEN in node.conf.", level="error")
                 self._pending_metrics = metrics
                 self._pending_processes = processes
                 return False
         except Exception as e:
-            _log(f"Error parsing response: {e}")
-        _log(f"Metrics sent successfully: status={resp.status_code}")
+            _log(f"Error parsing response: {e}", level="warning")
+        _log(f"Metrics sent successfully: status={resp.status_code}", level="debug")
         proc_resp = _request_with_retry(
             "POST",
             f"{self.master_url}/api/processes.php",
@@ -77,17 +77,17 @@ class TransportMixin:
             verify=_get_verify(),
         )
         if not proc_resp or proc_resp.status_code not in (200, 201):
-            _log(f"Failed to send processes: status={proc_resp.status_code if proc_resp else 'no response'}")
+            _log(f"Failed to send processes: status={proc_resp.status_code if proc_resp else 'no response'}", level="error")
             return False
         # Проверяем содержимое ответа на наличие ошибки
         try:
             proc_data = proc_resp.json()
             if isinstance(proc_data, dict) and 'error' in proc_data:
-                _log(f"Failed to send processes: {proc_data.get('error')}")
+                _log(f"Failed to send processes: {proc_data.get('error')}", level="error")
                 return False
         except Exception:
             pass
-        _log(f"Processes sent successfully: status={proc_resp.status_code}")
+        _log(f"Processes sent successfully: status={proc_resp.status_code}", level="debug")
         # Успешно отправили — очищаем буфер
         self._pending_metrics = None
         self._pending_processes = None
@@ -98,7 +98,7 @@ class TransportMixin:
         url = f"{self.master_url}/api/nodes.php"
         params = {"id": self.node_name, "action": "get-command"}
         if not quiet:
-            _log(f"Checking for commands: GET {url}?id={self.node_name}&action=get-command")
+            _log(f"Checking for commands: GET {url}?id={self.node_name}&action=get-command", level="debug")
         
         resp = _request_with_retry(
             "GET",
@@ -110,37 +110,37 @@ class TransportMixin:
         
         if not resp:
             if not quiet:
-                _log("No response from server when checking commands")
+                _log("No response from server when checking commands", level="warning")
             return None
             
         if not quiet:
-            _log(f"Command check response: status={resp.status_code}")
+            _log(f"Command check response: status={resp.status_code}", level="debug")
         
         if resp.status_code == 200:
             try:
                 data = resp.json()
                 if not quiet:
-                    _log(f"Command check response data: {data}")
+                    _log(f"Command check response data: {data}", level="debug")
             except Exception as e:
-                _log(f"bad JSON in get-command: {e}, response text: {resp.text[:200]}")
+                _log(f"bad JSON in get-command: {e}, response text: {resp.text[:200]}", level="warning")
                 return None
             status = data.get('status')  # новый формат: status = ok / no-command
             command = data.get('command')
             command_status = data.get('command_status')
             
             if not quiet:
-                _log(f"Command check parsed: status={status}, command={command}, command_status={command_status}")
+                _log(f"Command check parsed: status={status}, command={command}, command_status={command_status}", level="debug")
             
             if status not in (None, 'ok', 'no-command'):
-                _log(f"Unexpected status in command check: {status}")
+                _log(f"Unexpected status in command check: {status}", level="warning")
                 return None
             if (command and command_status in ('pending', 'running')):
                 _log(f"Found pending command: {command}")
                 return command
             elif not quiet:
-                _log(f"No pending command found (command={command}, command_status={command_status})")
+                _log(f"No pending command found (command={command}, command_status={command_status})", level="debug")
         else:
-            _log(f"Command check failed: HTTP {resp.status_code}, response: {resp.text[:200]}")
+            _log(f"Command check failed: HTTP {resp.status_code}, response: {resp.text[:200]}", level="warning")
         return None
 
     def _start_command_heartbeat(self):
@@ -171,30 +171,27 @@ class TransportMixin:
         command = self.check_commands(quiet=quiet)
         if not command:
             return False
-        _log(f"=== EXECUTING COMMAND ===")
-        _log(f"Command received: {command}")
-        _log(f"Node: {self.node_name}")
+        _log(f"Executing command: {command}")
         self._start_command_heartbeat()
         # Причина неудачи: execute_command кладёт её в _command_error,
         # иначе панель узнаёт только факт провала.
         self._command_error = ''
         try:
             success = self.execute_command(command)
-            _log(f"Command execution result: success={success}")
+            _log(f"Command execution result: command={command} success={success}", level="debug")
             self.report_command_status(
                 command,
                 'completed' if success else 'failed',
                 '' if success else (getattr(self, '_command_error', '') or 'команда не выполнена'),
             )
-            _log(f"=== COMMAND EXECUTION COMPLETE ===")
             if getattr(self, '_exit_after_command', False):
                 _log('Exiting after agent update so systemd Restart=always picks up new code')
                 time.sleep(1)
                 os._exit(0)
         except Exception as e:
-            _log(f"ERROR executing command: {e}")
+            _log(f"ERROR executing command: {e}", level="error")
             import traceback
-            _log(f"Traceback: {traceback.format_exc()}")
+            _log(f"Traceback: {traceback.format_exc()}", level="error")
             self.report_command_status(command, 'failed', f'{type(e).__name__}: {e}')
         finally:
             self._stop_command_heartbeat()
@@ -732,9 +729,9 @@ class TransportMixin:
             # «ошибка», а объяснение видно только в журнале ноды.
             data["result"] = str(result)[:4000]
         
-        _log(f"Reporting command status: command={command}, status={status}")
-        _log(f"POST {url}?id={self.node_name}&action=command-status")
-        _log(f"Request data: {data}")
+        _log(f"Reporting command status: command={command}, status={status}", level="debug")
+        _log(f"POST {url}?id={self.node_name}&action=command-status", level="debug")
+        _log(f"Request data: {data}", level="debug")
         
         resp = _request_with_retry(
             "POST",
@@ -746,18 +743,18 @@ class TransportMixin:
         )
         
         if resp:
-            _log(f"Command status report response: status={resp.status_code}")
+            _log(f"Command status report response: status={resp.status_code}", level="debug")
             if resp.status_code not in (200, 201):
-                _log(f"Command status report failed: {resp.text[:200]}")
+                _log(f"Command status report failed: {resp.text[:200]}", level="warning")
         else:
-            _log("No response when reporting command status")
+            _log("No response when reporting command status", level="warning")
 
     def send_heartbeat(self):
         # Отправка heartbeat для обновления статуса ноды + версии агента
         # Один быстрый запрос — без retry: следующий цикл повторит через heartbeat_interval
         try:
             info = self.agent_version_info()
-            _log(f"Sending heartbeat to {self.master_url}/api/nodes.php?action=heartbeat")
+            _log(f"Sending heartbeat to {self.master_url}/api/nodes.php?action=heartbeat", level="debug")
             payload = {
                 'timestamp': datetime.now().isoformat(),
                 **info,
@@ -779,16 +776,16 @@ class TransportMixin:
                     timeout=10,
                 )
             except requests.exceptions.Timeout:
-                _log("Heartbeat timeout (10s) — will retry next interval")
+                _log("Heartbeat timeout (10s) — will retry next interval", level="warning")
                 return False
             except requests.exceptions.ConnectionError as e:
-                _log(f"Heartbeat connection error: {e} — will retry next interval")
+                _log(f"Heartbeat connection error: {e} — will retry next interval", level="warning")
                 return False
             if resp.status_code in (200, 201):
-                _log(f"Heartbeat OK: status={resp.status_code} version={info.get('agent_version')} commit={info.get('agent_commit')}")
+                _log(f"Heartbeat OK: status={resp.status_code} version={info.get('agent_version')} commit={info.get('agent_commit')}", level="debug")
                 return True
             else:
-                _log(f"Heartbeat failed: status={resp.status_code}")
+                _log(f"Heartbeat failed: status={resp.status_code}", level="warning")
         except Exception as e:
-            _log(f"Heartbeat exception: {e}")
+            _log(f"Heartbeat exception: {e}", level="error")
         return False

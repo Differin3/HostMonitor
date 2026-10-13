@@ -285,15 +285,6 @@ try {
             $nodeName = $data['node_name'] ?? $nodeInfo['name'];
             $nodeId = $nodeInfo['id'];
             
-            // Логируем полученные данные для отладки
-            error_log("=== UPDATE REPORT ===");
-            error_log("Node: {$nodeName} (ID: {$nodeId})");
-            error_log("Updates count: " . count($updates));
-            error_log("OS Info: " . json_encode($osInfo));
-            if (count($updates) > 0) {
-                error_log("First update sample: " . json_encode($updates[0]));
-            }
-            
             // Пустой отчёт = на ноде нет апдейтов: чистим список, но не трогаем install_queued
             if (empty($updates)) {
                 try {
@@ -301,9 +292,9 @@ try {
                         "DELETE FROM node_updates WHERE node_id = ? AND COALESCE(install_queued, 0) = 0"
                     );
                     $clear->execute([$nodeId]);
-                    error_log("Cleared {$clear->rowCount()} non-queued updates for node {$nodeName} (empty report)");
+                    error_log("[updates] cleared {$clear->rowCount()} non-queued updates (node={$nodeName}, empty report)");
                 } catch (Throwable $e) {
-                    error_log("Empty-report clear failed for {$nodeName}: " . $e->getMessage());
+                    error_log("[updates] empty-report clear failed (node={$nodeName}): " . $e->getMessage());
                 }
                 echo json_encode([
                     'success' => true,
@@ -323,7 +314,7 @@ try {
                 );
                 $deleteStmt->execute([$nodeId]);
                 $deleted = $deleteStmt->rowCount();
-                error_log("Deleted {$deleted} non-queued updates for node {$nodeName}");
+                error_log("[updates] stored {$deleted}→" . count($updates) . " updates (node={$nodeName})");
                 
                 // Upsert: версии обновляем, install_queued сохраняем
                 $insertStmt = $pdo->prepare("INSERT INTO node_updates 
@@ -345,7 +336,7 @@ try {
                     try {
                         $package = $update['package'] ?? '';
                         if (empty($package)) {
-                            error_log("Warning: Empty package name in update data");
+                            error_log("[updates] empty package name in update data (node={$nodeName})");
                             continue;
                         }
                         
@@ -368,37 +359,25 @@ try {
                         }
                     } catch (PDOException $e) {
                         $errors[] = "Failed to save package {$package}";
-                        error_log("Error saving update for node {$nodeId}, package {$package}: " . $e->getMessage());
+                        error_log("[updates] error saving update (node={$nodeId}, package={$package}): " . $e->getMessage());
                     } catch (Exception $e) {
                         $errors[] = "Failed to save package {$package}";
-                        error_log("Error saving update for node {$nodeId}, package {$package}: " . $e->getMessage());
+                        error_log("[updates] error saving update (node={$nodeId}, package={$package}): " . $e->getMessage());
                     }
                 }
                 
                 // Коммитим транзакцию
                 $pdo->commit();
                 
-                error_log("Saved {$saved} updates for node {$nodeName} (ID: {$nodeId}), errors: " . count($errors));
+                error_log("[updates] saved {$saved} updates (node={$nodeName}), errors=" . count($errors));
                 if (!empty($errors)) {
-                    error_log("Update errors: " . implode(", ", $errors));
-                }
-                
-                // Проверяем что данные действительно сохранились
-                $verifyStmt = $pdo->prepare("SELECT COUNT(*) as count FROM node_updates WHERE node_id = ?");
-                $verifyStmt->execute([$nodeId]);
-                $verifyResult = $verifyStmt->fetch(PDO::FETCH_ASSOC);
-                $actualCount = $verifyResult['count'] ?? 0;
-                
-                if ($actualCount != $saved) {
-                    error_log("WARNING: Saved {$saved} but found {$actualCount} in database for node {$nodeName}");
-                } else {
-                    error_log("Verified: {$actualCount} updates in database for node {$nodeName}");
+                    error_log("[updates] errors (node={$nodeName}): " . implode(", ", $errors));
                 }
             } catch (Exception $e) {
                 // Откатываем транзакцию при ошибке
                 $pdo->rollBack();
-                error_log("Transaction failed for node {$nodeName}: " . $e->getMessage());
-                error_log("Stack trace: " . $e->getTraceAsString());
+                error_log("[updates] transaction failed (node={$nodeName}): " . $e->getMessage());
+                error_log("[updates] " . $e->getTraceAsString());
                 http_response_code(500);
                 echo json_encode([
                     'success' => false,
@@ -432,13 +411,7 @@ try {
             $nodeName = $data['node_name'] ?? $nodeInfo['name'];
             $nodeId = $nodeInfo['id'];
             
-            // Логируем результат установки
-            error_log("=== UPDATE INSTALL RESULT ===");
-            error_log("Node: {$nodeName} (ID: {$nodeId})");
-            error_log("Package: {$package}");
-            error_log("Version: {$version}");
-            error_log("Success: " . ($success ? 'yes' : 'no'));
-            error_log("Message: {$message}");
+            error_log("[updates] install result (node={$nodeName}, package={$package}, version={$version}, success=" . ($success ? 'yes' : 'no') . "): {$message}");
             
             // Сохраняем результат в историю
             try {
@@ -451,9 +424,8 @@ try {
                     $success ? 1 : 0,
                     $message
                 ]);
-                error_log("History entry saved successfully");
             } catch (Exception $e) {
-                error_log("Error saving history: " . $e->getMessage());
+                error_log("[updates] error saving history (node={$nodeName}, package={$package}): " . $e->getMessage());
             }
             
             // Если установка успешна, удаляем обновление из списка доступных
@@ -462,9 +434,9 @@ try {
                     $deleteStmt = $pdo->prepare("DELETE FROM node_updates WHERE node_id = ? AND package = ?");
                     $deleteStmt->execute([$nodeId, $package]);
                     $deleted = $deleteStmt->rowCount();
-                    error_log("Deleted {$deleted} update entry from node_updates");
+                    error_log("[updates] removed {$deleted} node_updates entry (node={$nodeName}, package={$package})");
                 } catch (Exception $e) {
-                    error_log("Error deleting update entry: " . $e->getMessage());
+                    error_log("[updates] error deleting update entry (node={$nodeName}, package={$package}): " . $e->getMessage());
                 }
             } else {
                 // Снимаем флаг очереди, чтобы пакет снова был «доступен»
@@ -510,17 +482,17 @@ try {
                         || str_starts_with($cmd, 'install-update ');
                     $ttl = $isInstall || $st === 'running' ? 3600 : 300;
                     if ($commandAge < $ttl) {
-                        error_log("Skipping check-updates for node {$node['name']}: busy {$cmd}/{$st} age={$commandAge}s");
+                        error_log("[updates] skip check-updates: node={$node['name']} busy {$cmd}/{$st} age={$commandAge}s");
                         continue;
                     }
-                    error_log("Clearing stale command for node {$node['name']}: {$cmd}/{$st} age={$commandAge}s");
+                    error_log("[updates] clearing stale command: node={$node['name']} {$cmd}/{$st} age={$commandAge}s");
                     $pdo->prepare("UPDATE nodes SET last_command = NULL, command_status = NULL, command_timestamp = NULL WHERE id = ?")
                         ->execute([$node['id']]);
                 }
                 
                 $pdo->prepare("UPDATE nodes SET last_command = 'check-updates', command_status = 'pending', command_timestamp = NOW() WHERE id = ?")
                     ->execute([$node['id']]);
-                error_log("Queued check-updates command for node {$node['name']} (ID: {$node['id']})");
+                error_log("[updates] queued check-updates: node={$node['name']} (id={$node['id']})");
             }
             
             echo json_encode(updates_list_payload($pdo, $nodeId), JSON_UNESCAPED_UNICODE);
@@ -700,7 +672,7 @@ try {
                         $userId ?? null
                     );
                 } catch (Throwable $e) {
-                    error_log('pkg.install enqueue failed: ' . $e->getMessage());
+                    error_log('[updates] pkg.install enqueue failed: ' . $e->getMessage());
                 }
             }
 
@@ -732,7 +704,7 @@ try {
     }
 } catch (Exception $e) {
     http_response_code(500);
-    error_log("Error in updates API: " . $e->getMessage());
+    error_log("[updates] error in updates API: " . $e->getMessage());
     echo json_encode(['error' => 'Internal server error']);
 }
 

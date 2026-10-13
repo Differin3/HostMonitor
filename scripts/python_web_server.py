@@ -188,6 +188,22 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
     def _is_sse_script(self, script_path: str) -> bool:
         return os.path.basename(script_path) == "sse.php"
 
+    def _log_php_stderr(self, stderr: bytes) -> None:
+        """Пишет stderr php-cgi в journal.
+
+        Сюда попадают PHP-ошибки и все вызовы error_log() (php.ini: error_log
+        пуст → CGI пишет в stderr). Раньше это выводилось только при ненулевом
+        коде возврата, поэтому диагностика успешных запросов терялась.
+        """
+        if not stderr:
+            return
+        text = stderr.decode(errors="ignore").strip()
+        if not text:
+            return
+        if len(text) > 4000:
+            text = text[:4000] + " …[обрезано]"
+        sys.stderr.write(f"[php] {self.command} {self.path} :: {text}\n")
+
     def send_error(self, code, message=None, explain=None):
         # Строка status-строки кодируется latin-1. Если в message или explain
         # попал не-ASCII текст (например, stderr PHP на русском), http.server
@@ -345,15 +361,13 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             return
 
         if proc.returncode != 0:
-            # Логируем ошибку в stderr для systemd journal
-            error_msg = stderr.decode(errors='ignore') if stderr else "Нет сообщения об ошибке"
+            # Фатальная ошибка PHP: 500 клиенту + одна строка в journal
+            error_msg = stderr.decode(errors='ignore').strip() if stderr else "Нет сообщения об ошибке"
             stdout_preview = stdout[:500].decode(errors='ignore') if stdout else "Нет вывода"
-            sys.stderr.write(f"PHP ошибка (код {proc.returncode}): {error_msg}\n")
-            sys.stderr.write(f"PHP путь: {PHP_CGI}\n")
-            sys.stderr.write(f"Скрипт: {script_path}\n")
-            sys.stderr.write(f"Существует: {os.path.exists(script_path)}\n")
-            sys.stderr.write(f"STDOUT (первые 500 символов): {stdout_preview}\n")
-            
+            sys.stderr.write(
+                f"[php ERROR] {self.command} {self.path} :: код {proc.returncode}: "
+                f"{error_msg[:4000]}\n"
+            )
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -362,8 +376,12 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
             )
             return
 
+        # Успешный запрос: stderr всё равно может содержать error_log()/warning —
+        # их нельзя терять, иначе панельные логи не видны нигде.
+        self._log_php_stderr(stderr)
+
         if not stdout:
-            sys.stderr.write(f"ПРЕДУПРЕЖДЕНИЕ: PHP вернул пустой вывод для {script_path}\n")
+            sys.stderr.write(f"[php WARN] PHP вернул пустой вывод для {script_path}\n")
             self.send_error(500, "PHP returned empty output")
             return
 
