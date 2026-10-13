@@ -12,6 +12,18 @@ try:
 except ImportError:
     from runtime import _log, load_node_conf, start_health_server, set_agent_ed25519_auth
 
+# AgentAuth нужен в MonitoringAgent.__init__, который вызывается из __main__
+# до конца файла, поэтому импортируем его на верхнем уровне.
+try:
+    from .auth import AgentAuth
+except ImportError:
+    try:
+        from auth import AgentAuth
+    except Exception:
+        AgentAuth = None
+except Exception:
+    AgentAuth = None
+
 try:
     from . import upnp as upnp_mod
     from . import lldp_discovery as lldp_mod
@@ -309,9 +321,3 @@ if __name__ == "__main__":
     if health_port > 0:
         start_health_server(health_port)
     agent.run()
-
-
-try:
-    from auth import AgentAuth
-except Exception:
-    AgentAuth = None
