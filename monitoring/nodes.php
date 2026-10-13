@@ -79,12 +79,11 @@ render_layout_start('Ноды', 'nodes', $actions);
                             <option value="">Нет / домашняя лаборатория</option>
                         </select>
                     </div>
-                    <small class="form-hint-text">Для home lab можно оставить пустым</small>
                 </div>
 
                 <div class="modal-note">
                     <i data-lucide="link"></i>
-                    <span>После создания откроется команда подключения (Enroll, Ed25519). Приватный ключ генерирует агент, панель его не раздаёт.</span>
+                    <span>После создания откроется одна команда: она скачает и установит агент на сервере и подключит его (Enroll, Ed25519). Приватный ключ генерирует агент, панель его не раздаёт.</span>
                 </div>
 
                 <div class="modal-actions">
@@ -251,7 +250,7 @@ render_layout_start('Ноды', 'nodes', $actions);
 
             <div class="modal-body">
                 <div id="enroll-step-1" class="modal-step">
-                    <p class="modal-footnote" style="margin: 0;">Сгенерируйте одноразовый код и выполните команду на сервере агента.</p>
+                    <p class="modal-footnote" style="margin: 0;">Сгенерируйте одноразовый код. Затем выполните одну команду на сервере агента — она скачает установщик с панели, поставит агент и подключит его.</p>
 
                     <div class="modal-enroll-code" id="enroll-code">•••• — код появится после генерации</div>
 
@@ -276,12 +275,12 @@ render_layout_start('Ноды', 'nodes', $actions);
                 </div>
 
                 <div id="enroll-step-2" class="modal-step" style="display: none;">
-                    <p class="modal-footnote" style="margin: 0;">Выполните на сервере агента:</p>
+                    <p class="modal-footnote" style="margin: 0;">Выполните на сервере агента (нужен sudo/root):</p>
                     <div class="modal-code" id="enroll-cmd"></div>
                     <div style="display: flex; gap: 10px;">
                         <button type="button" class="btn-outline" id="enroll-copy-cmd"><i data-lucide="copy"></i> Копировать команду</button>
                     </div>
-                    <p class="modal-footnote" style="margin: 0;">После успешного enroll агент подключится к панели. Если нода уже создана — окно можно закрыть.</p>
+                    <p class="modal-footnote" style="margin: 0;">Команда скачает установщик, поставит агент и подключит его к панели. Если нода уже создана — окно можно закрыть.</p>
                 </div>
             </div>
 

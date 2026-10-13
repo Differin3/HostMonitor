@@ -1217,7 +1217,10 @@ function openEnrollWizard(boundNodeId = null) {
             // локальный origin — только аварийный fallback.
             const fallbackOrigin = window.location.origin;
             const master = (j.master_url || fallbackOrigin).replace(/\/+$/, '');
-            cmdBox.textContent = `cd /opt/monitoring && python3 -m pip install -q cryptography 2>/dev/null; python3 agent/enroll.py --master "${master}" --token "${j.token}"`;
+            // Одна команда: скачать установщик с панели → поставить агент
+            // (git clone, зависимости, venv, systemd) → подключить по коду.
+            const installerUrl = `${master}/api/install.php`;
+            cmdBox.textContent = `curl -fsSL "${installerUrl}" | sudo bash -s -- --enroll "${j.token}" --master "${master}"`;
             step2.style.display = 'block';
             if (window.lucide) lucide.createIcons();
         } catch(e) {
