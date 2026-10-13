@@ -112,6 +112,8 @@ def load_node_conf(path: str = "node.conf") -> None:
               'SNMP_COMMUNITY', 'SMART_INTERVAL',
             'MASTER_URL_INSECURE',
             'LOG_LEVEL',
+            # метаданные ноды, которые пишет enroll/install_agent (агентом не читаются)
+            'NODE_HOST', 'NODE_PORT',
             # retry/backoff
             'MAX_RETRIES', 'RETRY_DELAY',
             # UPnP / LLDP / SNMP (читаются в topology/network/snmp)
