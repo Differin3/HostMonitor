@@ -147,14 +147,34 @@ php-cgi (`HTTP_X_HM_REQUEST_ID`) и указывает в строках access-
 (например `smart.php`) больше не теряются и коррелируют по `req=` с
 access-log.
 
+### P2 — убрать дубль auth-логов, свести error_log на app_log
+
+- `[P2]` Единственная точка журнала безопасности — страница «Безопасность»
+  (`monitoring/auth_logs.php`, API `api/auth_logs.php`): статистика,
+  подозрительные IP, фильтры по типу/результату/периоду и поиск. Дублирующая
+  вкладка «Авторизация панели» удалена из `logs.php` (страница, разметка,
+  `frontend/js/logs.js`), а её экспорт перенесён на страницу безопасности
+  (кнопка «Экспорт» в `auth_logs.php` + `authExport()` в `frontend/js/auth_logs.js`).
+  Мёртвая ветка `type=auth` вырезана из `api/logs.php`.
+- `[P2]` Все оставшиеся `error_log()` панели переведены на
+  `app_log_error/warning()` — единый формат `[php] <ISO> <LEVEL> req=<id>`
+  и фильтрация по `LOG_LEVEL`. Затронуты `api/*` (metrics, db_ha, enroll,
+  enrollment, ports, logs, providers, settings, payments, containers, summary,
+  panel_update, nodes_export, nodes/command, agent_update), `includes/*`
+  (helpers, database, agent_auth, retention, db_monitor, db/settings),
+  `setup.php`, `logout.php`, `sse.php`. Схемы-энейблы и прочие
+  best-effort операции понижены до `warning`, реальные сбои — `error`.
+- `[P2]` `log_helpers.php` подключается из `includes/database.php`, поэтому
+  `app_log()` доступен во всех точках, включающих БД (в т.ч. `sse.php`,
+  `api/logs.php`).
+
 ## 6. Дорожная карта
 
 - `[P0]` Не терять логи, убрать шум и self-check, ввести уровни/flush.
 - `[P1]` Единый формат `[origin] <ISO> <LEVEL> req=<id>` для PHP/веб-сервера,
   `app_log()`, причёсать `lldp_discovery`/`docker`.
-- `[P2]` Убрать дубль auth-логов (`monitoring/auth_logs.php` и вкладка `auth`
-  в `logs.php` читают одну таблицу `auth_logs`), свести UI-фильтры; перевести
-  остальные PHP-`error_log()` на `app_log()`.
+- `[P2]` Единая страница безопасности вместо дубля auth-логов; все PHP-
+  `error_log()` сведены на `app_log()`.
 - `[P3]` Разделить каналы `access`/`app` при росте нагрузки (вынести access
   log в отдельный файл с ротацией), при необходимости — централизация в
   journald-remote / Loki.

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/log_helpers.php';
+
 /**
  * Сроки хранения истории и пакетная очистка таблиц, которые растут от агентов.
  */
@@ -58,7 +60,7 @@ function retention_ensure_indexes(PDO $pdo): void
                 $pdo->exec($sql);
             }
         } catch (Throwable $e) {
-            error_log('[retention] index ' . $name . ': ' . $e->getMessage());
+            app_log_warning('[retention] index ' . $name . ': ' . $e->getMessage());
         }
     }
 }
@@ -242,7 +244,7 @@ function retention_maybe_tick(PDO $pdo, int $minIntervalSec = 3600): void
         fwrite($fh, (string)time());
         fflush($fh);
     } catch (Throwable $e) {
-        error_log('[retention] tick: ' . $e->getMessage());
+        app_log_warning('[retention] tick: ' . $e->getMessage());
     }
     flock($fh, LOCK_UN);
     fclose($fh);

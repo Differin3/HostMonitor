@@ -86,7 +86,7 @@ try {
             echo json_encode(['error' => 'Method not allowed']);
     }
 } catch (Exception $e) {
-    error_log('metrics.php error: ' . $e->getMessage());
+    app_log_error('metrics.php error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Internal server error']);
 }
@@ -246,7 +246,7 @@ function handlePost($pdo) {
             if ($node) {
                 $nodeId = $node['id'];
             } else {
-                error_log("[metrics.php] Node not found by name: {$nodeName}");
+                app_log_warning("[metrics.php] Node not found by name: {$nodeName}");
             }
         }
         $row = $metrics;
@@ -258,7 +258,7 @@ function handlePost($pdo) {
     }
 
     if (!$nodeId) {
-        error_log("[metrics.php] node_id is required. nodeInfo: " . json_encode($nodeInfo) . ", node_name: " . ($nodeName ?? 'null'));
+        app_log_warning("[metrics.php] node_id is required. nodeInfo: " . json_encode($nodeInfo) . ", node_name: " . ($nodeName ?? 'null'));
         http_response_code(400);
         echo json_encode(['error' => 'node_id is required. Check node_token or provide node_name in metrics.']);
         return;
@@ -301,7 +301,7 @@ function handlePost($pdo) {
         try {
             $pdo->prepare($platformSql)->execute($platformValues);
         } catch (Exception $e) {
-            error_log("[metrics.php] Platform update error: " . $e->getMessage());
+            app_log_error("[metrics.php] Platform update error: " . $e->getMessage());
         }
     }
 
@@ -357,7 +357,7 @@ function handlePost($pdo) {
                 INDEX idx_timestamp (timestamp)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (Exception $e) {
-            error_log("Error creating gpu_metrics table: " . $e->getMessage());
+            app_log_warning("Error creating gpu_metrics table: " . $e->getMessage());
         }
 
         $deleteGpuStmt = $pdo->prepare("DELETE FROM gpu_metrics WHERE node_id = ?");

@@ -23,7 +23,7 @@ require_once __DIR__ . '/../../includes/helpers.php';
 try {
     $pdo = getDbConnection();
 } catch (Throwable $e) {
-    error_log('[enrollment] db connection failed: ' . $e->getMessage());
+    app_log_error('[enrollment] db connection failed: ' . $e->getMessage());
     json_error('Service unavailable', 503);
 }
 $auth = require_api_auth($pdo);
@@ -90,7 +90,7 @@ if ($method === 'GET') {
         if ((string)$e->getCode() === '42S02') {
             json_error('Enrollment is not configured', 503);
         }
-        error_log('[enrollment] list failed: ' . $e->getMessage());
+        app_log_error('[enrollment] list failed: ' . $e->getMessage());
         json_error('Internal server error', 500);
     }
 
@@ -169,7 +169,7 @@ try {
     if ((string)$e->getCode() === '42S02') {
         json_error('Enrollment is not configured', 503);
     }
-    error_log('[enrollment] create failed: ' . $e->getMessage());
+    app_log_error('[enrollment] create failed: ' . $e->getMessage());
     json_error('Internal server error', 500);
 }
 

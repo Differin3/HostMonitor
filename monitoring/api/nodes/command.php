@@ -114,6 +114,6 @@ try {
 
     json_error('Method not allowed', 405);
 } catch (Throwable $e) {
-    error_log('nodes/command.php error: ' . $e->getMessage());
+    app_log_error('nodes/command.php error: ' . $e->getMessage());
     json_error('Internal server error', 500);
 }

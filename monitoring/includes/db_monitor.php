@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/log_helpers.php';
+
 function dbmon_ensure_tables(PDO $pdo): void
 {
     $pdo->exec("CREATE TABLE IF NOT EXISTS monitored_databases (
@@ -420,7 +422,7 @@ function dbmon_status_alert(PDO $pdo, array $row, string $old, string $now, stri
             $stmt->execute(['БД «' . $name . '» недоступна']);
         }
     } catch (Throwable $e) {
-        error_log('[dbmon] alert: ' . $e->getMessage());
+        app_log_warning('[dbmon] alert: ' . $e->getMessage());
     }
 }
 

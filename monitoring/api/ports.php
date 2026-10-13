@@ -83,7 +83,7 @@ try {
             try {
                 ensure_network_interfaces_table($pdo);
             } catch (Exception $e) {
-                error_log("Error creating network_interfaces table: " . $e->getMessage());
+                app_log_warning("Error creating network_interfaces table: " . $e->getMessage());
             }
             
             $sql = "SELECT ni.*, COALESCE(n.name, CONCAT('Node ', ni.node_id)) as node_name 
@@ -233,7 +233,7 @@ try {
             try {
                 ensure_network_interfaces_table($pdo);
             } catch (Exception $e) {
-                error_log("Error creating network_interfaces table: " . $e->getMessage());
+                app_log_warning("Error creating network_interfaces table: " . $e->getMessage());
             }
 
             $interfaces = $data['interfaces'] ?? [];
@@ -281,7 +281,7 @@ try {
                     }
                 }
             } catch (Exception $e) {
-                error_log('network_neighbors: ' . $e->getMessage());
+                app_log_warning('network_neighbors: ' . $e->getMessage());
             }
             
             echo json_encode(['success' => true, 'count' => count($interfaces), 'neighbors' => count($neighbors)]);

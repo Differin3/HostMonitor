@@ -7,9 +7,6 @@ render_layout_start('Логи', 'logs', '<button class="primary" id="exportBtn" 
         <button type="button" class="tab-btn active" data-tab="system" onclick="switchLogsTab('system')">
             <i data-lucide="file-text"></i> Системные логи
         </button>
-        <button type="button" class="tab-btn" data-tab="auth" onclick="switchLogsTab('auth')">
-            <i data-lucide="shield"></i> Авторизация панели
-        </button>
         <button type="button" class="tab-btn" data-tab="ssh_auth" onclick="switchLogsTab('ssh_auth')">
             <i data-lucide="lock"></i> SSH авторизация
         </button>
@@ -54,45 +51,6 @@ render_layout_start('Логи', 'logs', '<button class="primary" id="exportBtn" 
                 </div>
                 <div id="logs-content" class="logs-content"></div>
             </div>
-        </div>
-    </div>
-
-    <div id="auth-logs-tab" class="tab-content">
-        <div class="compact-filters">
-            <select id="authEventFilter" class="compact-select">
-                <option value="">Все события</option>
-                <option value="login">Вход</option>
-                <option value="logout">Выход</option>
-                <option value="failed">Неудачные попытки</option>
-            </select>
-            <div class="compact-search">
-                <input type="text" id="authLogSearch" placeholder="Поиск по пользователю или IP...">
-            </div>
-        </div>
-
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Время</th>
-                        <th>Пользователь</th>
-                        <th>IP адрес</th>
-                        <th>Событие</th>
-                        <th>Результат</th>
-                        <th>Сообщение</th>
-                    </tr>
-                </thead>
-                <tbody id="auth-logs-tbody">
-                    <tr>
-                        <td colspan="6" class="text-center">Загрузка...</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="table-pagination">
-            <button id="auth-logs-prev">&laquo;</button>
-            <span id="auth-logs-page-info">Стр. 1</span>
-            <button id="auth-logs-next">&raquo;</button>
         </div>
     </div>
 

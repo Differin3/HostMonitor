@@ -4,7 +4,8 @@ require_once __DIR__ . '/includes/layout.php';
 render_layout_start(
     'Безопасность',
     'security',
-    '<button class="primary" type="button" id="auth-refresh"><i data-lucide="refresh-cw"></i> Обновить</button>'
+    '<button type="button" id="auth-export"><i data-lucide="download"></i> Экспорт</button>'
+    . '<button class="primary" type="button" id="auth-refresh"><i data-lucide="refresh-cw"></i> Обновить</button>'
 );
 ?>
     <div class="page-controls">

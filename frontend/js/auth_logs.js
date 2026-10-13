@@ -15,7 +15,7 @@ const AUTH_TYPE_LABELS = {
 
 const authState = { limit: 100, offset: 0, total: 0 };
 
-function authQuery() {
+function authFilterParams() {
     const p = new URLSearchParams();
     const type = document.getElementById('auth-type')?.value || '';
     const result = document.getElementById('auth-result')?.value || '';
@@ -25,6 +25,11 @@ function authQuery() {
     if (result) p.set('result', result);
     if (days) p.set('days', days);
     if (q) p.set('q', q);
+    return p;
+}
+
+function authQuery() {
+    const p = authFilterParams();
     p.set('limit', String(authState.limit));
     p.set('offset', String(authState.offset));
     return p.toString();
@@ -101,6 +106,53 @@ function authRenderPager() {
     });
 }
 
+function authDownloadText(filename, content) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+async function authExport() {
+    const params = authFilterParams();
+    params.set('limit', '500');
+    const all = [];
+    let offset = 0;
+    let total = 0;
+    try {
+        window.showToast?.('Экспорт событий…', 'info');
+        for (let guard = 0; guard < 100; guard++) {
+            params.set('offset', String(offset));
+            const res = await fetch(AUTH_API + '?' + params.toString(), { credentials: 'include' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Ошибка');
+            const rows = data.logs || [];
+            all.push(...rows);
+            total = Number(data.total) || 0;
+            offset += rows.length;
+            if (!rows.length || rows.length < 500 || all.length >= total) break;
+        }
+        if (!all.length) {
+            window.showToast?.('Нет событий для экспорта', 'info');
+            return;
+        }
+        let content = `# Безопасность — журнал входов\n# ${new Date().toLocaleString('ru-RU')}\n# Записей: ${all.length}\n\n`;
+        all.forEach((r) => {
+            const ok = Number(r.success) === 1 ? 'OK' : 'FAIL';
+            content += `[${r.timestamp}] [${AUTH_TYPE_LABELS[r.event_type] || r.event_type || '-'}] [${ok}] ${r.username || '-'}@${r.ip_address || '-'} ${r.message || ''}\n`;
+        });
+        authDownloadText(`auth-logs-${new Date().toISOString().split('T')[0]}.txt`, content);
+        window.showToast?.(`Экспортировано ${all.length} записей`, 'success');
+    } catch (e) {
+        window.showToast?.('Ошибка экспорта: ' + e.message, 'error');
+    }
+}
+
 ['auth-type', 'auth-result', 'auth-days'].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', () => {
         authState.offset = 0;
@@ -118,5 +170,7 @@ document.getElementById('auth-refresh')?.addEventListener('click', () => {
     authState.offset = 0;
     authLoad();
 });
+
+document.getElementById('auth-export')?.addEventListener('click', authExport);
 
 authLoad();

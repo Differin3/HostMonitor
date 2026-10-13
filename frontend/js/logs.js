@@ -9,9 +9,6 @@ let currentLogsTab = 'system';
 let systemLogsPage = 1;
 let systemLogsPerPage = 100;
 let systemLogsTotal = 0;
-let authLogsPage = 1;
-let authLogsPerPage = 100;
-let authLogsTotal = 0;
 let sshLogsPage = 1;
 let sshLogsPerPage = 100;
 let sshLogsTotal = 0;
@@ -208,36 +205,6 @@ async function exportLogs() {
     }
 }
 
-async function exportAuthLogs() {
-    try {
-        showToast('Экспорт логов...', 'info');
-        const eventType = document.getElementById('authEventFilter')?.value || '';
-        const q = document.getElementById('authLogSearch')?.value.trim() || '';
-        const allLogs = await fetchAllPages((page, perPage) => {
-            const params = new URLSearchParams();
-            params.set('type', 'auth');
-            params.set('page', String(page));
-            params.set('per_page', String(perPage));
-            if (eventType) params.set('event_type', eventType);
-            if (q) params.set('q', q);
-            return params;
-        });
-        if (!allLogs.length) {
-            showToast('Нет логов для экспорта', 'info');
-            return;
-        }
-        let content = `# Авторизация панели\n# ${new Date().toLocaleString('ru-RU')}\n# Записей: ${allLogs.length}\n\n`;
-        allLogs.forEach((log) => {
-            content += `[${formatTs(log.timestamp)}] [${log.event_type || '-'}] ${log.username || '-'}@${log.ip_address || '-'} ${log.message || ''}\n`;
-        });
-        downloadText(`auth-logs-${new Date().toISOString().split('T')[0]}.txt`, content);
-        showToast(`Экспортировано ${allLogs.length} записей`, 'success');
-    } catch (error) {
-        console.error(error);
-        showToast('Ошибка экспорта логов', 'error');
-    }
-}
-
 async function exportSshLogs() {
     const nodeId = document.getElementById('sshNodeFilter')?.value || '';
     if (!nodeId) {
@@ -277,7 +244,6 @@ async function exportSshLogs() {
 
 function exportCurrentTabLogs() {
     if (currentLogsTab === 'system') exportLogs();
-    else if (currentLogsTab === 'auth') exportAuthLogs();
     else exportSshLogs();
 }
 
@@ -287,63 +253,11 @@ function switchLogsTab(tab) {
         btn.classList.toggle('active', btn.dataset.tab === tab);
     });
     document.getElementById('system-logs-tab')?.classList.toggle('active', tab === 'system');
-    document.getElementById('auth-logs-tab')?.classList.toggle('active', tab === 'auth');
     document.getElementById('ssh-logs-tab')?.classList.toggle('active', tab === 'ssh_auth');
-    if (tab === 'auth') {
-        authLogsPage = 1;
-        loadAuthLogs();
-    } else if (tab === 'ssh_auth') {
+    if (tab === 'ssh_auth') {
         sshLogsPage = 1;
         loadSshAuthLogs(1);
     }
-}
-
-async function loadAuthLogs() {
-    const tbody = document.getElementById('auth-logs-tbody');
-    try {
-        const params = new URLSearchParams();
-        params.set('type', 'auth');
-        params.set('page', String(authLogsPage));
-        params.set('per_page', String(authLogsPerPage));
-        const eventType = document.getElementById('authEventFilter')?.value || '';
-        const q = document.getElementById('authLogSearch')?.value.trim() || '';
-        if (eventType) params.set('event_type', eventType);
-        if (q) params.set('q', q);
-        const response = await fetch(`${API_BASE}/logs.php?${params}`, { credentials: 'include' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = JSON.parse(await response.text() || '{}');
-        const logs = data.logs || [];
-        authLogsPage = data.page || authLogsPage;
-        authLogsPerPage = data.per_page || authLogsPerPage;
-        authLogsTotal = data.total ?? 0;
-        renderAuthLogs(logs);
-        updateAuthPagination();
-    } catch (error) {
-        console.error(error);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center">Ошибка загрузки</td></tr>';
-    }
-}
-
-function renderAuthLogs(logs) {
-    const tbody = document.getElementById('auth-logs-tbody');
-    if (!tbody) return;
-    if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Логи авторизации панели пусты</td></tr>';
-        return;
-    }
-    const labels = { login: 'Вход', logout: 'Выход', failed: 'Неудачная попытка' };
-    tbody.innerHTML = logs.map((log) => {
-        const eventType = log.event_type || 'unknown';
-        const success = Number(log.success) === 1 || log.success === true;
-        return `<tr>
-            <td>${escapeHtml(formatTs(log.timestamp))}</td>
-            <td>${escapeHtml(log.username || '—')}</td>
-            <td>${escapeHtml(log.ip_address || '—')}</td>
-            <td><span class="status pill">${escapeHtml(labels[eventType] || eventType)}</span></td>
-            <td><span class="status ${success ? 'status-online' : 'status-offline'}">${success ? 'Успешно' : 'Ошибка'}</span></td>
-            <td>${escapeHtml(log.message || '—')}</td>
-        </tr>`;
-    }).join('');
 }
 
 async function loadSshAuthLogs(page = 1) {
@@ -422,16 +336,6 @@ function updateSystemPagination() {
     if (next) next.disabled = systemLogsPage >= totalPages;
 }
 
-function updateAuthPagination() {
-    const totalPages = authLogsTotal > 0 ? Math.ceil(authLogsTotal / authLogsPerPage) : 1;
-    const info = document.getElementById('auth-logs-page-info');
-    const prev = document.getElementById('auth-logs-prev');
-    const next = document.getElementById('auth-logs-next');
-    if (info) info.textContent = `Стр. ${authLogsPage} из ${totalPages}`;
-    if (prev) prev.disabled = authLogsPage <= 1;
-    if (next) next.disabled = authLogsPage >= totalPages;
-}
-
 function updateSshPagination() {
     const totalPages = sshLogsTotal > 0 ? Math.ceil(sshLogsTotal / sshLogsPerPage) : 1;
     const info = document.getElementById('ssh-logs-page-info');
@@ -450,7 +354,6 @@ async function loadLogsPerPageSetting() {
         const perPage = parseInt((data.settings || {}).logs_per_page, 10);
         if (perPage >= 10 && perPage <= 2000) {
             systemLogsPerPage = perPage;
-            authLogsPerPage = perPage;
             sshLogsPerPage = perPage;
         }
     } catch (error) {
@@ -496,17 +399,6 @@ document.addEventListener('DOMContentLoaded', () => {
         autoScroll = e.target.checked;
     });
 
-    document.getElementById('authEventFilter')?.addEventListener('change', () => {
-        authLogsPage = 1;
-        loadAuthLogs();
-    });
-    document.getElementById('authLogSearch')?.addEventListener('input', () => {
-        debounceReload(() => {
-            authLogsPage = 1;
-            loadAuthLogs();
-        });
-    });
-
     document.getElementById('sshNodeFilter')?.addEventListener('change', () => {
         sshLogsPage = 1;
         loadSshAuthLogs(1);
@@ -528,17 +420,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedNodeId || systemLogsPage >= totalPages) return;
         loadLogs(selectedNodeId, systemLogsPage + 1);
     });
-    document.getElementById('auth-logs-prev')?.addEventListener('click', () => {
-        if (authLogsPage <= 1) return;
-        authLogsPage -= 1;
-        loadAuthLogs();
-    });
-    document.getElementById('auth-logs-next')?.addEventListener('click', () => {
-        const totalPages = Math.ceil(authLogsTotal / authLogsPerPage) || 1;
-        if (authLogsPage >= totalPages) return;
-        authLogsPage += 1;
-        loadAuthLogs();
-    });
     document.getElementById('ssh-logs-prev')?.addEventListener('click', () => {
         if (sshLogsPage <= 1) return;
         loadSshAuthLogs(sshLogsPage - 1);
@@ -552,8 +433,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         if (currentLogsTab === 'system' && selectedNodeId && !logsPaused && systemLogsPage === 1) {
             loadLogs(selectedNodeId, 1);
-        } else if (currentLogsTab === 'auth' && authLogsPage === 1) {
-            loadAuthLogs();
         } else if (currentLogsTab === 'ssh_auth' && sshLogsPage === 1) {
             const nodeId = document.getElementById('sshNodeFilter')?.value;
             if (nodeId) loadSshAuthLogs(1);

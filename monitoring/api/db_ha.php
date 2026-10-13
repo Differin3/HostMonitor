@@ -152,7 +152,7 @@ try {
                 db_ensure_database(db_endpoint(db_config_load(), 'replica'));
                 $created = true;
             } catch (Throwable $e) {
-                error_log('Replica database create skipped: ' . $e->getMessage());
+                app_log_warning('Replica database create skipped: ' . $e->getMessage());
             }
         }
         echo json_encode(array_merge(db_ha_status_payload(true), [
@@ -208,7 +208,7 @@ try {
         try {
             db_try_connect(db_endpoint($cfg, 'primary'), 12);
         } catch (Throwable $e) {
-            error_log('db_ha primary connect error: ' . $e->getMessage());
+            app_log_error('db_ha primary connect error: ' . $e->getMessage());
             json_error('Primary database unavailable', 503);
         }
         db_ha_state_save('primary', 'manual');
@@ -264,7 +264,7 @@ try {
             $dst->exec('SET UNIQUE_CHECKS=0');
             db_copy_table_schema($src, $dst, $table);
         } catch (Throwable $e) {
-            error_log('db_ha schema sync error: ' . $e->getMessage());
+            app_log_error('db_ha schema sync error: ' . $e->getMessage());
             json_error('Schema sync error', 503);
         }
         echo json_encode(['ok' => true, 'table' => $table, 'schema' => true], JSON_UNESCAPED_UNICODE);
@@ -296,7 +296,7 @@ try {
             $src = db_try_connect($eps['src'], 10);
             $dst = db_try_connect($eps['dst'], 10);
         } catch (Throwable $e) {
-            error_log('db_ha connection error: ' . $e->getMessage());
+            app_log_error('db_ha connection error: ' . $e->getMessage());
             json_error('Connection error', 503);
         }
 
@@ -344,7 +344,7 @@ try {
             $dst = db_try_connect($eps['dst'], 8);
             db_sync_restore_checks($dst);
         } catch (Throwable $e) {
-            error_log('db_ha restore checks error: ' . $e->getMessage());
+            app_log_error('db_ha restore checks error: ' . $e->getMessage());
             json_error('Restore checks error', 503);
         }
         echo json_encode(['ok' => true, 'message' => 'Синхронизация прервана'], JSON_UNESCAPED_UNICODE);

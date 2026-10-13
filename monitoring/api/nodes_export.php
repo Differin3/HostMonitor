@@ -161,7 +161,7 @@ try {
     $pdo->commit();
 } catch (Throwable $e) {
     $pdo->rollBack();
-    error_log('nodes_export.php import error: ' . $e->getMessage());
+    app_log_error('nodes_export.php import error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Import failed']);
     exit;

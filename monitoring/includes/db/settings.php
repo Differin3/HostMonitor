@@ -8,6 +8,8 @@ if (!defined('DB_INCLUDES_DIR')) {
     define('DB_INCLUDES_DIR', dirname(__DIR__));
 }
 
+require_once __DIR__ . '/../log_helpers.php';
+
 /**
  * Настройки панели.
  *
@@ -346,7 +348,7 @@ function settings_upsert(PDO $pdo, array $pairs): array
         try {
             web_config_save($merged);
         } catch (Throwable $e) {
-            error_log('Failed to save web.local.php: ' . $e->getMessage());
+            app_log_error('Failed to save web.local.php: ' . $e->getMessage());
         }
     }
     settings_load_map(true);

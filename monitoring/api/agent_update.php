@@ -649,7 +649,7 @@ try {
                       ? 'Обновление агентов'
                       : 'Проверка обновлений агентов', $userId);
               } catch (Throwable $e) {
-                  error_log('agent job enqueue failed: ' . $e->getMessage());
+                  app_log_error('agent job enqueue failed: ' . $e->getMessage());
               }
           }
   
