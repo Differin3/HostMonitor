@@ -102,18 +102,26 @@ LOG_LEVEL=info
 - `[P0]` `agent/transport.py`: «Sending metrics», «Metrics sent», heartbeat,
   command-check и command-status переведены в `debug`; ошибки отправки — в
   `error`, таймауты/сбои — в `warning`.
+- `[P0]` `agent/logs.py`, `agent/topology.py`, `agent/network.py`,
+  `agent/updater.py`: периодический INFO-шум (`collect_logs`/`send_logs`
+  totals, счётчики UPnP/LLDP, пассивные LLDP-соседи, отчёт об апдейтах) →
+  `debug`; сбои → `error`/`warning`.
 - `[P0]` `scripts/python_web_server.py`: `_log_php_stderr()` — stderr php-cgi
   всегда пишется в journal; фатальные ошибки — одна строка `[php ERROR]`.
 - `[P0]` `monitoring/api/nodes.php`, `updates.php`, `processes.php`: удалены
   отладочные баннеры и self-check-запросы, оставшиеся `error_log()` получили
   тег.
 
+Эффект на МСК (msk-gate-01): журнал агента при `LOG_LEVEL=info` содержит
+только старт/состояние и одну строку TLS-warning; PHP-`Notice` панели
+(например `smart.php`) больше не теряются.
+
 ## 6. Дорожная карта
 
 - `[P0]` Не терять логи, убрать шум и self-check, ввести уровни/flush.
 - `[P1]` Ввести общий формат `[origin] <ISO> <LEVEL>` для PHP и веб-сервера
-  (обёртка над `error_log`, `request_id` на запрос), причёсать `lldp_discovery`
-  и `logs.py`.
+  (обёртка над `error_log`, `request_id` на запрос), причёсать
+  `agent/lldp_discovery.py`.
 - `[P2]` Убрать дубль auth-логов (`monitoring/auth_logs.php` и вкладка `auth`
   в `logs.php` читают одну таблицу `auth_logs`), свести UI-фильтры.
 - `[P3]` Разделить каналы `access`/`app` при росте нагрузки (вынести access
