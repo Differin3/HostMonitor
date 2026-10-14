@@ -319,14 +319,30 @@ class SmartMixin:
         """Отправка S.M.A.R.T. данных на мастер-сервер."""
         if not drives:
             return True
-        resp = _request_with_retry(
-            "POST",
-            f"{self.master_url}/api/smart.php",
-            json={'drives': drives},
-            headers=self.headers,
-            verify=_get_verify(),
-        )
-        if resp and resp.status_code in (200, 201):
-            return True
-        _log(f"Failed to send SMART data: status={resp.status_code if resp else 'no response'}")
+        endpoints = []
+        base = self.master_url.rstrip('/')
+        endpoints.append(f"{base}/api/smart.php")
+        # fallback endpoints for internal LAN
+        try:
+            import os as _os
+            for fb in _os.getenv('SMART_FALLBACK_URLS', 'http://127.0.0.1:5443,http://10.0.0.1:5443,http://192.168.10.1:5443').split(','):
+                fb = fb.strip()
+                if fb and f"{fb.rstrip('/')}/api/smart.php" not in endpoints:
+                    endpoints.append(f"{fb.rstrip('/')}/api/smart.php")
+        except Exception:
+            pass
+
+        last_resp = None
+        for ep in endpoints:
+            resp = _request_with_retry(
+                "POST",
+                ep,
+                json={'drives': drives},
+                headers=self.headers,
+                verify=_get_verify(),
+            )
+            last_resp = resp
+            if resp and resp.status_code in (200, 201):
+                return True
+        _log(f"Failed to send SMART data: status={last_resp.status_code if last_resp else 'no response'}")
         return False
