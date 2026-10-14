@@ -31,6 +31,6 @@ monitoring/frontend
 .db-credentials
 docker/.env
 /NA
-*.bekap.sql
+logs/
 database/monitoring_bekap.sql
 

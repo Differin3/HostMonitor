@@ -9,8 +9,10 @@
 
 import importlib.util
 import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "python_web_server.py"
@@ -110,6 +112,64 @@ class CallSiteTest(unittest.TestCase):
     def test_old_digit_only_check_is_gone(self):
         src = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("parts[1].strip().isdigit()", src)
+
+
+class AccessLogTest(unittest.TestCase):
+    """Access-лог вынесен в отдельный файл с ротацией (P3)."""
+
+    def test_default_path_under_project_logs(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("ACCESS_LOG", None)
+            path, max_mb, backups = mod._access_log_config()
+        self.assertTrue(str(path).endswith("logs/access.log"))
+        self.assertGreater(max_mb, 0)
+        self.assertGreater(backups, 0)
+
+    def test_disabled_values_go_to_stderr(self):
+        for val in ("", "-", "stderr", "journal", "off", "none"):
+            with mock.patch.dict(os.environ, {"ACCESS_LOG": val}):
+                path, *_ = mod._access_log_config()
+            self.assertIsNone(path, f"{val!r} должен отключать файл")
+
+    def test_explicit_path(self):
+        with mock.patch.dict(os.environ, {"ACCESS_LOG": "/tmp/hm-x.log"}):
+            path, *_ = mod._access_log_config()
+        self.assertEqual(str(path), "/tmp/hm-x.log")
+
+    def test_write_to_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "access.log"
+            with mock.patch.dict(os.environ, {"ACCESS_LOG": str(p)}):
+                mod.write_access_log("[access] hello\n")
+                mod.write_access_log("[access] world")
+            content = p.read_text(encoding="utf-8")
+            self.assertIn("[access] hello", content)
+            self.assertIn("[access] world\n", content)
+
+    def test_write_to_stderr_when_disabled(self):
+        import io
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"ACCESS_LOG": "journal"}):
+            with mock.patch("sys.stderr", buf):
+                mod.write_access_log("[access] to-stderr")
+        self.assertIn("[access] to-stderr", buf.getvalue())
+
+    def test_builtin_rotation(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "access.log"
+            env = {
+                "ACCESS_LOG": str(p),
+                "ACCESS_LOG_MAX_MB": "1",
+                "ACCESS_LOG_BACKUPS": "2",
+            }
+            line = "x" * 1024
+            with mock.patch.dict(os.environ, env):
+                for _ in range(1100):
+                    mod.write_access_log(line)
+            self.assertTrue(p.exists())
+            self.assertTrue((Path(str(p) + ".1")).exists())
+            # самый старый (backups=2) не превышает лимит по числу файлов
+            self.assertFalse((Path(str(p) + ".3")).exists())
 
 
 if __name__ == "__main__":

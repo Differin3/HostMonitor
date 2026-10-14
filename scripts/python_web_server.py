@@ -12,7 +12,9 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import urllib.parse
+from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -20,6 +22,79 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "monitoring"
 FRONTEND_ROOT = PROJECT_ROOT / "frontend"
 DATA_DIR = WEB_ROOT / "data"
+
+
+# ---------------------------------------------------------------------------
+# Access-лог: отдельный канал и файл с ротацией (см. docs/LOGGING.md §P3).
+#
+# PHP/app-логи идут в journal через stderr (их перекладывает _log_php_stderr),
+# а строки «[access] …» по умолчанию пишутся в отдельный файл, чтобы тяжёлый
+# трафик не вытеснял из journal прикладные сообщения. Файл ротируется самим
+# сервером (self-contained, без внешнего logrotate): ACCESS_LOG_MAX_MB мегабайт,
+# ACCESS_LOG_BACKUPS копий. ACCESS_LOG пустой/«-»/«stderr»/«journal»/«off»
+# возвращает поведение journal; ACCESS_LOG_MAX_MB=0 выключает встроенную
+# ротацию (тогда ротацией должен заниматься внешний logrotate).
+# ---------------------------------------------------------------------------
+_ACCESS_LOG_LOCK = threading.Lock()
+
+
+def _access_log_config():
+    """Возвращает (path | None, max_mb, backups). None → писать в stderr."""
+    raw = os.environ.get("ACCESS_LOG")
+    if raw is None:
+        path = PROJECT_ROOT / "logs" / "access.log"
+    else:
+        raw = raw.strip()
+        if raw in ("", "-", "stderr", "journal", "off", "none"):
+            return None, 0, 0
+        path = Path(raw)
+
+    def _int(name, default):
+        try:
+            return int(os.environ.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    return path, max(0, _int("ACCESS_LOG_MAX_MB", 20)), max(0, _int("ACCESS_LOG_BACKUPS", 5))
+
+
+def _rotate_access_log(path: Path, backups: int) -> None:
+    """Сдвигает path -> path.1, path.1 -> path.2, …, удаляет самый старый."""
+    oldest = path.with_name(path.name + f".{backups}")
+    if oldest.exists():
+        oldest.unlink()
+    for i in range(backups - 1, 0, -1):
+        src = path.with_name(path.name + f".{i}")
+        if src.exists():
+            os.replace(src, path.with_name(path.name + f".{i + 1}"))
+    if path.exists():
+        os.replace(path, path.with_name(path.name + ".1"))
+
+
+def write_access_log(line: str) -> None:
+    """Пишет строку access-лога в файл (с ротацией) или в stderr как fallback."""
+    if not line.endswith("\n"):
+        line += "\n"
+    path, max_mb, backups = _access_log_config()
+    if path is None:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+        return
+
+    with _ACCESS_LOG_LOCK:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if max_mb > 0 and backups > 0 and path.exists():
+                limit = max_mb * 1024 * 1024
+                if path.stat().st_size + len(line.encode("utf-8")) > limit:
+                    _rotate_access_log(path, backups)
+            with open(path, "a", encoding="utf-8", errors="replace") as fh:
+                fh.write(line)
+        except Exception:
+            # Не смогли открыть файл (права/диск) — не теряем лог, пишем в journal.
+            sys.stderr.write(line)
+            sys.stderr.flush()
+
 
 
 def _load_web_config_from_php() -> dict:
@@ -208,7 +283,8 @@ class PHPRequestHandler(SimpleHTTPRequestHandler):
 
     def log_message(self, format, *args):
         rid = getattr(self, "hm_request_id", "-")
-        sys.stderr.write(f"[access] {self.address_string()} req={rid} " + (format % args) + "\n")
+        ts = datetime.now().astimezone().isoformat(timespec="seconds")
+        write_access_log(f"[access] {ts} {self.address_string()} req={rid} " + (format % args))
 
     def _log_php_stderr(self, stderr: bytes) -> None:
         """Пишет stderr php-cgi в journal.
@@ -526,6 +602,13 @@ def main():
     print(f"Python веб-сервер запущен: http://{args.host}:{args.port}")
     print(f"Документ-рут: {WEB_ROOT}")
     print(f"php-cgi: {PHP_CGI}")
+    _al_path, _al_max, _al_backups = _access_log_config()
+    if _al_path is None:
+        print("Access-лог: stderr (journal)")
+    elif _al_max > 0 and _al_backups > 0:
+        print(f"Access-лог: {_al_path} (ротация {_al_max} MB × {_al_backups})")
+    else:
+        print(f"Access-лог: {_al_path} (без встроенной ротации)")
     sys.stdout.flush()  # Принудительно выводим сообщения для systemd
     
     try:
