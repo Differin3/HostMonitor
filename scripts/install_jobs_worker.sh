@@ -65,6 +65,13 @@ if grep -q "^User=" "${UNIT_DST}"; then
 else
     sed -i "/^\[Service\]/a User=${SERVICE_USER}" "${UNIT_DST}"
 fi
+# Добавляем DB_* переменные окружения для воркера (если отсутствуют в шаблоне)
+if ! grep -q '^Environment=.*DB_HOST' "${UNIT_DST}" 2>/dev/null; then
+    sed -i "/^\[Service\]/a Environment=\"DB_HOST=localhost\"" "${UNIT_DST}"
+    sed -i "/^\[Service\]/a Environment=\"DB_PORT=3306\"" "${UNIT_DST}"
+    sed -i "/^\[Service\]/a Environment=\"DB_NAME=monitoring\"" "${UNIT_DST}"
+    sed -i "/^\[Service\]/a Environment=\"DB_USER=monitoring\"" "${UNIT_DST}"
+fi
 
 # Каталог данных должен остаться доступен воркеру: там lock-файл и
 # heartbeat, по которому панель определяет, что воркер жив. Права на

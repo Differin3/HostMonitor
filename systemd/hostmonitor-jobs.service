@@ -5,10 +5,15 @@ After=network.target mariadb.service mysql.service
 
 [Service]
 Type=simple
-User=root
+User=monitoring
 WorkingDirectory=/opt/monitoring
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/monitoring/.venv/bin"
 Environment="LANG=C.UTF-8"
+# DB config - can be overridden by db.local.php; keep sane defaults if env used
+Environment="DB_HOST=localhost"
+Environment="DB_PORT=3306"
+Environment="DB_NAME=monitoring"
+Environment="DB_USER=monitoring"
 ExecStart=/usr/bin/php /opt/monitoring/scripts/job_worker.php
 StandardOutput=journal
 StandardError=journal
