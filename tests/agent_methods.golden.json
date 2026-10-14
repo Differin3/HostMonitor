@@ -1,5 +1,5 @@
 {
-  "count": 86,
+  "count": 87,
   "instance_attrs": [
     "_cdp_hosts",
     "_cycle_counter",
@@ -59,6 +59,7 @@
     "_parse_journal_iso",
     "_parse_journal_short_iso",
     "_parse_syslog_line",
+    "_parse_temperature",
     "_physical_net_bytes",
     "_poll_lldp_devices",
     "_save_log_cursors",
@@ -147,6 +148,7 @@
     "_parse_journal_iso": "(line: str)",
     "_parse_journal_short_iso": "(self, line)",
     "_parse_syslog_line": "(self, line, default_pid=None, default_process=None)",
+    "_parse_temperature": "(self, raw_value, raw_string='')",
     "_physical_net_bytes": "(self)",
     "_poll_lldp_devices": "(self)",
     "_save_log_cursors": "(self)",
