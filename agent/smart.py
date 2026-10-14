@@ -146,11 +146,16 @@ class SmartMixin:
             capture_output=True, text=True, timeout=10
         )
         if info_result.returncode != 0 and info_result.returncode != 64:
-            # Fallback: пробуем другие флаги если первый не сработал
-            if not extra_flags:
-                return None
-            for fallback_flags in [['-d', 'scsi'], ['-d', 'nvme'], []]:
-                cmd_info = ['smartctl', '-i', '-j'] + fallback_flags + [device_name]
+            try:
+                cmd_info_p = ['smartctl', '-T', 'permissive', '-i', '-j'] + extra_flags + [device_name]
+                info_result_p = subprocess.run(cmd_info_p, capture_output=True, text=True, timeout=10)
+                if info_result_p.returncode in (0, 64):
+                    info_result = info_result_p
+            except Exception:
+                pass
+        if info_result.returncode != 0 and info_result.returncode != 64:
+            for fallback_flags in [['-d', 'scsi'], ['-d', 'nvme'], ['-d', 'sat'], ['-d', 'ata'], []]:
+                cmd_info = ['smartctl', '-T', 'permissive', '-i', '-j'] + fallback_flags + [device_name]
                 info_result = subprocess.run(
                     cmd_info,
                     capture_output=True, text=True, timeout=10
@@ -159,6 +164,7 @@ class SmartMixin:
                     extra_flags = fallback_flags
                     break
             else:
+                _log(f"SMART info failed for {device_name} (rc={info_result.returncode})", level='debug')
                 return None
 
         info = json.loads(info_result.stdout) if info_result.stdout.strip() else {}
@@ -187,6 +193,14 @@ class SmartMixin:
             cmd_attr,
             capture_output=True, text=True, timeout=10
         )
+        if attr_result.returncode != 0 and attr_result.returncode != 64:
+            try:
+                cmd_attr_p = ['smartctl', '-T', 'permissive', '-A', '-j'] + extra_flags + [device_name]
+                attr_result_p = subprocess.run(cmd_attr_p, capture_output=True, text=True, timeout=10)
+                if attr_result_p.returncode in (0, 64):
+                    attr_result = attr_result_p
+            except Exception:
+                pass
 
         attributes = []
         temperature = None
