@@ -1,11 +1,41 @@
 # S.M.A.R.T. дисков
 import json  # JSON
 import os  # окружение
+import re  # разбор строк smartctl
 import subprocess  # внешние команды
 try:
     from .runtime import _log, _get_verify, _request_with_retry
 except ImportError:
     from runtime import _log, _get_verify, _request_with_retry
+
+
+def _coerce_int(value):
+    """Безопасно приводит значение к int, иначе None (списки/строки/None)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        m = re.search(r'-?\d+', value)
+        if m:
+            try:
+                return int(m.group(0))
+            except ValueError:
+                return None
+    return None
+
+
+def _clamp_temperature(value):
+    """Ограничивает температуру разумным диапазоном -20..200 °C."""
+    if value is None:
+        return None
+    if value < -20:
+        return None
+    if value > 200:
+        return None
+    return value
 
 
 class SmartMixin:
@@ -179,6 +209,20 @@ class SmartMixin:
         interface = info.get('interface_type', '')
         sata_ver = info.get('sata_version', '')
 
+        # smartctl -i не всегда возвращает smart_status — запрашиваем отдельно -H
+        if not disk_info:
+            try:
+                cmd_health = ['smartctl', '-H', '-j'] + extra_flags + [device_name]
+                health_result = subprocess.run(
+                    cmd_health,
+                    capture_output=True, text=True, timeout=10
+                )
+                if health_result.returncode in (0, 64) and health_result.stdout.strip():
+                    health_data = json.loads(health_result.stdout)
+                    disk_info = health_data.get('smart_status', {}) or {}
+            except (ValueError, subprocess.TimeoutExpired):
+                pass
+
         # Определяем статус здоровья
         health = 'unknown'
         if disk_info:
@@ -219,7 +263,12 @@ class SmartMixin:
                 flags_raw = attr.get('flags', {})
                 flags = flags_raw.get('string', '') if isinstance(flags_raw, dict) else str(flags_raw)
                 raw = attr.get('raw', {})
-                raw_value = raw.get('value', 0) if isinstance(raw, dict) else raw
+                if isinstance(raw, dict):
+                    raw_value = raw.get('value', 0)
+                    raw_string = raw.get('string', '')
+                else:
+                    raw_value = raw
+                    raw_string = ''
 
                 attributes.append({
                     'id': attr_id,
@@ -232,9 +281,9 @@ class SmartMixin:
                 })
 
                 if name == 'Temperature_Celsius' or attr_id == 194:
-                    temperature = int(raw_value) if raw_value else None
+                    temperature = self._parse_temperature(raw_value, raw_string)
                 if name == 'Power_On_Hours' or attr_id == 9:
-                    power_on_hours = int(raw_value) if raw_value else None
+                    power_on_hours = _coerce_int(raw_value)
 
         # Если smartctl не дал атрибутов — проверяем NVRM
         if not attributes and health == 'unknown':
@@ -263,6 +312,28 @@ class SmartMixin:
             'attributes': attributes,
         }
 
+    def _parse_temperature(self, raw_value, raw_string=''):
+        """Извлекает температуру в градусах Цельсия.
+
+        Для ATA-атрибута 194 ``raw.value`` часто упакован (старшие байты —
+        Min/Max), поэтому надёжнее брать первое число из ``raw.string``.
+        Значение всегда нормализуется в разумный диапазон.
+        """
+        if isinstance(raw_string, str):
+            m = re.search(r'-?\d+', raw_string)
+            if m:
+                try:
+                    return _clamp_temperature(int(m.group(0)))
+                except (TypeError, ValueError):
+                    pass
+        value = _coerce_int(raw_value)
+        if value is None:
+            return None
+        # Значения за пределами 0..100 — упакованные: берём младший байт.
+        if value > 100:
+            value = value & 0xFF
+        return _clamp_temperature(value)
+
     def _evaluate_smart_health(self, attributes):
         """Оценка состояния здоровья по критическим атрибутам SMART."""
         critical_attrs = {
@@ -273,7 +344,7 @@ class SmartMixin:
         for attr in attributes:
             aid = attr.get('id', 0)
             if aid in critical_attrs:
-                raw = int(attr.get('raw', 0) or 0)
+                raw = _coerce_int(attr.get('raw', 0)) or 0
                 _, warn, crit = critical_attrs[aid]
                 if raw >= crit:
                     return 'failed'
@@ -322,10 +393,11 @@ class SmartMixin:
         endpoints = []
         base = self.master_url.rstrip('/')
         endpoints.append(f"{base}/api/smart.php")
-        # fallback endpoints for internal LAN
+        # Необязательные резервные адреса панели (через SMART_FALLBACK_URLS,
+        # список через запятую). По умолчанию пусто — чтобы при 5xx не
+        # тратить минуты на заведомо недоступные адреса.
         try:
-            import os as _os
-            for fb in _os.getenv('SMART_FALLBACK_URLS', 'http://127.0.0.1:5443,http://10.0.0.1:5443,http://192.168.10.1:5443').split(','):
+            for fb in os.getenv('SMART_FALLBACK_URLS', '').split(','):
                 fb = fb.strip()
                 if fb and f"{fb.rstrip('/')}/api/smart.php" not in endpoints:
                     endpoints.append(f"{fb.rstrip('/')}/api/smart.php")

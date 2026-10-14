@@ -25,6 +25,43 @@ if ($method === 'GET') {
     $nodeInfo = $auth['node'];
 }
 
+/**
+ * Приводит значение SMART к int или null.
+ *
+ * Агенты разных платформ могут прислать строку, массив с упакованными
+ * Min/Max байтами или человекочитаемую строку — всё это не должно ронять
+ * вставку в числовую колонку (иначе 500 и потерянные данные).
+ */
+function smart_int_or_null($value): ?int
+{
+    if (is_int($value)) {
+        return $value;
+    }
+    if (is_float($value)) {
+        return (int)$value;
+    }
+    if (is_string($value) && preg_match('/-?\d+/', $value, $m) === 1) {
+        return (int)$m[0];
+    }
+    return null;
+}
+
+function smart_temperature_or_null($value): ?int
+{
+    $int = smart_int_or_null($value);
+    if ($int === null) {
+        return null;
+    }
+    if ($int < -20 || $int > 200) {
+        // Упакованное значение (Min/Max в старших байтах) — берём младший байт.
+        $int &= 0xFF;
+        if ($int < -20 || $int > 200) {
+            return null;
+        }
+    }
+    return $int;
+}
+
 function ensure_smart_tables(PDO $pdo): void
 {
     static $done = false;
@@ -293,8 +330,11 @@ function handleSmartPost(PDO $pdo): void
         if (!$deviceName) continue;
 
         $health = $drive['health'] ?? 'unknown';
-        $temperature = $drive['temperature'] ?? null;
-        $powerOnHours = $drive['power_on_hours'] ?? null;
+        if (!is_string($health)) {
+            $health = 'unknown';
+        }
+        $temperature = smart_temperature_or_null($drive['temperature'] ?? null);
+        $powerOnHours = smart_int_or_null($drive['power_on_hours'] ?? null);
 
         $upsertDrive->execute([
             $nodeId,
@@ -302,14 +342,14 @@ function handleSmartPost(PDO $pdo): void
             $drive['model'] ?? null,
             $drive['serial'] ?? null,
             $drive['firmware'] ?? null,
-            $drive['capacity'] ?? null,
-            $drive['rotation_rate'] ?? null,
+            smart_int_or_null($drive['capacity'] ?? null),
+            smart_int_or_null($drive['rotation_rate'] ?? null),
             $drive['interface'] ?? null,
             $drive['sata_version'] ?? null,
             $temperature,
             $powerOnHours,
             $health,
-            $drive['bay'] ?? null,
+            smart_int_or_null($drive['bay'] ?? null),
         ]);
         $updatedCount++;
 
@@ -335,13 +375,13 @@ function handleSmartPost(PDO $pdo): void
             $insertMetric->execute([
                 $nodeId,
                 $deviceName,
-                $attrId,
-                $attrName,
-                $attr['value'] ?? null,
-                $attr['worst'] ?? null,
-                $attr['threshold'] ?? null,
-                $attr['raw'] ?? null,
-                $attr['flags'] ?? null,
+                smart_int_or_null($attrId) ?? 0,
+                is_string($attrName) ? $attrName : '',
+                smart_int_or_null($attr['value'] ?? null),
+                smart_int_or_null($attr['worst'] ?? null),
+                smart_int_or_null($attr['threshold'] ?? null),
+                smart_int_or_null($attr['raw'] ?? null),
+                is_string($attr['flags'] ?? null) ? $attr['flags'] : null,
             ]);
             $metricsCount++;
         }
