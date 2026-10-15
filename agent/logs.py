@@ -471,10 +471,14 @@ class LogsMixin:
             return result("session", f"INFO session {action} user={user}")
 
         # Disconnected from — пользователь и IP
-        m = re.search(r"Disconnected from (?:authenticating user |invalid user )?(\S+) ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        m = re.search(r"Disconnected from (?:authenticating |invalid )?user (\S+) ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
         if m:
             user, ip, port = m.group(1), m.group(2), int(m.group(3))
             return result("disconnect", f"INFO disconnected user={user} ip={ip} port={port}")
+        m = re.search(r"Disconnected from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            ip, port = m.group(1), int(m.group(2))
+            return result("disconnect", f"INFO disconnect ip={ip} port={port}")
 
         # Received disconnect from
         m = re.search(r"Received disconnect from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
