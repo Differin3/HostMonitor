@@ -213,7 +213,9 @@ async function exportSshLogs() {
     }
     try {
         showToast('Экспорт логов...', 'info');
-        const level = document.getElementById('sshLevelFilter')?.value || '';
+        const result = document.getElementById('sshResult')?.value || '';
+        const eventType = document.getElementById('sshEventType')?.value || '';
+        const days = document.getElementById('sshDays')?.value || '';
         const q = document.getElementById('sshLogSearch')?.value.trim() || '';
         const allLogs = await fetchAllPages((page, perPage) => {
             const params = new URLSearchParams();
@@ -221,7 +223,9 @@ async function exportSshLogs() {
             params.set('node_id', nodeId);
             params.set('page', String(page));
             params.set('per_page', String(perPage));
-            if (level) params.set('level', level);
+            if (result) params.set('result', result);
+            if (eventType) params.set('event_type', eventType);
+            if (days) params.set('days', days);
             if (q) params.set('q', q);
             return params;
         });
@@ -232,7 +236,8 @@ async function exportSshLogs() {
         let content = `# SSH авторизация\n# ${new Date().toLocaleString('ru-RU')}\n# Записей: ${allLogs.length}\n\n`;
         allLogs.forEach((log) => {
             const ok = log.success === true ? 'OK' : (log.success === false ? 'FAIL' : 'INFO');
-            content += `[${formatTs(log.timestamp)}] [${ok}] ${log.username || '-'}@${log.ip_address || log.ip || '-'} ${log.message || ''}\n`;
+            const type = log.event_type || 'other';
+            content += `[${formatTs(log.timestamp)}] [${ok}] [${type}] ${log.username || '-'}@${log.ip_address || log.ip || '-'} ${sshCleanMessage(log)}\n`;
         });
         downloadText(`ssh-logs-${nodeId}-${new Date().toISOString().split('T')[0]}.txt`, content);
         showToast(`Экспортировано ${allLogs.length} записей`, 'success');
@@ -260,11 +265,99 @@ function switchLogsTab(tab) {
     }
 }
 
+const SSH_EVENT_LABELS = {
+    accepted: 'Вход',
+    failed: 'Ошибка входа',
+    invalid_user: 'Неизв. пользователь',
+    max_attempts: 'Лимит попыток',
+    pam_failure: 'Отказ PAM',
+    disconnect: 'Отключение',
+    connection_closed: 'Соединение закрыто',
+    session: 'Сессия',
+    other: 'Прочее'
+};
+
+const SSH_EVENT_COLORS = {
+    accepted: '#059669',
+    failed: '#dc2626',
+    invalid_user: '#dc2626',
+    max_attempts: '#dc2626',
+    pam_failure: '#dc2626',
+    disconnect: '#64748b',
+    connection_closed: '#64748b',
+    session: '#2563eb',
+    other: '#64748b'
+};
+
+function sshEventLabel(type) {
+    return SSH_EVENT_LABELS[type] || (type ? type : 'Прочее');
+}
+
+function sshCleanMessage(log) {
+    const msg = String(log.message || log.raw_message || '');
+    const clean = msg.trim().replace(/\s+/g, ' ').replace(/^SUCCESS\s+/i, '').replace(/^FAIL\s+/i, '');
+    return clean.split(' | ')[0];
+}
+
+function renderSshStats(stats) {
+    const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value ?? 0);
+    };
+    set('ssh-stat-total', stats?.total);
+    set('ssh-stat-ok', stats?.ok);
+    set('ssh-stat-fail', stats?.failed);
+    set('ssh-stat-ips', stats?.unique_ips);
+}
+
+function renderSshTopIps(rows) {
+    const card = document.getElementById('ssh-top-ips');
+    const list = document.getElementById('ssh-top-ips-list');
+    if (!card || !list) return;
+    if (!rows || !rows.length) {
+        card.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+    }
+    card.classList.remove('hidden');
+    list.innerHTML = rows.map((row) => `
+        <span class="status pill status-offline" style="margin: 3px 6px 3px 0; display: inline-flex; gap: 6px;">
+            <strong>${escapeHtml(row.ip_address || '—')}</strong>
+            <span>${escapeHtml(String(row.fails ?? 0))} попыток</span>
+        </span>
+    `).join('');
+}
+
+function updateSshEventTypeOptions(rows) {
+    const select = document.getElementById('sshEventType');
+    if (!select) return;
+    const current = select.value;
+    const counts = new Map();
+    (rows || []).forEach((row) => {
+        const type = row.event_type || 'other';
+        counts.set(type, (counts.get(type) || 0) + parseInt(row.count, 10));
+    });
+    const options = ['<option value="">Все события</option>'];
+    counts.forEach((count, type) => {
+        options.push(`<option value="${escapeHtml(type)}">${escapeHtml(sshEventLabel(type))} (${count})</option>`);
+    });
+    select.innerHTML = options.join('');
+    if (current && counts.has(current)) select.value = current;
+}
+
+function sshBadge(log) {
+    const type = log.event_type || 'other';
+    const color = SSH_EVENT_COLORS[type] || '#64748b';
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:${color}22;color:${color};white-space:nowrap;">${escapeHtml(sshEventLabel(type))}</span>`;
+}
+
 async function loadSshAuthLogs(page = 1) {
     const nodeId = document.getElementById('sshNodeFilter')?.value || '';
     const tbody = document.getElementById('ssh-logs-tbody');
     if (!nodeId) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center">Выберите ноду</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center">Выберите ноду</td></tr>';
+        renderSshStats({ total: 0, ok: 0, failed: 0, unique_ips: 0 });
+        renderSshTopIps([]);
         updateSshPagination();
         return;
     }
@@ -275,9 +368,13 @@ async function loadSshAuthLogs(page = 1) {
         params.set('node_id', nodeId);
         params.set('page', String(page));
         params.set('per_page', String(sshLogsPerPage));
-        const level = document.getElementById('sshLevelFilter')?.value || '';
+        const result = document.getElementById('sshResult')?.value || '';
+        const eventType = document.getElementById('sshEventType')?.value || '';
+        const days = document.getElementById('sshDays')?.value || '';
         const q = document.getElementById('sshLogSearch')?.value.trim() || '';
-        if (level) params.set('level', level);
+        if (result) params.set('result', result);
+        if (eventType) params.set('event_type', eventType);
+        if (days) params.set('days', days);
         if (q) params.set('q', q);
         const response = await fetch(`${API_BASE}/logs.php?${params}`, { credentials: 'include' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -287,10 +384,13 @@ async function loadSshAuthLogs(page = 1) {
         sshLogsPerPage = data.per_page || sshLogsPerPage;
         sshLogsTotal = data.total ?? 0;
         renderSshLogs(logs);
+        renderSshStats(data.stats || {});
+        renderSshTopIps(data.top_ips || []);
+        updateSshEventTypeOptions(data.event_types || []);
         updateSshPagination();
     } catch (error) {
         console.error(error);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center">Ошибка загрузки</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center">Ошибка загрузки</td></tr>';
         updateSshPagination();
     }
 }
@@ -299,7 +399,7 @@ function renderSshLogs(logs) {
     const tbody = document.getElementById('ssh-logs-tbody');
     if (!tbody) return;
     if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">SSH-логи не найдены</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">SSH-логи не найдены</td></tr>';
         return;
     }
     tbody.innerHTML = logs.map((log) => {
@@ -311,17 +411,15 @@ function renderSshLogs(logs) {
         } else if (log.success === false) {
             resultText = 'Ошибка';
             resultClass = 'status-offline';
-        } else if ((log.level || '') === 'error') {
-            resultText = 'Ошибка';
-            resultClass = 'status-offline';
         }
         const ip = (log.ip_address || log.ip || '—') + (log.port ? `:${log.port}` : '');
         return `<tr>
             <td>${escapeHtml(formatTs(log.timestamp))}</td>
+            <td>${sshBadge(log)}</td>
             <td><span class="status pill ${resultClass}">${resultText}</span></td>
             <td>${escapeHtml(log.username || '—')}</td>
             <td>${escapeHtml(ip)}</td>
-            <td>${escapeHtml(log.message || '—')}</td>
+            <td>${escapeHtml(sshCleanMessage(log) || '—')}</td>
         </tr>`;
     }).join('');
 }
@@ -403,7 +501,15 @@ document.addEventListener('DOMContentLoaded', () => {
         sshLogsPage = 1;
         loadSshAuthLogs(1);
     });
-    document.getElementById('sshLevelFilter')?.addEventListener('change', () => {
+    document.getElementById('sshResult')?.addEventListener('change', () => {
+        sshLogsPage = 1;
+        loadSshAuthLogs(1);
+    });
+    document.getElementById('sshEventType')?.addEventListener('change', () => {
+        sshLogsPage = 1;
+        loadSshAuthLogs(1);
+    });
+    document.getElementById('sshDays')?.addEventListener('change', () => {
         sshLogsPage = 1;
         loadSshAuthLogs(1);
     });

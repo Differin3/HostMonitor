@@ -1006,6 +1006,43 @@ if (!function_exists('session_revoke_all')) {
     }
 }
 
+if (!function_exists('ssh_event_type_from')) {
+    /**
+     * Определяет машинный тип SSH-события по результату и тексту сообщения.
+     * Зеркалит разбор агента (agent/logs.py) — нужен для старых агентов,
+     * которые ещё не присылают event_type, и для бэкфилла старых записей.
+     */
+    function ssh_event_type_from($success, string $message): string
+    {
+        $m = strtolower($message);
+        if ((int)$success === 1) {
+            return 'accepted';
+        }
+        if (strpos($m, 'maximum authentication attempts') !== false) {
+            return 'max_attempts';
+        }
+        if (strpos($m, 'authentication failure') !== false) {
+            return 'pam_failure';
+        }
+        if (strpos($m, 'invalid user') !== false || strpos($m, 'user=invalid') !== false) {
+            return 'invalid_user';
+        }
+        if ($success !== null && (int)$success === 0) {
+            return 'failed';
+        }
+        if (strpos($m, 'disconnect') !== false) {
+            return 'disconnect';
+        }
+        if (strpos($m, 'connection closed') !== false || strpos($m, 'connection reset') !== false || strpos($m, 'info connection') !== false) {
+            return 'connection_closed';
+        }
+        if (preg_match('/session (opened|closed) for user/', $m) === 1) {
+            return 'session';
+        }
+        return 'other';
+    }
+}
+
 if (!function_exists('client_ip')) {
     /** Реальный IP клиента с учётом обратного прокси (NPM/nginx/Cloudflare). */
     function client_ip(): string
