@@ -88,6 +88,11 @@ jobs:
         # как fallback для старых агентов и при бэкфилле ssh_auth_logs.
         run: php tests/test_ssh_event_type.php
 
+      - name: Тесты источника системных логов
+        # Вынос процесса/юнита из "process: message" в поле source: fallback
+        # для старых агентов и бэкфилл logs.
+        run: php tests/test_log_source.php
+
       - name: Слепок API db_config
         # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
         # только чтения исходников, подключения к БД не нужно.

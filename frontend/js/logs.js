@@ -3,7 +3,6 @@
     window.__HOSTMONITOR_LOGS_INIT = true;
 
 let logsPaused = false;
-let autoScroll = true;
 let selectedNodeId = null;
 let currentLogsTab = 'system';
 let systemLogsPage = 1;
@@ -62,23 +61,77 @@ async function loadNodes() {
     }
 }
 
-function showEmptyState() {
-    const empty = document.getElementById('logs-empty');
-    const box = document.getElementById('logs-container');
-    if (empty) empty.style.display = 'flex';
-    if (box) box.style.display = 'none';
+function renderSystemEmpty(message) {
+    const tbody = document.getElementById('system-logs-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-center">${escapeHtml(message)}</td></tr>`;
 }
 
-function showLogsContainer() {
-    const empty = document.getElementById('logs-empty');
-    const box = document.getElementById('logs-container');
-    if (empty) empty.style.display = 'none';
-    if (box) box.style.display = 'block';
+function cleanSystemMessage(log) {
+    let msg = String(log.message || '').trim().replace(/\s+/g, ' ');
+    const source = log.source ? String(log.source) : '';
+    if (source && msg.toLowerCase().startsWith(`${source.toLowerCase()}:`)) {
+        msg = msg.slice(source.length + 1).trim();
+    }
+    return msg;
+}
+
+const SYSTEM_LEVEL_COLORS = { error: '#dc2626', warning: '#d97706', info: '#2563eb' };
+
+function systemLevelBadge(level) {
+    const lvl = String(level || 'info').toLowerCase();
+    const color = SYSTEM_LEVEL_COLORS[lvl] || '#64748b';
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:${color}22;color:${color};white-space:nowrap;">${escapeHtml(lvl.toUpperCase())}</span>`;
+}
+
+function renderSystemStats(stats) {
+    const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value ?? 0);
+    };
+    set('system-stat-total', stats?.total);
+    set('system-stat-errors', stats?.errors);
+    set('system-stat-warnings', stats?.warnings);
+    set('system-stat-sources', stats?.sources);
+}
+
+function renderSystemTopSources(rows) {
+    const card = document.getElementById('system-top-sources');
+    const list = document.getElementById('system-top-sources-list');
+    if (!card || !list) return;
+    if (!rows || !rows.length) {
+        card.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+    }
+    card.classList.remove('hidden');
+    list.innerHTML = rows.map((row) => `
+        <span class="status pill status-offline" style="margin: 3px 6px 3px 0; display: inline-flex; gap: 6px;">
+            <strong>${escapeHtml(row.source || '—')}</strong>
+            <span>${escapeHtml(String(row.count ?? 0))}</span>
+        </span>
+    `).join('');
+}
+
+function updateSystemSourceOptions(rows) {
+    const select = document.getElementById('systemSource');
+    if (!select) return;
+    const current = select.value;
+    const options = ['<option value="">Все источники</option>'];
+    (rows || []).forEach((row) => {
+        const src = row.source || '';
+        if (!src) return;
+        options.push(`<option value="${escapeHtml(src)}">${escapeHtml(src)} (${escapeHtml(String(row.count ?? 0))})</option>`);
+    });
+    select.innerHTML = options.join('');
+    if (current && (rows || []).some((r) => (r.source || '') === current)) select.value = current;
 }
 
 async function loadLogs(nodeId, page = 1) {
     if (!nodeId) {
-        showEmptyState();
+        renderSystemEmpty('Выберите ноду');
+        renderSystemStats({});
+        renderSystemTopSources([]);
+        updateSystemPagination();
         return;
     }
     if (logsPaused) return;
@@ -88,8 +141,12 @@ async function loadLogs(nodeId, page = 1) {
         params.set('page', String(page));
         params.set('per_page', String(systemLogsPerPage));
         const level = document.getElementById('levelFilter')?.value || '';
+        const source = document.getElementById('systemSource')?.value || '';
+        const days = document.getElementById('systemDays')?.value || '';
         const q = document.getElementById('logSearch')?.value.trim() || '';
         if (level) params.set('level', level);
+        if (source) params.set('source', source);
+        if (days) params.set('days', days);
         if (q) params.set('q', q);
         const response = await fetch(`${API_BASE}/logs.php?${params}`, { credentials: 'include' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -99,46 +156,32 @@ async function loadLogs(nodeId, page = 1) {
         systemLogsPerPage = data.per_page || systemLogsPerPage;
         systemLogsTotal = data.total ?? 0;
         renderSystemLogs(logs);
+        renderSystemStats(data.stats || {});
+        renderSystemTopSources(data.top_sources || []);
+        updateSystemSourceOptions(data.top_sources || []);
         updateSystemPagination();
     } catch (error) {
         console.error('Error loading logs:', error);
+        renderSystemEmpty('Ошибка загрузки');
+        updateSystemPagination();
     }
 }
 
 function renderSystemLogs(logs) {
-    const container = document.getElementById('logs-content');
-    if (!container) return;
-    showLogsContainer();
+    const tbody = document.getElementById('system-logs-tbody');
+    if (!tbody) return;
     if (!logs.length) {
-        container.innerHTML = '<div class="text-center" style="color:var(--text-muted);padding:24px">Нет системных логов за выбранный фильтр</div>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center">Системные логи не найдены</td></tr>';
         return;
     }
-    const chronological = [...logs].reverse();
-    container.innerHTML = chronological.map((log) => `
-        <div class="log-entry">
-            <span class="log-time">${escapeHtml(formatTs(log.timestamp))}</span>
-            <span class="log-level ${escapeHtml(log.level || 'info')}">${escapeHtml(String(log.level || 'info').toUpperCase())}</span>
-            <span class="log-message">${escapeHtml(log.message || '')}</span>
-        </div>
+    tbody.innerHTML = logs.map((log) => `
+        <tr>
+            <td>${escapeHtml(formatTs(log.timestamp))}</td>
+            <td>${systemLevelBadge(log.level)}</td>
+            <td>${escapeHtml(log.source || '—')}</td>
+            <td>${escapeHtml(cleanSystemMessage(log) || '—')}</td>
+        </tr>
     `).join('');
-    if (autoScroll) container.scrollTop = container.scrollHeight;
-}
-
-function pauseLogs() {
-    logsPaused = !logsPaused;
-    const btn = document.getElementById('pauseBtn');
-    if (!btn) return;
-    btn.innerHTML = logsPaused
-        ? '<i data-lucide="play"></i> Продолжить'
-        : '<i data-lucide="pause"></i> Пауза';
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-async function clearLogs() {
-    const confirmed = await window.showConfirm('Очистить отображение логов на экране?', 'Очистка', 'warning');
-    if (!confirmed) return;
-    const container = document.getElementById('logs-content');
-    if (container) container.innerHTML = '';
 }
 
 async function fetchAllPages(buildParams) {
@@ -179,6 +222,8 @@ async function exportLogs() {
     try {
         showToast('Экспорт логов...', 'info');
         const level = document.getElementById('levelFilter')?.value || '';
+        const source = document.getElementById('systemSource')?.value || '';
+        const days = document.getElementById('systemDays')?.value || '';
         const q = document.getElementById('logSearch')?.value.trim() || '';
         const allLogs = await fetchAllPages((page, perPage) => {
             const params = new URLSearchParams();
@@ -186,6 +231,8 @@ async function exportLogs() {
             params.set('page', String(page));
             params.set('per_page', String(perPage));
             if (level) params.set('level', level);
+            if (source) params.set('source', source);
+            if (days) params.set('days', days);
             if (q) params.set('q', q);
             return params;
         });
@@ -195,7 +242,8 @@ async function exportLogs() {
         }
         let content = `# Системные логи\n# ${new Date().toLocaleString('ru-RU')}\n# Записей: ${allLogs.length}\n\n`;
         allLogs.forEach((log) => {
-            content += `[${formatTs(log.timestamp)}] [${String(log.level || 'INFO').toUpperCase()}] ${log.message || ''}\n`;
+            const src = log.source ? `[${log.source}] ` : '';
+            content += `[${formatTs(log.timestamp)}] [${String(log.level || 'INFO').toUpperCase()}] ${src}${cleanSystemMessage(log)}\n`;
         });
         downloadText(`logs-${selectedNodeId}-${new Date().toISOString().split('T')[0]}.txt`, content);
         showToast(`Экспортировано ${allLogs.length} записей`, 'success');
@@ -429,9 +477,9 @@ function updateSystemPagination() {
     const info = document.getElementById('system-logs-page-info');
     const prev = document.getElementById('system-logs-prev');
     const next = document.getElementById('system-logs-next');
-    if (info) info.textContent = `Стр. ${systemLogsPage} из ${totalPages}`;
-    if (prev) prev.disabled = systemLogsPage <= 1;
-    if (next) next.disabled = systemLogsPage >= totalPages;
+    if (info) info.textContent = systemLogsTotal ? `Стр. ${systemLogsPage} из ${totalPages}` : 'Нет данных';
+    if (prev) prev.disabled = systemLogsPage <= 1 || !systemLogsTotal;
+    if (next) next.disabled = systemLogsPage >= totalPages || !systemLogsTotal;
 }
 
 function updateSshPagination() {
@@ -466,22 +514,35 @@ function debounceReload(fn) {
 }
 
 window.switchLogsTab = switchLogsTab;
-window.pauseLogs = pauseLogs;
-window.clearLogs = clearLogs;
 window.exportCurrentTabLogs = exportCurrentTabLogs;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadLogsPerPageSetting();
     loadNodes();
-    showEmptyState();
+    renderSystemEmpty('Выберите ноду');
 
     document.getElementById('nodeFilter')?.addEventListener('change', (e) => {
         selectedNodeId = e.target.value;
         systemLogsPage = 1;
         if (selectedNodeId) loadLogs(selectedNodeId, 1);
-        else showEmptyState();
+        else {
+            renderSystemEmpty('Выберите ноду');
+            renderSystemStats({});
+            renderSystemTopSources([]);
+            updateSystemPagination();
+        }
     });
     document.getElementById('levelFilter')?.addEventListener('change', () => {
+        if (!selectedNodeId) return;
+        systemLogsPage = 1;
+        loadLogs(selectedNodeId, 1);
+    });
+    document.getElementById('systemSource')?.addEventListener('change', () => {
+        if (!selectedNodeId) return;
+        systemLogsPage = 1;
+        loadLogs(selectedNodeId, 1);
+    });
+    document.getElementById('systemDays')?.addEventListener('change', () => {
         if (!selectedNodeId) return;
         systemLogsPage = 1;
         loadLogs(selectedNodeId, 1);
@@ -492,9 +553,6 @@ document.addEventListener('DOMContentLoaded', () => {
             systemLogsPage = 1;
             loadLogs(selectedNodeId, 1);
         });
-    });
-    document.getElementById('autoScroll')?.addEventListener('change', (e) => {
-        autoScroll = e.target.checked;
     });
 
     document.getElementById('sshNodeFilter')?.addEventListener('change', () => {

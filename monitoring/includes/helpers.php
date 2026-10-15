@@ -1043,6 +1043,33 @@ if (!function_exists('ssh_event_type_from')) {
     }
 }
 
+if (!function_exists('system_source_from')) {
+    /**
+     * Извлекает источник системного лога (процесс/юнит) из старого сообщения
+     * вида "process: message". Возвращает [source, message]: source === null,
+     * если префикс не похож на имя процесса (пробелы, слишком длинный и т.п.).
+     * Нужно для старых агентов, которые ещё не присылают поле source, и для
+     * бэкфилла старых записей.
+     *
+     * Эвристика: сообщения старого агента уже содержали префикс процесса,
+     * поэтому он распознаётся по «идентификаторному» виду. Различить редкий
+     * случай вроде "Warning: ..." без префикса нельзя — это осознанный
+     * компромисс.
+     */
+    function system_source_from(string $message): array
+    {
+        $pos = strpos($message, ':');
+        if ($pos === false || $pos === 0) {
+            return [null, $message];
+        }
+        $prefix = substr($message, 0, $pos);
+        if (preg_match('/^[A-Za-z0-9_.@\/-]{1,64}$/', $prefix) !== 1) {
+            return [null, $message];
+        }
+        return [$prefix, ltrim(substr($message, $pos + 1))];
+    }
+}
+
 if (!function_exists('client_ip')) {
     /** Реальный IP клиента с учётом обратного прокси (NPM/nginx/Cloudflare). */
     function client_ip(): string

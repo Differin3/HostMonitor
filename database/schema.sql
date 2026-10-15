@@ -96,6 +96,7 @@ CREATE TABLE logs (
     id SERIAL PRIMARY KEY,
     node_id INTEGER REFERENCES nodes(id),
     level VARCHAR(20) DEFAULT 'info',
+    source VARCHAR(128),
     message TEXT NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     type VARCHAR(32) DEFAULT 'system'
