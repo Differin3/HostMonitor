@@ -43,6 +43,7 @@ def test_parse_events():
         ("pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=5.6.7.8 user=root", "pam_failure", "root", "5.6.7.8", False),
         ("pam_unix(sshd:session): session opened for user root by (uid=0)", "session", "root", None, None),
         ("Disconnected from authenticating user root 9.9.9.9 port 3333 [preauth]", "disconnect", "root", "9.9.9.9", None),
+        ("Disconnected from user root 10.0.0.2 port 44532", "disconnect", "root", "10.0.0.2", None),
         ("Received disconnect from 8.8.8.8 port 2222:11: Bye Bye [preauth]", "disconnect", None, "8.8.8.8", None),
         ("Connection closed by authenticating user root 7.7.7.7 port 1111 [preauth]", "connection_closed", "root", "7.7.7.7", None),
         ("Connection reset by 6.6.6.6 port 9999 [preauth]", "connection_closed", None, "6.6.6.6", None),
