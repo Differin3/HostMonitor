@@ -185,6 +185,10 @@ jobs:
         # Default-deny: неизвестная команда не исполняется и объясняет причину.
         run: python tests/test_commands.py
 
+      - name: Тесты разбора SMART
+        # Регрессия: упакованный raw атрибута 194 ронял вставку температуры.
+        run: python tests/test_smart.py
+
       - name: Рабочее дерево не пачкается
         run: |
           set -euo pipefail
