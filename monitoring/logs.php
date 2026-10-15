@@ -55,26 +55,70 @@ render_layout_start('Логи', 'logs', '<button class="primary" id="exportBtn" 
     </div>
 
     <div id="ssh-logs-tab" class="tab-content">
-        <div class="compact-filters">
-            <select id="sshNodeFilter" class="compact-select">
-                <option value="">Выберите ноду</option>
-            </select>
-            <select id="sshLevelFilter" class="compact-select">
-                <option value="">Все уровни</option>
-                <option value="error">Ошибки</option>
-                <option value="warning">Предупреждения</option>
-                <option value="info">Информация</option>
-            </select>
-            <div class="compact-search">
-                <input type="text" id="sshLogSearch" placeholder="Поиск по процессу или сообщению...">
+        <div class="page-controls">
+            <div class="sort-control">
+                <select id="sshNodeFilter" class="compact-select">
+                    <option value="">Выберите ноду</option>
+                </select>
+            </div>
+            <div class="sort-control">
+                <select id="sshDays">
+                    <option value="1">За сутки</option>
+                    <option value="7" selected>За 7 дней</option>
+                    <option value="30">За 30 дней</option>
+                    <option value="0">Всё время</option>
+                </select>
+            </div>
+            <div class="sort-control">
+                <select id="sshResult">
+                    <option value="">Все результаты</option>
+                    <option value="ok">Успешные входы</option>
+                    <option value="fail">Неудачные попытки</option>
+                    <option value="info">Информационные</option>
+                </select>
+            </div>
+            <div class="sort-control">
+                <select id="sshEventType">
+                    <option value="">Все события</option>
+                </select>
+            </div>
+            <div class="search-control">
+                <input type="text" id="sshLogSearch" placeholder="Поиск по логину, IP, сообщению...">
             </div>
         </div>
 
-        <div class="table-container">
+        <div class="stats-grid" id="ssh-stats">
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #60a5fa, #2563eb);"><i data-lucide="list"></i></div>
+                <div class="stat-card-content"><h3>Всего событий</h3><div class="stat-value" id="ssh-stat-total">0</div><p class="stat-subtitle">за период</p></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);"><i data-lucide="log-in"></i></div>
+                <div class="stat-card-content"><h3>Успешные входы</h3><div class="stat-value" id="ssh-stat-ok">0</div><p class="stat-subtitle">accepted</p></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #f87171, #dc2626);"><i data-lucide="x-circle"></i></div>
+                <div class="stat-card-content"><h3>Неудачные</h3><div class="stat-value" id="ssh-stat-fail">0</div><p class="stat-subtitle">отказы входа</p></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);"><i data-lucide="globe"></i></div>
+                <div class="stat-card-content"><h3>Уникальных IP</h3><div class="stat-value" id="ssh-stat-ips">0</div><p class="stat-subtitle">источники</p></div>
+            </div>
+        </div>
+
+        <div id="ssh-top-ips" class="card hidden" style="margin-top: 14px; border-color: rgba(239,68,68,0.35);">
+            <div class="card-header">
+                <div class="card-title"><i data-lucide="alert-triangle" style="color:#f87171;"></i><span>Топ источников неудачных входов</span></div>
+            </div>
+            <div class="card-body" id="ssh-top-ips-list"></div>
+        </div>
+
+        <div class="table-container" style="margin-top: 14px;">
             <table>
                 <thead>
                     <tr>
                         <th>Время</th>
+                        <th>Событие</th>
                         <th>Результат</th>
                         <th>Пользователь</th>
                         <th>IP</th>
@@ -83,7 +127,7 @@ render_layout_start('Логи', 'logs', '<button class="primary" id="exportBtn" 
                 </thead>
                 <tbody id="ssh-logs-tbody">
                     <tr>
-                        <td colspan="5" class="text-center">Загрузка...</td>
+                        <td colspan="6" class="text-center">Выберите ноду</td>
                     </tr>
                 </tbody>
             </table>

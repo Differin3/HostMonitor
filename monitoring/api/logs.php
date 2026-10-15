@@ -5,10 +5,13 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/retention.php';
+require_once __DIR__ . '/../includes/helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 $pdo = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+logs_ensure_ssh_schema($pdo);
 
 function validateNodeToken($pdo, $token) {
     if (!$token) return null;
@@ -102,6 +105,86 @@ function logs_like(string $q): string
     return '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
 }
 
+/**
+ * Приводит схему ssh_auth_logs к структурированному виду: добавляет колонку
+ * event_type и один раз выполняет бэкфилл старых записей + чистку мусорных
+ * баннеров journalctl. Идемпотентна.
+ */
+function logs_ensure_ssh_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        if (!retention_table_exists($pdo, 'ssh_auth_logs')) {
+            return;
+        }
+        $driver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'mysql') {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'ssh_auth_logs' AND column_name = 'event_type'");
+        } else {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'ssh_auth_logs' AND column_name = 'event_type'");
+        }
+        $stmt->execute();
+        $hasColumn = (int)$stmt->fetchColumn() > 0;
+
+        if (!$hasColumn) {
+            $pdo->exec("ALTER TABLE ssh_auth_logs ADD COLUMN event_type VARCHAR(32) NULL");
+            try {
+                $pdo->exec("ALTER TABLE ssh_auth_logs ADD INDEX idx_event_type (event_type)");
+            } catch (Throwable $e) {
+                // индекс мог уже существовать
+            }
+        }
+
+        logs_backfill_ssh_event_type($pdo, $hasColumn);
+    } catch (Throwable $e) {
+        app_log_warning('[logs] ensure ssh schema: ' . $e->getMessage());
+    }
+}
+
+function logs_backfill_ssh_event_type(PDO $pdo, bool $columnExisted): void
+{
+    try {
+        $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'ssh_event_type_backfilled'");
+        $stmt->execute();
+        if ($stmt->fetchColumn()) {
+            return;
+        }
+    } catch (Throwable $e) {
+        return;
+    }
+
+    try {
+        // Мусорные строки journalctl, попавшие в журнал как события.
+        $pdo->exec("DELETE FROM ssh_auth_logs WHERE message LIKE '-- %' OR raw_message LIKE '-- %'");
+
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'accepted' WHERE event_type IS NULL AND success = 1");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'max_attempts' WHERE event_type IS NULL AND message LIKE '%maximum authentication attempts%'");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'pam_failure' WHERE event_type IS NULL AND message LIKE '%authentication failure%'");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'invalid_user' WHERE event_type IS NULL AND success = 0 AND (message LIKE '%invalid user%' OR message LIKE '%Invalid user%' OR message LIKE '%user=invalid%')");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'failed' WHERE event_type IS NULL AND success = 0");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'disconnect' WHERE event_type IS NULL AND message LIKE '%disconnect%'");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'connection_closed' WHERE event_type IS NULL AND (message LIKE '%Connection closed%' OR message LIKE '%Connection reset%' OR message LIKE '%INFO connection%')");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'session' WHERE event_type IS NULL AND message LIKE '%session %for user%'");
+        $pdo->exec("UPDATE ssh_auth_logs SET event_type = 'other' WHERE event_type IS NULL");
+
+        try {
+            $mark = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('ssh_event_type_backfilled', '1')");
+            $mark->execute();
+        } catch (Throwable $e) {
+            // повторная попытка безвредна, ключ уникален
+        }
+    } catch (Throwable $e) {
+        app_log_warning('[logs] ssh event_type backfill: ' . $e->getMessage());
+    }
+}
+
 try {
     if ($method === 'GET') {
         $type = $_GET['type'] ?? null;
@@ -134,6 +217,10 @@ try {
         }
 
         if ($type === 'ssh_auth') {
+            $result = trim((string)($_GET['result'] ?? ''));
+            $eventType = trim((string)($_GET['event_type'] ?? ''));
+            $days = (int)($_GET['days'] ?? 0);
+
             $where = "";
             $params = [];
             if ($nodeId) {
@@ -143,6 +230,21 @@ try {
             if ($level) {
                 $where .= " AND level = ?";
                 $params[] = $level;
+            }
+            if ($result === 'ok') {
+                $where .= " AND success = 1";
+            } elseif ($result === 'fail') {
+                $where .= " AND success = 0";
+            } elseif ($result === 'info') {
+                $where .= " AND success IS NULL";
+            }
+            if ($eventType !== '') {
+                $where .= " AND event_type = ?";
+                $params[] = $eventType;
+            }
+            if ($days > 0) {
+                $where .= " AND timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+                $params[] = $days;
             }
             if ($q !== '') {
                 $where .= " AND (username LIKE ? OR ip_address LIKE ? OR message LIKE ? OR process LIKE ?)";
@@ -156,7 +258,70 @@ try {
                 }
             }
             unset($row);
-            echo json_encode(['logs' => $logs, 'page' => $page, 'per_page' => $perPage, 'total' => $total]);
+
+            // Сводка и топ-атакующие считаем по ноде/периоду/поиску, без учёта
+            // фильтров result/event_type — чтобы карточки не «скакали».
+            $scopeWhere = " WHERE 1=1";
+            $scopeParams = [];
+            if ($nodeId) {
+                $scopeWhere .= " AND node_id = ?";
+                $scopeParams[] = $nodeId;
+            }
+            if ($days > 0) {
+                $scopeWhere .= " AND timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+                $scopeParams[] = $days;
+            }
+            if ($q !== '') {
+                $scopeWhere .= " AND (username LIKE ? OR ip_address LIKE ? OR message LIKE ? OR process LIKE ?)";
+                $like = logs_like($q);
+                array_push($scopeParams, $like, $like, $like, $like);
+            }
+            $stats = ['total' => 0, 'ok' => 0, 'failed' => 0, 'info' => 0, 'unique_ips' => 0];
+            $eventTypes = [];
+            $topIps = [];
+            try {
+                $statsStmt = $pdo->prepare("SELECT
+                    COUNT(*) AS total,
+                    SUM(success = 1) AS ok,
+                    SUM(success = 0) AS failed,
+                    SUM(success IS NULL) AS info,
+                    COUNT(DISTINCT ip_address) AS unique_ips
+                    FROM ssh_auth_logs {$scopeWhere}");
+                $statsStmt->execute($scopeParams);
+                $stats = $statsStmt->fetch(PDO::FETCH_ASSOC) ?: $stats;
+                $stats = [
+                    'total' => (int)($stats['total'] ?? 0),
+                    'ok' => (int)($stats['ok'] ?? 0),
+                    'failed' => (int)($stats['failed'] ?? 0),
+                    'info' => (int)($stats['info'] ?? 0),
+                    'unique_ips' => (int)($stats['unique_ips'] ?? 0),
+                ];
+
+                $typeStmt = $pdo->prepare("SELECT event_type, COUNT(*) AS count
+                    FROM ssh_auth_logs {$scopeWhere}
+                    GROUP BY event_type ORDER BY count DESC");
+                $typeStmt->execute($scopeParams);
+                $eventTypes = $typeStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+                $topStmt = $pdo->prepare("SELECT ip_address, COUNT(*) AS fails, MAX(timestamp) AS last
+                    FROM ssh_auth_logs {$scopeWhere}
+                    AND success = 0 AND ip_address IS NOT NULL
+                    GROUP BY ip_address HAVING fails >= 3 ORDER BY fails DESC LIMIT 10");
+                $topStmt->execute($scopeParams);
+                $topIps = $topStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e) {
+                app_log_warning('[logs] ssh stats: ' . $e->getMessage());
+            }
+
+            echo json_encode([
+                'logs' => $logs,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'stats' => $stats,
+                'event_types' => $eventTypes,
+                'top_ips' => $topIps,
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -251,10 +416,16 @@ try {
                 }
                 $port = isset($log['port']) ? (int)$log['port'] : null;
                 $rawMsg = mb_substr($log['raw_message'] ?? $message, 0, 500);
+                $allowedTypes = ['accepted', 'failed', 'invalid_user', 'max_attempts', 'pam_failure', 'disconnect', 'connection_closed', 'session', 'other'];
+                $eventType = (string)($log['event_type'] ?? '');
+                if (!in_array($eventType, $allowedTypes, true)) {
+                    $eventType = ssh_event_type_from($successForDb, $message);
+                }
                 $sshBatch[] = [
                     $nodeId,
                     $level,
                     $log['process'] ?? 'sshd',
+                    $eventType,
                     $log['username'] ?? null,
                     $log['ip'] ?? ($log['ip_address'] ?? null),
                     $port,
@@ -273,7 +444,7 @@ try {
             ['logs (node_id, level, message, timestamp, type)', $systemBatch],
             ['process_logs (node_id, pid, process, level, message, timestamp)', $processBatch],
             ['container_logs (node_id, container_id, level, message, timestamp)', $containerBatch],
-            ['ssh_auth_logs (node_id, level, process, username, ip_address, port, success, message, raw_message, timestamp)', $sshBatch],
+            ['ssh_auth_logs (node_id, level, process, event_type, username, ip_address, port, success, message, raw_message, timestamp)', $sshBatch],
         ] as [$table, $batch]) {
             if (!$batch) continue;
             try {

@@ -372,97 +372,144 @@ class LogsMixin:
                 break
         return self._only_new_logs("system_fp", parsed)
 
+    @staticmethod
+    def _is_ssh_noise(line):
+        """Отсекает служебные строки journalctl и пустые записи.
+
+        journalctl без подходящих записей печатает баннеры вида
+        ``-- Journal begins at ...`` и ``-- No entries --``; раньше они
+        попадали в ssh_auth_logs как «события» и засоряли журнал.
+        """
+        s = (line or "").strip()
+        if not s:
+            return True
+        if s.startswith("--"):
+            return True
+        return False
+
+    @staticmethod
+    def _parse_ssh_event(message):
+        """Разбирает строку sshd в структурированное событие.
+
+        Возвращает dict: username, ip, port, success (True/False/None),
+        event_type, summary. event_type — машинный тип события для фильтров
+        и статистики на панели (accepted/failed/invalid_user/max_attempts/
+        pam_failure/disconnect/connection_closed/session/other).
+        """
+        msg = (message or "").strip()
+        user = None
+        ip = None
+        port = None
+        success = None
+
+        def result(event_type, summary):
+            return {
+                "username": user,
+                "ip": ip,
+                "port": port,
+                "success": success,
+                "event_type": event_type,
+                "summary": summary,
+            }
+
+        # Успешные авторизации — разные типы
+        m = re.search(r"Accepted (?:password|publickey|keyboard-interactive) for (\S+) from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            user, ip, port = m.group(1), m.group(2), int(m.group(3))
+            success = True
+            return result("accepted", f"SUCCESS user={user} ip={ip} port={port}")
+
+        # Превышение числа попыток аутентификации
+        m = re.search(r"maximum authentication attempts exceeded for (?:invalid user )?(\S+) from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            user, ip, port = m.group(1), m.group(2), int(m.group(3))
+            success = False
+            return result("max_attempts", f"FAIL max attempts user={user} ip={ip} port={port}")
+
+        # Неудачные попытки с паролем
+        m = re.search(r"Failed password for (invalid user )?(\S+) from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            invalid_prefix, user, ip, port = m.group(1) or "", m.group(2), m.group(3), int(m.group(4))
+            success = False
+            invalid = "invalid " if invalid_prefix else ""
+            etype = "invalid_user" if invalid_prefix else "failed"
+            return result(etype, f"FAIL user={invalid}{user} ip={ip} port={port}")
+
+        # Неудачные попытки по публичному ключу/интерактиву
+        m = re.search(r"Failed (?:publickey|keyboard-interactive) for (invalid user )?(\S+) from ([0-9\.]+)(?: port (\d+))?", msg, re.IGNORECASE)
+        if m:
+            invalid_prefix, user, ip, port_raw = m.group(1) or "", m.group(2), m.group(3), m.group(4)
+            success = False
+            port = int(port_raw) if port_raw else None
+            invalid = "invalid " if invalid_prefix else ""
+            etype = "invalid_user" if invalid_prefix else "failed"
+            return result(etype, f"FAIL user={invalid}{user} ip={ip}")
+
+        # Невалидный пользователь
+        m = re.search(r"Invalid user (\S+) from ([0-9\.]+)(?: port (\d+))?", msg, re.IGNORECASE)
+        if m:
+            user, ip = m.group(1), m.group(2)
+            port = int(m.group(3)) if m.group(3) else None
+            success = False
+            port_str = f" port={port}" if port else ""
+            return result("invalid_user", f"FAIL user=invalid {user} ip={ip}{port_str}")
+
+        # Authentication failure из pam — извлекаем IP и пользователя отдельно
+        m = re.search(r"authentication failure.*rhost=([0-9\.]+)", msg, re.IGNORECASE)
+        if m:
+            ip = m.group(1)
+            user_match = re.search(r"user=(\S+)", msg, re.IGNORECASE)
+            user = user_match.group(1) if user_match else None
+            success = False
+            user_str = f" user={user}" if user else ""
+            return result("pam_failure", f"FAIL{user_str} ip={ip}")
+
+        # Открытие/закрытие сессии pam_unix
+        m = re.search(r"session (opened|closed) for user (\S+)", msg, re.IGNORECASE)
+        if m:
+            action, user = m.group(1).lower(), m.group(2)
+            return result("session", f"INFO session {action} user={user}")
+
+        # Disconnected from — пользователь и IP
+        m = re.search(r"Disconnected from (?:authenticating user |invalid user )?(\S+) ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            user, ip, port = m.group(1), m.group(2), int(m.group(3))
+            return result("disconnect", f"INFO disconnected user={user} ip={ip} port={port}")
+
+        # Received disconnect from
+        m = re.search(r"Received disconnect from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
+        if m:
+            ip, port = m.group(1), int(m.group(2))
+            return result("disconnect", f"INFO disconnect ip={ip} port={port}")
+
+        # Connection closed/reset
+        m = re.search(r"Connection (?:closed by|reset by|from)\s+(?:authenticating user |invalid user )?(?:(\S+)\s+)?([0-9\.]+)(?: port (\d+))?", msg, re.IGNORECASE)
+        if m:
+            user = m.group(1) or None
+            ip = m.group(2)
+            port = int(m.group(3)) if m.group(3) else None
+            port_str = f" port={port}" if port else ""
+            user_str = f" user={user}" if user else ""
+            return result("connection_closed", f"INFO connection{user_str} ip={ip}{port_str}")
+
+        # Fallback: пытаемся вытащить IP/порт/пользователя из любого сообщения
+        ip_match = re.search(r"\b([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\b", msg)
+        if ip_match:
+            ip = ip_match.group(1)
+            port_match = re.search(rf"{re.escape(ip)}:(\d+)", msg)
+            if port_match:
+                port = int(port_match.group(1))
+            user_match = re.search(r"(?:user=|for )(\S+)", msg, re.IGNORECASE)
+            if user_match:
+                user = user_match.group(1)
+
+        return result("other", msg)
+
     def collect_ssh_auth_logs(self, limit=200):
         # Сбор логов аутентификации SSH (auth_ssh) с ограничением объёма
-        logs = []
-
-        def _parse_ssh_event(message: str):
-            # Возвращает (username, ip, port, success[True/False/None], summary_message)
-            msg = message.strip()
-            user = None
-            ip = None
-            port = None
-            success = None
-
-            # Успешные авторизации - разные типы
-            m = re.search(r"Accepted (?:password|publickey|keyboard-interactive) for (\S+) from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
-            if m:
-                user, ip, port = m.group(1), m.group(2), int(m.group(3))
-                success = True
-                summary = f"SUCCESS user={user} ip={ip} port={port}"
-                return user, ip, port, success, f"{summary} | {msg}"
-
-            # Неудачные попытки с паролем
-            m = re.search(r"Failed password for (invalid user )?(\S+) from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
-            if m:
-                invalid_prefix, user, ip, port = m.group(1) or "", m.group(2), m.group(3), int(m.group(4))
-                success = False
-                invalid = "invalid " if invalid_prefix else ""
-                summary = f"FAIL user={invalid}{user} ip={ip} port={port}"
-                return user, ip, port, success, f"{summary} | {msg}"
-
-            # Невалидный пользователь
-            m = re.search(r"Invalid user (\S+) from ([0-9\.]+)(?: port (\d+))?", msg, re.IGNORECASE)
-            if m:
-                user, ip = m.group(1), m.group(2)
-                port = int(m.group(3)) if m.group(3) else None
-                success = False
-                port_str = f" port={port}" if port else ""
-                summary = f"FAIL user=invalid {user} ip={ip}{port_str}"
-                return user, ip, port, success, f"{summary} | {msg}"
-
-            # Authentication failure из pam - извлекаем IP и пользователя отдельно
-            m = re.search(r"authentication failure.*rhost=([0-9\.]+)", msg, re.IGNORECASE)
-            if m:
-                ip = m.group(1)
-                # Пытаемся найти user= в сообщении
-                user_match = re.search(r"user=(\S+)", msg, re.IGNORECASE)
-                user = user_match.group(1) if user_match else None
-                success = False
-                user_str = f" user={user}" if user else ""
-                summary = f"FAIL{user_str} ip={ip}"
-                return user, ip, None, success, f"{summary} | {msg}"
-
-            # Disconnected from - извлекаем пользователя и IP
-            m = re.search(r"Disconnected from (?:authenticating user |invalid user )?(\S+) ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
-            if m:
-                user, ip, port = m.group(1), m.group(2), int(m.group(3))
-                summary = f"INFO disconnected user={user} ip={ip} port={port}"
-                return user, ip, port, None, f"{summary} | {msg}"
-
-            # Received disconnect from
-            m = re.search(r"Received disconnect from ([0-9\.]+) port (\d+)", msg, re.IGNORECASE)
-            if m:
-                ip, port = m.group(1), int(m.group(2))
-                summary = f"INFO disconnect ip={ip} port={port}"
-                return None, ip, port, None, f"{summary} | {msg}"
-
-            # Connection closed/reset
-            m = re.search(r"Connection (?:closed by|reset by|from) ([0-9\.]+)(?: port (\d+))?", msg, re.IGNORECASE)
-            if m:
-                ip = m.group(1)
-                port = int(m.group(2)) if m.group(2) else None
-                port_str = f" port={port}" if port else ""
-                summary = f"INFO connection ip={ip}{port_str}"
-                return None, ip, port, None, f"{summary} | {msg}"
-
-            # Пытаемся извлечь IP из любого сообщения (fallback)
-            ip_match = re.search(r"\b([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\b", msg)
-            if ip_match and not ip:
-                ip = ip_match.group(1)
-                # Пытаемся найти порт рядом с IP
-                port_match = re.search(rf"{re.escape(ip)}:(\d+)", msg)
-                if port_match:
-                    port = int(port_match.group(1))
-                # Пытаемся найти пользователя в сообщении
-                user_match = re.search(r"(?:user=|for )(\S+)", msg, re.IGNORECASE)
-                if user_match:
-                    user = user_match.group(1)
-
-            return user, ip, port, success, msg
-
         def _ssh_entry(line, process_info, message, timestamp_str):
-            username, ip, port, success, summary = _parse_ssh_event(message)
+            event = self._parse_ssh_event(message)
+            success = event["success"]
             if success is True:
                 level = "info"
             elif success is False:
@@ -471,14 +518,15 @@ class LogsMixin:
                 level = self._log_level(message)
             entry = {
                 "type": "auth_ssh",
+                "event_type": event["event_type"],
                 "level": level,
-                "message": summary or message,
+                "message": event["summary"] or message,
                 "process": process_info or "sshd",
                 "timestamp": timestamp_str,
-                "username": username,
-                "ip": ip,
-                "port": port,
-                "raw_message": line.strip(),
+                "username": event["username"],
+                "ip": event["ip"],
+                "port": event["port"],
+                "raw_message": line.strip()[:500],
                 "_fp": f"{timestamp_str}|{(line or message)[:160]}",
             }
             if success is True:
@@ -500,7 +548,7 @@ class LogsMixin:
             if result.returncode == 0 and (result.stdout or "").strip():
                 last_iso = since
                 for line in result.stdout.splitlines():
-                    if not line.strip():
+                    if self._is_ssh_noise(line):
                         continue
                     row = self._parse_journal_iso(line)
                     if row:
@@ -533,6 +581,8 @@ class LogsMixin:
                 if result.returncode not in (0, 1):
                     continue
                 for line in result.stdout.splitlines():
+                    if self._is_ssh_noise(line):
+                        continue
                     if "sshd" not in line.lower():
                         continue
                     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -557,6 +607,15 @@ class LogsMixin:
         return logs
 
     @staticmethod
+    def _ssh_collapse_key(entry: dict) -> tuple:
+        return (
+            entry.get('event_type') or '',
+            entry.get('username') or '',
+            entry.get('ip') or '',
+            entry.get('success'),
+        )
+
+    @staticmethod
     def _collapse_ssh_duplicates(logs: list) -> list:
         """Схлопывает повторяющиеся SSH-события от одного IP за один цикл.
         Например, 50 brute-force попыток от 1.2.3.4 → 1 запись с message "... (×50)".
@@ -568,11 +627,7 @@ class LogsMixin:
         for entry in logs:
             if entry.get('type') != 'auth_ssh':
                 continue
-            key = (
-                entry.get('username') or '',
-                entry.get('ip') or '',
-                entry.get('success'),
-            )
+            key = LogsMixin._ssh_collapse_key(entry)
             if key in buckets:
                 buckets[key]['count'] += 1
                 if entry.get('timestamp', '') > buckets[key]['last_ts']:
@@ -586,11 +641,7 @@ class LogsMixin:
             if entry.get('type') != 'auth_ssh':
                 result.append(entry)
                 continue
-            key = (
-                entry.get('username') or '',
-                entry.get('ip') or '',
-                entry.get('success'),
-            )
+            key = LogsMixin._ssh_collapse_key(entry)
             if key not in buckets:
                 continue
             b = buckets[key]

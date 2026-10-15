@@ -164,6 +164,7 @@ CREATE TABLE ssh_auth_logs (
     node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
     level VARCHAR(20) DEFAULT 'info',
     process VARCHAR(255),
+    event_type VARCHAR(32),
     username VARCHAR(255),
     ip_address VARCHAR(45),
     port INTEGER,

@@ -83,6 +83,11 @@ jobs:
         # MySQL нет; полный прогон: TEST_DB_DSN=... php tests/test_auth.php
         run: php tests/test_auth.php
 
+      - name: Тесты классификатора SSH-событий
+        # Разбор sshd в машинный event_type (accepted/failed/…): используется
+        # как fallback для старых агентов и при бэкфилле ssh_auth_logs.
+        run: php tests/test_ssh_event_type.php
+
       - name: Слепок API db_config
         # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
         # только чтения исходников, подключения к БД не нужно.
@@ -188,6 +193,10 @@ jobs:
       - name: Тесты разбора SMART
         # Регрессия: упакованный raw атрибута 194 ронял вставку температуры.
         run: python tests/test_smart.py
+
+      - name: Тесты структурирования SSH-логов
+        # Классификация sshd в event_type + отсев баннеров journalctl.
+        run: python tests/test_logs.py
 
       - name: Рабочее дерево не пачкается
         run: |
