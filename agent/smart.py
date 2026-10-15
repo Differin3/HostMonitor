@@ -270,18 +270,23 @@ class SmartMixin:
                     raw_value = raw
                     raw_string = ''
 
+                # raw для температуры — реальные °C, а не упакованные Min/Max
+                if name == 'Temperature_Celsius' or attr_id == 194:
+                    temperature = self._parse_temperature(raw_value, raw_string)
+                    raw_out = temperature
+                else:
+                    raw_out = raw_value
+
                 attributes.append({
                     'id': attr_id,
                     'name': name,
                     'value': value,
                     'worst': worst,
                     'threshold': thresh,
-                    'raw': raw_value,
+                    'raw': raw_out,
                     'flags': flags,
                 })
 
-                if name == 'Temperature_Celsius' or attr_id == 194:
-                    temperature = self._parse_temperature(raw_value, raw_string)
                 if name == 'Power_On_Hours' or attr_id == 9:
                     power_on_hours = _coerce_int(raw_value)
 

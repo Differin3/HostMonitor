@@ -56,7 +56,7 @@
     function attrRowColor(attr, keyAttrs) {
         const ka = keyAttrs.find(k => k.id === attr.id);
         if (!ka) return '';
-        const raw = parseInt(attr.raw);
+        const raw = normalizeAttrRaw(ka, parseInt(attr.raw));
         if (ka.id === 194) {
             if (raw >= ka.crit) return 'smart-row-critical';
             if (raw >= ka.warn) return 'smart-row-warning';
@@ -209,13 +209,20 @@
         window.smartSelectDrive(nid, dev);
     };
 
+    function normalizeAttrRaw(ka, raw) {
+        if (raw === null || isNaN(raw)) return null;
+        // У старых записей температура могла храниться упакованной (Min/Max).
+        if (ka.id === 194 && (raw > 200 || raw < -20)) return raw & 0xFF;
+        return raw;
+    }
+
     function renderKeyAttributes(attrs) {
         const container = document.getElementById('key-attrs');
         if (!container) return;
 
         const html = KEY_ATTRIBUTES.map(ka => {
             const attr = attrs.find(a => a.id === ka.id);
-            const raw = attr ? parseInt(attr.raw) : null;
+            const raw = attr ? normalizeAttrRaw(ka, parseInt(attr.raw)) : null;
             const value = attr ? parseInt(attr.value) : null;
             let status = 'ok';
             if (raw !== null) {
@@ -228,6 +235,7 @@
                 }
             }
 
+            const smartThresh = attr && parseInt(attr.threshold) > 0 ? parseInt(attr.threshold) : ka.crit;
             const borderColor = status === 'critical' ? '#dc2626' : status === 'warning' ? '#d97706' : ka.color;
 
             return `<div class="stat-card" style="border-left: 3px solid ${borderColor};">
@@ -239,7 +247,7 @@
                     <div class="stat-value" style="color: ${status === 'critical' ? '#dc2626' : status === 'warning' ? '#d97706' : 'inherit'};">
                         ${raw !== null ? raw : '—'}
                     </div>
-                    <p class="stat-subtitle">значение: ${value !== null ? value : '—'} · порог: ${ka.crit}</p>
+                    <p class="stat-subtitle">норма: ${value !== null ? value : '—'} · порог: ${smartThresh}</p>
                 </div>
             </div>`;
         }).join('');

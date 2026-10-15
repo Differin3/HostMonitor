@@ -62,6 +62,20 @@ function smart_temperature_or_null($value): ?int
     return $int;
 }
 
+/**
+ * Нормализует raw-значение атрибута для отображения/графиков.
+ *
+ * Для температуры (ATA id 194) старые агенты присылали упакованное
+ * значение raw (старшие байты — Min/Max), поэтому приводим его к °C.
+ */
+function smart_normalize_attr_raw(int $attributeId, int $raw): int
+{
+    if ($attributeId === 194 && ($raw > 200 || $raw < -20)) {
+        return $raw & 0xFF;
+    }
+    return $raw;
+}
+
 function ensure_smart_tables(PDO $pdo): void
 {
     static $done = false;
@@ -193,7 +207,7 @@ function handleSmartGet(PDO $pdo): void
             $grouped[$key][] = [
                 'ts' => $row['timestamp'],
                 'value' => (int)$row['attribute_value'],
-                'raw' => (int)$row['raw_value'],
+                'raw' => smart_normalize_attr_raw((int)$row['attribute_id'], (int)$row['raw_value']),
             ];
         }
         echo json_encode(['history' => $grouped]);
@@ -251,7 +265,7 @@ function handleSmartGet(PDO $pdo): void
                 'value' => (int)$a['attribute_value'],
                 'worst' => (int)$a['worst_value'],
                 'threshold' => (int)$a['threshold_value'],
-                'raw' => (int)$a['raw_value'],
+                'raw' => smart_normalize_attr_raw((int)$a['attribute_id'], (int)$a['raw_value']),
                 'flags' => $a['flags'],
             ];
         }
