@@ -12,6 +12,7 @@ $pdo = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 logs_ensure_ssh_schema($pdo);
+logs_ensure_system_schema($pdo);
 
 function validateNodeToken($pdo, $token) {
     if (!$token) return null;
@@ -145,6 +146,88 @@ function logs_ensure_ssh_schema(PDO $pdo): void
         logs_backfill_ssh_event_type($pdo, $hasColumn);
     } catch (Throwable $e) {
         app_log_warning('[logs] ensure ssh schema: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Приводит схему logs к структурированному виду: добавляет колонку source
+ * (процесс/юнит-источник) и один раз бэкфиллит старые записи, где источник был
+ * склеен с сообщением в виде "process: message". Идемпотентна.
+ */
+function logs_ensure_system_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        if (!retention_table_exists($pdo, 'logs')) {
+            return;
+        }
+        $driver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'mysql') {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'logs' AND column_name = 'source'");
+        } else {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'logs' AND column_name = 'source'");
+        }
+        $stmt->execute();
+        $hasColumn = (int)$stmt->fetchColumn() > 0;
+
+        if (!$hasColumn) {
+            $pdo->exec("ALTER TABLE logs ADD COLUMN source VARCHAR(128) NULL");
+            try {
+                $pdo->exec("ALTER TABLE logs ADD INDEX idx_source (source)");
+            } catch (Throwable $e) {
+                // индекс мог уже существовать
+            }
+        }
+
+        logs_backfill_log_source($pdo);
+    } catch (Throwable $e) {
+        app_log_warning('[logs] ensure system schema: ' . $e->getMessage());
+    }
+}
+
+function logs_backfill_log_source(PDO $pdo): void
+{
+    try {
+        $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'logs_source_backfilled'");
+        $stmt->execute();
+        if ($stmt->fetchColumn()) {
+            return;
+        }
+    } catch (Throwable $e) {
+        return;
+    }
+
+    try {
+        $driver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'mysql') {
+            $pdo->exec("UPDATE logs
+                SET source = SUBSTRING_INDEX(message, ':', 1)
+                WHERE source IS NULL
+                  AND message LIKE '%:%'
+                  AND SUBSTRING_INDEX(message, ':', 1) REGEXP '^[A-Za-z0-9_.@/-]{1,64}$'");
+        } else {
+            $pdo->exec("UPDATE logs
+                SET source = split_part(message, ':', 1)
+                WHERE source IS NULL
+                  AND message LIKE '%:%'
+                  AND split_part(message, ':', 1) ~ '^[A-Za-z0-9_.@/-]{1,64}$'");
+        }
+
+        try {
+            $mark = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('logs_source_backfilled', '1')");
+            $mark->execute();
+        } catch (Throwable $e) {
+            // повторная попытка безвредна, ключ уникален
+        }
+    } catch (Throwable $e) {
+        app_log_warning('[logs] log source backfill: ' . $e->getMessage());
     }
 }
 
@@ -335,12 +418,75 @@ try {
             $where .= " AND level = ?";
             $params[] = $level;
         }
+        $source = trim((string)($_GET['source'] ?? ''));
+        if ($source !== '') {
+            $where .= " AND source = ?";
+            $params[] = $source;
+        }
+        $days = (int)($_GET['days'] ?? 0);
+        if ($days > 0) {
+            $where .= " AND timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $params[] = $days;
+        }
         if ($q !== '') {
-            $where .= " AND message LIKE ?";
-            $params[] = logs_like($q);
+            $where .= " AND (message LIKE ? OR source LIKE ?)";
+            $like = logs_like($q);
+            array_push($params, $like, $like);
         }
         [$logs, $total] = logs_fetch_page($pdo, "FROM logs WHERE 1=1", $where, $params, $perPage, $offset);
-        echo json_encode(['logs' => $logs, 'page' => $page, 'per_page' => $perPage, 'total' => $total]);
+
+        // Сводка и топ-источников — по ноде/периоду/поиску, без учёта фильтров
+        // level/source, чтобы карточки не «скакали».
+        $scopeWhere = " WHERE 1=1";
+        $scopeParams = [];
+        if ($nodeId) {
+            $scopeWhere .= " AND node_id = ?";
+            $scopeParams[] = $nodeId;
+        }
+        if ($days > 0) {
+            $scopeWhere .= " AND timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $scopeParams[] = $days;
+        }
+        if ($q !== '') {
+            $scopeWhere .= " AND (message LIKE ? OR source LIKE ?)";
+            $like = logs_like($q);
+            array_push($scopeParams, $like, $like);
+        }
+        $stats = ['total' => 0, 'errors' => 0, 'warnings' => 0, 'sources' => 0];
+        $topSources = [];
+        try {
+            $statsStmt = $pdo->prepare("SELECT
+                COUNT(*) AS total,
+                SUM(level = 'error') AS errors,
+                SUM(level = 'warning') AS warnings,
+                COUNT(DISTINCT source) AS sources
+                FROM logs {$scopeWhere}");
+            $statsStmt->execute($scopeParams);
+            $row = $statsStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $stats = [
+                'total' => (int)($row['total'] ?? 0),
+                'errors' => (int)($row['errors'] ?? 0),
+                'warnings' => (int)($row['warnings'] ?? 0),
+                'sources' => (int)($row['sources'] ?? 0),
+            ];
+
+            $srcStmt = $pdo->prepare("SELECT source, COUNT(*) AS count
+                FROM logs {$scopeWhere} AND source IS NOT NULL
+                GROUP BY source ORDER BY count DESC LIMIT 12");
+            $srcStmt->execute($scopeParams);
+            $topSources = $srcStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            app_log_warning('[logs] system stats: ' . $e->getMessage());
+        }
+
+        echo json_encode([
+            'logs' => $logs,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'stats' => $stats,
+            'top_sources' => $topSources,
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -435,13 +581,31 @@ try {
                     $timestamp,
                 ];
             } else {
-                $systemBatch[] = [$nodeId, $level, mb_substr($message, 0, 2000), $timestamp, $type];
+                $source = $log['source'] ?? null;
+                if (is_string($source)) {
+                    $source = mb_substr(trim($source), 0, 128);
+                    if ($source === '') {
+                        $source = null;
+                    }
+                } else {
+                    $source = null;
+                }
+                // Старые агенты присылают источник, склеенный с сообщением
+                // ("process: message") — выносим его сами.
+                if ($source === null) {
+                    [$prefix, $clean] = system_source_from($message);
+                    if ($prefix !== null) {
+                        $source = $prefix;
+                        $message = $clean;
+                    }
+                }
+                $systemBatch[] = [$nodeId, $level, $source, mb_substr($message, 0, 2000), $timestamp, $type];
             }
         }
 
         // Flush batches — each wrapped so one failure doesn't skip the rest
         foreach ([
-            ['logs (node_id, level, message, timestamp, type)', $systemBatch],
+            ['logs (node_id, level, source, message, timestamp, type)', $systemBatch],
             ['process_logs (node_id, pid, process, level, message, timestamp)', $processBatch],
             ['container_logs (node_id, container_id, level, message, timestamp)', $containerBatch],
             ['ssh_auth_logs (node_id, level, process, event_type, username, ip_address, port, success, message, raw_message, timestamp)', $sshBatch],

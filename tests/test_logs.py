@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Тесты структурирования SSH-логов агентом.
+"""Тесты структурирования логов агентом.
 
-Закрывает регрессию: строки sshd классифицируются в машинный event_type,
-служебные баннеры journalctl («-- Journal begins ...») больше не попадают
-в журнал как события, а повторяющиеся попытки схлопываются.
+SSH: строки sshd классифицируются в машинный event_type, служебные баннеры
+journalctl («-- Journal begins ...») больше не попадают в журнал как события,
+повторяющиеся попытки схлопываются.
+
+Системные: источник (process/юнит) выносится в отдельное поле source, а
+message остаётся без префикса «process:».
 
 Запуск:  python tests/test_logs.py
 Выход:   0 — все проверки прошли, 1 — есть падения.
@@ -68,10 +71,10 @@ def test_parse_summary_and_port():
 
 
 def test_noise_filter():
-    check(LogsMixin._is_ssh_noise("-- Journal begins at Thu 2026-10-01 22:07:33 MSK. --"), "баннер journalctl — мусор")
-    check(LogsMixin._is_ssh_noise("-- No entries --"), "No entries — мусор")
-    check(LogsMixin._is_ssh_noise("   "), "пустая строка — мусор")
-    check(not LogsMixin._is_ssh_noise("2026-10-01T22:07:33+03:00 host sshd[123]: Accepted password for root from 1.2.3.4 port 22 ssh2"), "реальное событие не мусор")
+    check(LogsMixin._is_journal_noise("-- Journal begins at Thu 2026-10-01 22:07:33 MSK. --"), "баннер journalctl — мусор")
+    check(LogsMixin._is_journal_noise("-- No entries --"), "No entries — мусор")
+    check(LogsMixin._is_journal_noise("   "), "пустая строка — мусор")
+    check(not LogsMixin._is_journal_noise("2026-10-01T22:07:33+03:00 host sshd[123]: Accepted password for root from 1.2.3.4 port 22 ssh2"), "реальное событие не мусор")
 
 
 def test_collapse_duplicates():
@@ -107,6 +110,25 @@ def test_collapse_passthrough_non_ssh():
     check(LogsMixin._collapse_ssh_duplicates([other]) == [other], "не-SSH записи проходят без изменений")
 
 
+def test_system_log_source():
+    e = LogsMixin._system_entry_from_journal(
+        "2026-10-01T22:07:33+03:00 host sshd[123]: Accepted password for root from 1.2.3.4 port 22 ssh2"
+    )
+    check(e is not None, "строка journalctl разобрана")
+    check(e["source"] == "sshd", "источник вынесен в source", repr(e.get("source")))
+    check(e["message"] == "Accepted password for root from 1.2.3.4 port 22 ssh2",
+          "сообщение без префикса 'process:'", e["message"])
+    check(e["type"] == "system", "тип system")
+    check(e["timestamp"] == "2026-10-01 22:07:33", "таймштамп нормализован", e["timestamp"])
+
+    e = LogsMixin._system_entry_from_journal("2026-10-01T22:07:34+03:00 host kernel: usb 1-1: new device")
+    check(e["source"] == "kernel", "источник kernel", repr(e.get("source")))
+    check(e["message"].startswith("usb 1-1"), "сообщение kernel без префикса", e["message"])
+
+    check(LogsMixin._system_entry_from_journal("-- No entries --") is None, "баннер journalctl отброшен")
+    check(LogsMixin._system_entry_from_journal("no timestamp here") is None, "строка без таймштампа отброшена")
+
+
 if __name__ == "__main__":
     print("== parse ssh events ==")
     test_parse_events()
@@ -117,5 +139,7 @@ if __name__ == "__main__":
     test_collapse_duplicates()
     test_collapse_keeps_different_event_types()
     test_collapse_passthrough_non_ssh()
+    print("== system logs ==")
+    test_system_log_source()
     print(f"\nПройдено: {PASSED}, провалено: {FAILED}")
     sys.exit(1 if FAILED else 0)

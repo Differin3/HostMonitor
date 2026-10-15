@@ -273,6 +273,31 @@ class LogsMixin:
             return "warning"
         return "info"
 
+    @classmethod
+    def _system_entry_from_journal(cls, line: str):
+        """Строит запись системного лога из строки journalctl.
+
+        Источник (process/юнит) кладётся в отдельное поле ``source``, а
+        ``message`` остаётся «чистым» — без префикса ``process:``. Возвращает
+        None для служебных баннеров journalctl и нераспознанных строк.
+        """
+        if cls._is_journal_noise(line):
+            return None
+        row = cls._parse_journal_iso(line)
+        if not row:
+            return None
+        ts, iso, process, pid, message = row
+        if not message:
+            return None
+        return {
+            "type": "system",
+            "level": cls._log_level(message),
+            "source": process or None,
+            "message": message,
+            "timestamp": ts,
+            "_fp": f"{iso}|{message[:160]}",
+        }
+
     def _only_new_logs(self, key: str, items: list):
         last = self._log_cursors.get(key)
         out = []
@@ -303,20 +328,11 @@ class LogsMixin:
             if result.returncode == 0:
                 last_iso = since
                 for line in result.stdout.splitlines():
-                    row = self._parse_journal_iso(line)
-                    if not row:
+                    entry = self._system_entry_from_journal(line)
+                    if not entry:
                         continue
-                    ts, iso, process, pid, message = row
-                    if not message:
-                        continue
-                    parsed.append({
-                        "type": "system",
-                        "level": self._log_level(message),
-                        "message": f"{process}: {message}" if process else message,
-                        "timestamp": ts,
-                        "_fp": f"{iso}|{message[:160]}",
-                    })
-                    last_iso = iso
+                    parsed.append(entry)
+                    last_iso = entry["_fp"].split("|", 1)[0]
                 if last_iso:
                     self._log_cursors["system_since"] = last_iso.replace("T", " ")[:19]
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -338,7 +354,7 @@ class LogsMixin:
                 if result.returncode != 0:
                     continue
                 for line in result.stdout.splitlines():
-                    if not line.strip():
+                    if not line.strip() or self._is_journal_noise(line):
                         continue
                     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     timestamp_match = re.search(r"^(\w+\s+\d+\s+\d+:\d+:\d+)", line)
@@ -365,7 +381,8 @@ class LogsMixin:
                     parsed.append({
                         "type": "system",
                         "level": self._log_level(message),
-                        "message": f"{process_info}: {message}",
+                        "source": process_info or None,
+                        "message": message,
                         "timestamp": timestamp_str,
                         "_fp": f"{timestamp_str}|{message[:160]}",
                     })
@@ -373,12 +390,12 @@ class LogsMixin:
         return self._only_new_logs("system_fp", parsed)
 
     @staticmethod
-    def _is_ssh_noise(line):
+    def _is_journal_noise(line):
         """Отсекает служебные строки journalctl и пустые записи.
 
         journalctl без подходящих записей печатает баннеры вида
         ``-- Journal begins at ...`` и ``-- No entries --``; раньше они
-        попадали в ssh_auth_logs как «события» и засоряли журнал.
+        попадали в журнал как «события» и засоряли его.
         """
         s = (line or "").strip()
         if not s:
@@ -552,7 +569,7 @@ class LogsMixin:
             if result.returncode == 0 and (result.stdout or "").strip():
                 last_iso = since
                 for line in result.stdout.splitlines():
-                    if self._is_ssh_noise(line):
+                    if self._is_journal_noise(line):
                         continue
                     row = self._parse_journal_iso(line)
                     if row:
@@ -585,7 +602,7 @@ class LogsMixin:
                 if result.returncode not in (0, 1):
                     continue
                 for line in result.stdout.splitlines():
-                    if self._is_ssh_noise(line):
+                    if self._is_journal_noise(line):
                         continue
                     if "sshd" not in line.lower():
                         continue
@@ -674,6 +691,7 @@ class LogsMixin:
                     logs.append({
                         "type": "system",
                         "level": "info",
+                        "source": "system",
                         "message": f"System boot at {boot_time.strftime('%Y-%m-%d %H:%M:%S')}",
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     })
