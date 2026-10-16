@@ -70,6 +70,9 @@
         }
         el.textContent = label;
         el.classList.remove('hidden');
+        if (el.dataset) {
+            el.dataset.version = label;
+        }
         const commit = String((data && data.current_commit) || '').trim();
         const branch = String((data && (data.branch || data.selected_branch)) || '').trim();
         el.title = `Установлена версия ${label}`
