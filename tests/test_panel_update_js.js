@@ -129,6 +129,7 @@ classList: {
               },
               body,
               addEventListener: (type, fn) => { listeners[type] = fn; },
+              removeEventListener: () => {},
           },
           location: { reload() { calls.push({ type: 'reload' }); } },
           window: {
@@ -156,7 +157,7 @@ classList: {
       vm.runInContext(fs.readFileSync(SCRIPT, 'utf8'), sandbox, { filename: 'panel_update.js' });
       if (listeners.DOMContentLoaded) listeners.DOMContentLoaded();
       const findById = (id) => els[id] || created.find((e) => e.id === id) || null;
-      return { els, toasts, confirms, calls, sandbox, modal: () => findById('update-report-modal') };
+      return { els, toasts, confirms, calls, sandbox, modal: () => findById('update-report-modal'), byId: (id) => findById(id) };
   }
 
   /** Ответ сервера об успешном обновлении с заданным состоянием воркера. */
@@ -169,6 +170,18 @@ classList: {
           worker,
       }, extra);
   }
+
+/**
+ * Нажимает «Обновить» и подтверждает в кастомном окне обновления.
+ */
+async function applyAndConfirm(h) {
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    const dlg = h.byId('panel-update-confirm-modal');
+    if (dlg) dlg.querySelector('[data-role="confirm"]').onclick();
+    await tick();
+    await tick();
+}
 
 // ─── Тесты ───────────────────────────────────────────────────────────────────
 
@@ -250,7 +263,13 @@ async function testApplySendsBranch() {
         },
     });
     await tick();
-    h.els.panelUpdateApplyBtn._h.click({ target: h.els.panelUpdateApplyBtn });
+    await h.els.panelUpdateApplyBtn._h.click({ target: h.els.panelUpdateApplyBtn });
+    await tick();
+    const dlg = h.byId('panel-update-confirm-modal');
+    const confirmHtml = dlg ? dlg.innerHTML : '';
+    check(confirmHtml.includes('«dev»'), 'в подтверждении названа целевая ветка',
+        JSON.stringify(confirmHtml.slice(0, 120)));
+    if (dlg) dlg.querySelector('[data-role="confirm"]').onclick();
     await tick();
 
     const applyCall = h.calls.find((c) => c.url.includes('action=apply'));
@@ -260,9 +279,6 @@ async function testApplySendsBranch() {
         eq(applyCall.body && applyCall.body.branch, 'dev',
             'в теле apply уходит выбранная ветка (без неё сервер обновлял текущую)');
     }
-    const confirmMsg = h.confirms[0] || '';
-    check(confirmMsg.includes('«dev»'), 'в подтверждении названа целевая ветка',
-        JSON.stringify(confirmMsg.slice(0, 90)));
 }
 
 async function testChangeSavesBranch() {
@@ -305,9 +321,7 @@ async function testUpdateReportShowsInsteadOfSilentReload() {
         }),
     });
     await tick();
-    await h.els.panelUpdateApplyBtn._h.click();
-    await tick();
-    await tick();
+    await applyAndConfirm(h);
 
     const modal = h.modal();
     check(!!modal, 'после обновления открывается окно отчёта');
@@ -337,9 +351,7 @@ async function testUpdateReportButtons() {
         applyResponse: applyOk({ state: 'ok', alive: true, up_to_date: true, text: 'Воркер работает на новом коде.' }),
     });
     await tick();
-    await h.els.panelUpdateApplyBtn._h.click();
-    await tick();
-    await tick();
+    await applyAndConfirm(h);
 
     const modal = h.modal();
     check(!!modal, 'окно создано');
@@ -365,9 +377,7 @@ async function testAlreadyUpToDateStaysToast() {    console.log('\npanel_update.
         applyResponse: { success: true, already_up_to_date: true, message: 'Панель уже актуальна' },
     });
     await tick();
-    await h.els.panelUpdateApplyBtn._h.click();
-    await tick();
-    await tick();
+    await applyAndConfirm(h);
 
     check(!h.modal(), 'окно отчёта не показывается, если ничего не применилось');
     check(h.toasts.length === 1 && h.toasts[0].msg === 'Панель уже актуальна',
@@ -392,9 +402,7 @@ async function testReportEscapesServerText() {
         }),
     });
     await tick();
-    await h.els.panelUpdateApplyBtn._h.click();
-    await tick();
-    await tick();
+    await applyAndConfirm(h);
 
     const modal = h.modal();
     check(!!modal, 'окно создано');
@@ -419,9 +427,7 @@ async function testMissingWorkerExplainsFix() {
         }),
     });
     await tick();
-    await h.els.panelUpdateApplyBtn._h.click();
-    await tick();
-    await tick();
+    await applyAndConfirm(h);
 
     const modal = h.modal();
     check(!!modal, 'окно создано');
@@ -495,32 +501,9 @@ async function testMissingWorkerExplainsFix() {
           applyResponse: applyOk({ state: 'ok', alive: true, up_to_date: true, text: 'Воркер работает на новом коде.' }),
       });
       await tick();
-      await h.els.panelUpdateApplyBtn._h.click();
-      await tick();
-      await tick();
+      await applyAndConfirm(h);
       eq(h.els.panelUpdateVersion.textContent, 'main@1a2b3c4', 'после обновления показан новый коммит');
   }
-
-  (async () => {
-      await testLoadsWithoutReferenceError();
-      await testPopulateBranchSelect();
-      await testPopulateOnError();
-      await testWarningIsShown();
-      await testApplySendsBranch();
-      await testChangeSavesBranch();
-      await testUpdateReportShowsInsteadOfSilentReload();
-      await testUpdateReportButtons();
-      await testAlreadyUpToDateStaysToast();
-      await testReportEscapesServerText();
-      await testMissingWorkerExplainsFix();
-      await testVersionBadgeShowsInstalledCommit();
-      await testVersionBadgeHiddenWithoutCommit();
-      await testActualToastIncludesVersion();
-      await testApplyRefreshesVersionBadge();
-
-      console.log(`\nИтог: passed=${passed} failed=${failed}`);
-      process.exit(failed > 0 ? 1 : 0);
-  })();
 
 /**
  * Обычный клик по кнопке не должен трактоваться как force=true.
@@ -543,16 +526,16 @@ async function testApplyClickDoesNotForceReset() {
         },
     });
     await tick();
-    // Симулируем браузерное событие (как было раньше) — обёртка должна его игнорировать
+    // Симулируем браузерное событие — обёртка должна его игнорировать.
     h.els.panelUpdateApplyBtn._h.click({ type: 'click', target: h.els.panelUpdateApplyBtn });
     await tick();
-    await tick();
 
-    const msg = h.confirms[0] || '';
-    check(!msg.includes('reset --hard'), 'в диалоге нет упоминания reset --hard',
-        msg.slice(0, 120));
-    check(msg.includes('Обновить панель из репозитория'), 'показывается обычный диалог обновления',
-        msg.slice(0, 120));
+    const dlg = h.byId('panel-update-confirm-modal');
+    const html = dlg ? dlg.innerHTML : '';
+    check(!html.includes('reset --hard'), 'в диалоге нет упоминания reset --hard', html.slice(0, 120));
+    check(html.includes('Обновить панель из репозитория'), 'показывается обычный диалог обновления', html.slice(0, 120));
+    if (dlg) dlg.querySelector('[data-role="confirm"]').onclick();
+    await tick();
 
     const applyCall = h.calls.find((c) => c.url.includes('action=apply'));
     check(!!applyCall, 'отправлен запрос action=apply');
@@ -581,14 +564,15 @@ async function testConfirmShowsUpdateCommits() {
     await tick();
     await h.els.panelUpdateApplyBtn._h.click();
     await tick();
-    await tick();
 
-    const msg = h.confirms[0] || '';
-    check(msg.includes('Что обновится'), 'в диалоге есть блок «Что обновится»', msg.slice(0, 40));
-    check(msg.includes('2 коммита') || msg.includes('2 коммитов'), 'указано количество коммитов', msg.slice(0, 60));
-    check(msg.includes('7ddab29'), 'показан сокращённый хэш первого коммита', msg.slice(0, 80));
-    check(msg.includes('refresh db_config'), 'показано сообщение коммита', msg.slice(0, 120));
+    const dlg = h.byId('panel-update-confirm-modal');
+    const html = dlg ? dlg.innerHTML : '';
+    check(html.includes('Что обновится'), 'в диалоге есть блок «Что обновится»', html.slice(0, 80));
+    check(html.includes('2 коммита') || html.includes('2 коммитов'), 'указано количество коммитов', html.slice(0, 100));
+    check(html.includes('7ddab29'), 'показан сокращённый хэш первого коммита', html.slice(0, 120));
+    check(html.includes('refresh db_config'), 'показано сообщение коммита', html.slice(0, 160));
 }
+
 (async () => {
     await testLoadsWithoutReferenceError();
     await testPopulateBranchSelect();

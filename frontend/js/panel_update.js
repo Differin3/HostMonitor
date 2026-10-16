@@ -26,21 +26,32 @@
      * говорил, что именно встанет. Данные уже приходят в action=check
      * (commits = HEAD..origin/<branch>), поэтому показываем список коммитов.
      */
-    const updateDescription = () => {
+    /**
+     * Описание обновления из git-лога в виде HTML (для стилизованного диалога).
+     */
+    const updateDescriptionHtml = () => {
         const commits = Array.isArray(availableCommits) ? availableCommits : [];
         if (!commits.length) return '';
         const MAX = 10;
-        const lines = commits.slice(0, MAX).map((c) => {
+        const shown = commits.slice(0, MAX);
+        const items = shown.map((c) => {
             const hash = shortCommit(c && c.hash);
             const msg = String((c && c.message) || '').trim();
-            return (hash ? hash + ' ' : '') + msg;
-        });
+            const safeHash = escapeHtml(hash);
+            const safeMsg = escapeHtml(msg);
+            return `<li>${safeHash ? `<code>${safeHash}</code>` : ''}<span>${safeMsg}</span></li>`;
+        }).join('');
+        let more = '';
         if (commits.length > MAX) {
-            lines.push(`… и ещё ${commits.length - MAX}`);
+            more = `<li>… и ещё ${commits.length - MAX}</li>`;
         }
         const n = commits.length;
         const noun = n === 1 ? 'коммит' : (n < 5 ? 'коммита' : 'коммитов');
-        return `\n\nЧто обновится (${n} ${noun}):\n${lines.join('\n')}`;
+        return `
+            <div class="update-confirm-commits">
+                <strong>Что обновится (${n} ${noun}):</strong>
+                <ul class="update-confirm-commits-list">${items}${more}</ul>
+            </div>`;
     };
 
     /**
@@ -347,14 +358,57 @@
         if (isApplying || (!updateAvailable && !force)) return;
         const branch = selectedBranch();
         const where = branch ? ` на ветку «${branch}»` : '';
-        const desc = updateDescription();
-        const confirmed = await window.showConfirm(
-            force
-                ? `Сбросить локальные изменения на сервере и обновить панель${where}?${desc}\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.`
-                : `Обновить панель из репозитория${where}?${desc}\n\nСтраница перезагрузится после успешного обновления.`,
-            force ? 'Сброс и обновление' : 'Обновление панели',
-            force ? 'warning' : 'info'
-        );
+        const descHtml = updateDescriptionHtml();
+        const confirmed = await new Promise((resolve) => {
+            let modal = document.getElementById('panel-update-confirm-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'panel-update-confirm-modal';
+                modal.className = 'confirm-modal hidden';
+                document.body.appendChild(modal);
+            }
+            const warn = force
+                ? '<div class="update-confirm-note">Будет выполнено: <code>git reset --hard HEAD</code> + <code>git pull</code>. Файлы <code>data/*.local.php</code> не удаляются.</div>'
+                : '<div class="update-confirm-note">Страница перезагрузится после успешного обновления.</div>';
+            modal.innerHTML = `
+                <div class="confirm-dialog hm-popover update-confirm">
+                    <div class="confirm-header">
+                        <span class="confirm-icon"><i data-lucide="${force ? 'alert-triangle' : 'download'}"></i></span>
+                        <h3>${escapeHtml(force ? 'Сброс и обновление' : 'Обновление панели')}</h3>
+                    </div>
+                    <div class="confirm-body">
+                        <div class="update-confirm-lead">${escapeHtml(force ? 'Сбросить локальные изменения на сервере и обновить панель' : 'Обновить панель из репозитория')}${where ? escapeHtml(where) : ''}?</div>
+                        ${descHtml}
+                        ${warn}
+                    </div>
+                    <div class="confirm-actions">
+                        <button type="button" class="btn-cancel" data-role="cancel">Отмена</button>
+                        <button type="button" class="btn-confirm ${force ? 'warning' : 'success'}" data-role="confirm">${force ? 'Сбросить и обновить' : 'Обновить'}</button>
+                    </div>
+                </div>`;
+            const close = (res) => {
+                modal.classList.remove('active');
+                setTimeout(() => modal.classList.add('hidden'), 200);
+                modal.querySelector('[data-role="confirm"]').onclick = null;
+                modal.querySelector('[data-role="cancel"]').onclick = null;
+                modal.onclick = null;
+                document.removeEventListener('keydown', onKey);
+                resolve(res);
+            };
+            const onKey = (e) => {
+                if (e.key === 'Escape') { e.preventDefault(); close(false); }
+                else if (e.key === 'Enter') { e.preventDefault(); close(true); }
+            };
+            modal.querySelector('[data-role="confirm"]').onclick = () => close(true);
+            modal.querySelector('[data-role="cancel"]').onclick = () => close(false);
+            modal.onclick = (ev) => { if (ev.target === modal) close(false); };
+            document.addEventListener('keydown', onKey);
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => modal.classList.add('active'));
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                try { window.lucide.createIcons({ root: modal }); } catch (_) {}
+            }
+        });
         if (!confirmed) return;
 
         const btn = applyBtn();
@@ -417,7 +471,8 @@ if (data.success) {
         // Обёртка обязательна: без неё браузер передаёт в applyPanelUpdate
         // объект MouseEvent первым аргументом, он трактуется как force=true,
         // и всегда показывался диалог «Сброс и обновление» с git reset --hard.
-        applyBtn()?.addEventListener('click', () => applyPanelUpdate());
+        // Промис намеренно не возвращаем: обработчик события его не ждёт.
+        applyBtn()?.addEventListener('click', () => { applyPanelUpdate(); });
         branchSel()?.addEventListener('change', async (e) => {
             const branch = e.target.value;
             setUpdateAvailable(false);
