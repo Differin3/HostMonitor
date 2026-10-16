@@ -11,6 +11,44 @@
     const applyBtn = () => document.getElementById('panelUpdateApplyBtn');
     const branchSel = () => document.getElementById('panelUpdateBranch');
     const actions = () => document.getElementById('panelUpdateActions');
+    const versionEl = () => document.getElementById('panelUpdateVersion');
+
+    /** Короткий git-хэш (7 символов — как rev-parse --short по умолчанию). */
+    const shortCommit = (commit) => String(commit || '').trim().slice(0, 7);
+
+    /**
+     * Показывает установленную версию панели рядом с кнопкой обновления.
+     *
+     * Раньше «Панель актуальна» приходилось принимать на веру: ни коммит, ни
+     * канал нигде не отображались, и понять, что реально стоит на сервере,
+     * было нечем. Данные уже приходят в ответе action=check (current_commit и
+     * branch), их достаточно вывести.
+     */
+    const versionLabel = (data) => {
+        const commit = String((data && data.current_commit) || '').trim();
+        if (!commit) return '';
+        const short = shortCommit(commit);
+        const branch = String((data && (data.branch || data.selected_branch)) || '').trim();
+        return branch ? `${branch}@${short}` : short;
+    };
+
+    const setVersion = (data) => {
+        const el = versionEl();
+        if (!el) return;
+        const label = versionLabel(data);
+        if (!label) {
+            el.classList.add('hidden');
+            el.textContent = '';
+            return;
+        }
+        el.textContent = label;
+        el.classList.remove('hidden');
+        const commit = String((data && data.current_commit) || '').trim();
+        const branch = String((data && (data.branch || data.selected_branch)) || '').trim();
+        el.title = `Установлена версия ${label}`
+            + (branch ? ` · канал ${branch}` : '')
+            + (commit ? ` · коммит ${commit}` : '');
+    };
 
     const selectedBranch = () => {
         const sel = branchSel();
@@ -49,7 +87,7 @@
         const worker = (data && data.worker) || {};
         const view = WORKER_VIEWS[worker.state] || WORKER_VIEWS.unknown;
         const commit = String((data && data.commit) || '').trim();
-        const short = commit.length > 8 ? commit.slice(0, 8) : commit;
+        const short = shortCommit(commit);
 
         let modal = document.getElementById('update-report-modal');
         if (!modal) {
@@ -235,6 +273,9 @@
             // Список веток приходит и в ошибочном ответе (например, ветка не
             // найдена), поэтому наполняем select до раннего выхода.
             if (data && data.branches) populateBranchSelect(data);
+            // Версия показывается до любых ранних выходов: даже при ошибке
+            // канал/коммит из ответа полезны.
+            setVersion(data);
             // Сохранённый канал мог пропасть с origin — backend откатился на
             // текущую ветку и вернул warning. Показываем даже при silent, иначе
             // после перезагрузки страницы админ не узнает, что канал слетел.
@@ -250,13 +291,15 @@
             }
             setUpdateAvailable(!!data.available);
             if (!silent) {
+                const label = versionLabel(data);
+                const suffix = label ? ` (${label})` : '';
                 if (data.available) {
                     const n = (data.commits || []).length;
                     toast(n > 0
-                        ? `Доступно обновление (${n} коммит${n === 1 ? '' : n < 5 ? 'а' : 'ов'})`
-                        : 'Доступно обновление панели', 'success');
+                        ? `Доступно обновление (${n} коммит${n === 1 ? '' : n < 5 ? 'а' : 'ов'})${suffix}`
+                        : `Доступно обновление панели${suffix}`, 'success');
                 } else {
-                    toast('Панель актуальна', 'info');
+                    toast(`Панель актуальна${suffix}`, 'info');
                 }
             }
         } catch (e) {
@@ -299,9 +342,12 @@ if (data.success) {
                     setUpdateAvailable(false);
                     if (data.already_up_to_date) {
                         // Ничего не применилось: отчёт был бы враньём.
-                        toast(data.message || 'Панель уже актуальна', 'info');
+                        const label = (versionEl() && versionEl().textContent) || '';
+                        toast((data.message || 'Панель уже актуальна') + (label ? ` (${label})` : ''), 'info');
                         return;
                     }
+                    // После pull показываем уже установившийся коммит.
+                    setVersion({ current_commit: data.commit, branch: data.branch });
                     // Перезагрузку больше не делаем молча и по таймеру:
                     // админ должен успеть прочитать, что встало и что
                     // происходит с воркером.
