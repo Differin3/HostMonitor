@@ -46,6 +46,34 @@ function smart_int_or_null($value): ?int
     return null;
 }
 
+/**
+ * Приводит текстовое SMART-поле к строке, массивы/объекты — к null.
+ *
+ * Smartmontools ≥7.4 отдаёт часть полей объектом {"string": "...", "value": ...}
+ * (например sata_version). Такой массив уходил в PDOStatement::execute(),
+ * PHP конвертировал его в строку "Array" и писал notice
+ * «Array to string conversion», а в колонку попадало мусорное "Array".
+ * Берём string, затем value; всё остальное — null.
+ */
+function smart_str_or_null($value): ?string
+{
+    if (is_string($value)) {
+        return $value;
+    }
+    if (is_array($value)) {
+        foreach (['string', 'value'] as $key) {
+            if (array_key_exists($key, $value) && $value[$key] !== null && $value[$key] !== '') {
+                return smart_str_or_null($value[$key]);
+            }
+        }
+        return null;
+    }
+    if (is_int($value) || is_float($value)) {
+        return (string)$value;
+    }
+    return null;
+}
+
 function smart_temperature_or_null($value): ?int
 {
     $int = smart_int_or_null($value);
@@ -353,13 +381,13 @@ function handleSmartPost(PDO $pdo): void
         $upsertDrive->execute([
             $nodeId,
             $deviceName,
-            $drive['model'] ?? null,
-            $drive['serial'] ?? null,
-            $drive['firmware'] ?? null,
+            smart_str_or_null($drive['model'] ?? null),
+            smart_str_or_null($drive['serial'] ?? null),
+            smart_str_or_null($drive['firmware'] ?? null),
             smart_int_or_null($drive['capacity'] ?? null),
             smart_int_or_null($drive['rotation_rate'] ?? null),
-            $drive['interface'] ?? null,
-            $drive['sata_version'] ?? null,
+            smart_str_or_null($drive['interface'] ?? null),
+            smart_str_or_null($drive['sata_version'] ?? null),
             $temperature,
             $powerOnHours,
             $health,
