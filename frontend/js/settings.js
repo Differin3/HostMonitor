@@ -29,6 +29,7 @@ const TEXT_FIELDS = {
     smtp_user: 'smtp_user',
     smtp_from: 'smtp_from',
     telegram_chat_id: 'telegram_chat_id',
+    notify_webhook_url: 'notify_webhook_url',
     min_password_length: 'min_password_length',
     session_timeout_minutes: 'session_timeout_minutes',
     api_rate_limit: 'api_rate_limit',
@@ -41,6 +42,7 @@ const CHECK_FIELDS = {
     snmp_enabled: 'snmp_enabled',
     notify_email_enabled: 'notify_email_enabled',
     notify_telegram_enabled: 'notify_telegram_enabled',
+    notify_webhook_enabled: 'notify_webhook_enabled',
 };
 
 let dbHaLoaded = false;
