@@ -38,6 +38,37 @@ def _clamp_temperature(value):
     return value
 
 
+def _coerce_str(value):
+    """Приводит текстовое поле к строке, иначе пустая строка.
+
+    Smartmontools ≥7.4 возвращает часть полей объектом
+    ``{"string": "...", "value": ...}`` (как ``sata_version``). Такое значение
+    уходило в PDO массивом, а PHP приводил его к строке "Array" и сыпал
+    notice «Array to string conversion». Для объекта берём ``string``,
+    затем ``value``; всё остальное приводим к строке.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ('string', 'value'):
+            if key in value and value[key] not in (None, ''):
+                return _coerce_str(value[key])
+        return ''
+    if isinstance(value, bool):
+        return '1' if value else '0'
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = _coerce_str(item)
+            if text:
+                return text
+        return ''
+    return str(value)
+
+
 class SmartMixin:
     def _smartctl_device_flags(self, device_name: str) -> list:
         """Определяем флаги для smartctl в зависимости от типа контроллера/хоста.
@@ -208,6 +239,11 @@ class SmartMixin:
         rotation = info.get('rotation_rate')
         interface = info.get('interface_type', '')
         sata_ver = info.get('sata_version', '')
+        # Часть полей Smartmontools ≥7.4 отдаёт объектом
+        # {"string": "...", "value": ...} (sata_version, interface_type) —
+        # нормализуем к строке, иначе PDO конвертирует массив в "Array".
+        interface = _coerce_str(interface)
+        sata_ver = _coerce_str(sata_ver)
 
         # smartctl -i не всегда возвращает smart_status — запрашиваем отдельно -H
         if not disk_info:
@@ -303,9 +339,9 @@ class SmartMixin:
 
         return {
             'device': device_name,
-            'model': model_info,
-            'serial': serial,
-            'firmware': firmware,
+            'model': _coerce_str(model_info),
+            'serial': _coerce_str(serial),
+            'firmware': _coerce_str(firmware),
             'capacity': capacity,
             'rotation_rate': rotation,
             'interface': interface,
