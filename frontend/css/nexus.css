@@ -2732,6 +2732,30 @@ select optgroup {
     font-weight: 600;
 }
 
+.smart-detail-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+#smartExportMenu .hm-menu-item:disabled,
+#smartExportMenu .hm-menu-item[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+#smartExportMenu .hm-menu-item:disabled:hover,
+#smartExportMenu .hm-menu-item[disabled]:hover {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 #smart-tbody tr {
     cursor: pointer;
     transition: background 0.15s;

@@ -40,4 +40,29 @@
     // База API. layout.php выставляет window.MONITORING_API_BASE через
     // monitoring_asset(), поэтому за ре-reverse-proxy путь остаётся верным.
     global.API_BASE = global.MONITORING_API_BASE || '/api';
+
+    /**
+     * Экранирование одной ячейки CSV. Кавычки/переносы строки/разделители
+     * (запятая и точка с запятой) заставляют взять значение в двойные кавычки
+     * и удвоить внутренние кавычки.
+     */
+    function csvCell(value) {
+        const s = String(value ?? '');
+        if (/["\n\r;,]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+    }
+
+    /**
+     * Собирает CSV из заголовков и строк. Разделитель по умолчанию «,»
+     * (RFC 4180); для русского Excel передают «;». Переводы строк CRLF.
+     */
+    function toCsv(columns, rows, delimiter) {
+        const d = delimiter || ',';
+        const lines = [columns.map(csvCell).join(d)];
+        (rows || []).forEach((row) => lines.push(row.map(csvCell).join(d)));
+        return lines.join('\r\n');
+    }
+
+    global.hmCsvCell = csvCell;
+    global.hmToCsv = toCsv;
 })(typeof window !== 'undefined' ? window : globalThis);

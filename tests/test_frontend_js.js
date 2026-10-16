@@ -79,6 +79,19 @@ console.log('API_BASE: разрешение базы API');
 eq(loadCommon('/panel/api').API_BASE, '/panel/api', 'берётся из MONITORING_API_BASE (за reverse-proxy)');
 eq(loadCommon().API_BASE, '/api', 'дефолт /api');
 
+console.log('hmCsvCell()/hmToCsv(): сборка CSV');
+check(typeof w.hmCsvCell === 'function', 'hmCsvCell доступен на window');
+check(typeof w.hmToCsv === 'function', 'hmToCsv доступен на window');
+eq(w.hmCsvCell('plain'), 'plain', 'обычное значение без кавычек');
+eq(w.hmCsvCell('a;b'), '"a;b"', 'точка с запятой в кавычках');
+eq(w.hmCsvCell('a,b'), '"a,b"', 'запятая в кавычках');
+eq(w.hmCsvCell('say "hi"'), '"say ""hi"""', 'кавычки удваиваются');
+eq(w.hmCsvCell('line1\nline2'), '"line1\nline2"', 'перенос строки в кавычках');
+eq(w.hmCsvCell(null), '', 'null -> пустая строка');
+eq(w.hmToCsv(['a', 'b'], [[1, 2], [3, 4]]), 'a,b\r\n1,2\r\n3,4', 'запятая — разделитель по умолчанию');
+eq(w.hmToCsv(['a', 'b'], [[1, 2]], ';'), 'a;b\r\n1;2', 'явный разделитель «;»');
+eq(w.hmToCsv(['x'], []), 'x', 'только заголовок, когда строк нет');
+
 console.log('common.js: не осталось top-level дублей объявлений');
 const files = fs.readdirSync(JS_DIR).filter((f) => f.endsWith('.js') && f !== 'common.js');
 const declRe = /^(?:const|let|var|function)\s+(esc|escapeHtml|escHtmlAttr|authEscape|API_BASE)\s*[=(]/;

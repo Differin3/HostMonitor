@@ -126,12 +126,12 @@
         document.getElementById('failed-drives').textContent = failed;
     }
 
-    function applyFilters() {
+    function getFilteredDrives() {
         const nodeFilter = document.getElementById('nodeFilter')?.value || '';
         const healthFilter = document.getElementById('healthFilter')?.value || '';
         const search = (document.getElementById('driveSearch')?.value || '').toLowerCase();
 
-        const filtered = allDrives.filter(d => {
+        return allDrives.filter(d => {
             if (nodeFilter && d.node_id != nodeFilter) return false;
             if (healthFilter && (d.health_status || '').toLowerCase() !== healthFilter) return false;
             if (search) {
@@ -140,8 +140,10 @@
             }
             return true;
         });
+    }
 
-        renderDrivesTable(filtered);
+    function applyFilters() {
+        renderDrivesTable(getFilteredDrives());
     }
 
     function renderDrivesTable(drives) {
@@ -197,6 +199,9 @@
 
         // Перерисовываем таблицу (выделение)
         applyFilters();
+
+        // Кнопки экспорта выбранного диска становятся активными
+        updateExportMenuState();
 
         // Загружаем историю
         await loadHistory();
@@ -375,6 +380,172 @@
         }).join('');
     }
 
+    // ===== Экспорт =====
+    function showToastSafe(message, type) {
+        if (typeof window.showToast === 'function') window.showToast(message, type || 'info');
+        else console.log('[smart]', message);
+    }
+
+    // Разделитель «;» — так CSV открывается в русском Excel без мастера импорта.
+    function toCsv(columns, rows) {
+        if (window.hmToCsv) return window.hmToCsv(columns, rows, ';');
+        return columns.map(v => String(v ?? '')).join(';') + '\r\n' +
+            (rows || []).map(r => r.map(v => String(v ?? '')).join(';')).join('\r\n');
+    }
+
+    function stamp() {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+    }
+
+    function driveSlug(d) {
+        return String(d?.device_name || 'drive').replace(/[^\w.-]+/g, '_');
+    }
+
+    function downloadText(filename, content, mime) {
+        // BOM только для CSV — Excel иначе показывает кириллицу кракозябрами.
+        const data = /csv/.test(mime || '') ? '\uFEFF' + content : content;
+        const blob = new Blob([data], { type: (mime || 'text/plain') + ';charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function exportDrivesCsv() {
+        const drives = getFilteredDrives();
+        if (!drives.length) {
+            showToastSafe('Нет дисков для экспорта', 'info');
+            return;
+        }
+        const columns = ['Нода', 'Устройство', 'Модель', 'Серийный', 'Прошивка', 'Ёмкость (байт)', 'Ёмкость', 'Интерфейс', 'SATA', 'Температура (°C)', 'Часы работы', 'Статус', 'Корзина', 'Последний раз видели'];
+        const rows = drives.map(d => [
+            d._node_name || d.node_name || ('Node ' + d.node_id),
+            d.device_name,
+            d.model || '',
+            d.serial_number || '',
+            d.firmware_version || '',
+            d.capacity_bytes != null ? d.capacity_bytes : '',
+            d.capacity_bytes != null ? formatBytes(d.capacity_bytes) : '',
+            d.interface_type || '',
+            d.sata_version || '',
+            d.temperature != null ? d.temperature : '',
+            d.power_on_hours != null ? d.power_on_hours : '',
+            d.health_status || '',
+            d.bay_number != null ? d.bay_number : '',
+            d.last_seen || '',
+        ]);
+        downloadText(`smart-drives-${stamp()}.csv`, toCsv(columns, rows), 'text/csv');
+        showToastSafe(`Экспортировано дисков: ${drives.length}`, 'success');
+    }
+
+    function exportDrivesJson() {
+        const drives = getFilteredDrives();
+        if (!drives.length) {
+            showToastSafe('Нет дисков для экспорта', 'info');
+            return;
+        }
+        const payload = {
+            generated_at: new Date().toISOString(),
+            count: drives.length,
+            drives: drives.map(d => ({
+                node_id: d.node_id,
+                node_name: d._node_name || d.node_name || null,
+                device: d.device_name,
+                model: d.model || null,
+                serial: d.serial_number || null,
+                firmware: d.firmware_version || null,
+                capacity_bytes: d.capacity_bytes != null ? Number(d.capacity_bytes) : null,
+                rotation_rate: d.rotation_rate != null ? Number(d.rotation_rate) : null,
+                interface: d.interface_type || null,
+                sata_version: d.sata_version || null,
+                temperature: d.temperature != null ? Number(d.temperature) : null,
+                power_on_hours: d.power_on_hours != null ? Number(d.power_on_hours) : null,
+                health_status: d.health_status || null,
+                bay: d.bay_number != null ? Number(d.bay_number) : null,
+                last_seen: d.last_seen || null,
+                attributes: d.attributes || [],
+            })),
+        };
+        downloadText(`smart-drives-${stamp()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+        showToastSafe(`Экспортировано дисков: ${drives.length}`, 'success');
+    }
+
+    function exportDriveAttrsCsv() {
+        if (!selectedDrive) {
+            showToastSafe('Сначала выберите диск', 'warning');
+            return;
+        }
+        const attrs = selectedDrive.attributes || [];
+        if (!attrs.length) {
+            showToastSafe('У выбранного диска нет атрибутов', 'info');
+            return;
+        }
+        const columns = ['ID', 'Атрибут', 'Значение', 'Худшее', 'Порог', 'Raw', 'Флаги'];
+        const rows = attrs.map(a => {
+            const ka = KEY_ATTRIBUTES.find(k => k.id === a.id) || { id: a.id };
+            const rawNum = parseInt(a.raw);
+            const raw = isNaN(rawNum) ? (a.raw ?? '') : normalizeAttrRaw(ka, rawNum);
+            return [a.id, a.name, a.value, a.worst, a.threshold > 0 ? a.threshold : '', raw, a.flags || ''];
+        });
+        downloadText(`smart-${driveSlug(selectedDrive)}-attrs-${stamp()}.csv`, toCsv(columns, rows), 'text/csv');
+        showToastSafe(`Экспортировано атрибутов: ${attrs.length}`, 'success');
+    }
+
+    async function exportDriveHistoryCsv() {
+        if (!selectedDrive) {
+            showToastSafe('Сначала выберите диск', 'warning');
+            return;
+        }
+        showToastSafe('Экспорт истории...', 'info');
+        const resp = await fetch(
+            `${API_BASE}/smart.php?action=history&node_id=${selectedDrive.node_id}&device=${encodeURIComponent(selectedDrive.device_name)}&range=${currentRange}`,
+            { credentials: 'include' }
+        );
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = JSON.parse(await resp.text());
+        const history = data.history || {};
+
+        const rows = [];
+        Object.entries(history).forEach(([attr, points]) => {
+            (points || []).forEach(p => rows.push([p.ts, attr, p.value, p.raw]));
+        });
+        if (!rows.length) {
+            showToastSafe('Нет истории за выбранный период', 'info');
+            return;
+        }
+        rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+        const columns = ['Время', 'Атрибут', 'Значение', 'Raw'];
+        downloadText(`smart-${driveSlug(selectedDrive)}-history-${currentRange}-${stamp()}.csv`, toCsv(columns, rows), 'text/csv');
+        showToastSafe(`Экспортировано точек: ${rows.length}`, 'success');
+    }
+
+    async function smartExport(kind) {
+        try {
+            if (kind === 'drives-csv') return exportDrivesCsv();
+            if (kind === 'drives-json') return exportDrivesJson();
+            if (kind === 'attrs-csv') return exportDriveAttrsCsv();
+            if (kind === 'history-csv') return await exportDriveHistoryCsv();
+        } catch (e) {
+            console.error('SMART export error:', e);
+            showToastSafe('Ошибка экспорта', 'error');
+        }
+    }
+    window.smartExport = smartExport;
+
+    function updateExportMenuState() {
+        const hasDrive = !!selectedDrive;
+        ['smartExportAttrsBtn', 'smartExportHistoryBtn', 'drive-export-attrs', 'drive-export-history'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !hasDrive;
+        });
+    }
+
     // Range buttons
     document.addEventListener('click', function(e) {
         const btn = e.target.closest('#smart-ranges button');
@@ -403,5 +574,11 @@
         // Refresh кнопка
         const refreshBtn = document.getElementById('refresh-smart');
         if (refreshBtn) refreshBtn.addEventListener('click', () => loadDrives());
+
+        // Экспорт выбранного диска из шапки деталей
+        document.getElementById('drive-export-attrs')?.addEventListener('click', () => smartExport('attrs-csv'));
+        document.getElementById('drive-export-history')?.addEventListener('click', () => smartExport('history-csv'));
+
+        updateExportMenuState();
     });
 })();
