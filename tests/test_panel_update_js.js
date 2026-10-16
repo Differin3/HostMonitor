@@ -521,3 +521,93 @@ async function testMissingWorkerExplainsFix() {
       console.log(`\nИтог: passed=${passed} failed=${failed}`);
       process.exit(failed > 0 ? 1 : 0);
   })();
+
+/**
+ * Обычный клик по кнопке не должен трактоваться как force=true.
+ *
+ * В браузере addEventListener передаёт MouseEvent в обработчик; раньше
+ * он напрямую прокидывался в applyPanelUpdate и всегда показывал диалог
+ * сброса (git reset --hard). Теперь обработчик обёрнут без аргументов.
+ */
+async function testApplyClickDoesNotForceReset() {
+    console.log('\npanel_update.js: обычный клик не вызывает force-reset');
+    const h = harness({
+        checkResponse: {
+            available: true,
+            branch: 'main',
+            selected_branch: 'main',
+            branches: [{ name: 'main' }],
+            commits: [
+                { hash: '7ddab29aaaa1111222233334444555566667777', message: 'test(ci): refresh db_config API snapshot' },
+            ],
+        },
+    });
+    await tick();
+    // Симулируем браузерное событие (как было раньше) — обёртка должна его игнорировать
+    h.els.panelUpdateApplyBtn._h.click({ type: 'click', target: h.els.panelUpdateApplyBtn });
+    await tick();
+    await tick();
+
+    const msg = h.confirms[0] || '';
+    check(!msg.includes('reset --hard'), 'в диалоге нет упоминания reset --hard',
+        msg.slice(0, 120));
+    check(msg.includes('Обновить панель из репозитория'), 'показывается обычный диалог обновления',
+        msg.slice(0, 120));
+
+    const applyCall = h.calls.find((c) => c.url.includes('action=apply'));
+    check(!!applyCall, 'отправлен запрос action=apply');
+    if (applyCall) {
+        eq(applyCall.body && applyCall.body.force, false, 'в запросе apply force=false');
+    }
+}
+
+/**
+ * Диалог подтверждения должен показывать, что именно обновится (из git log).
+ */
+async function testConfirmShowsUpdateCommits() {
+    console.log('\npanel_update.js: диалог показывает описание обновления');
+    const h = harness({
+        checkResponse: {
+            available: true,
+            branch: 'main',
+            selected_branch: 'dev',
+            branches: [{ name: 'main' }, { name: 'dev' }],
+            commits: [
+                { hash: '7ddab29aaaa1111222233334444555566667777', message: 'test(ci): refresh db_config API snapshot' },
+                { hash: '52e1837bbbb2222333344445555666677778888', message: 'fix(smart): normalize smartctl object fields' },
+            ],
+        },
+    });
+    await tick();
+    await h.els.panelUpdateApplyBtn._h.click();
+    await tick();
+    await tick();
+
+    const msg = h.confirms[0] || '';
+    check(msg.includes('Что обновится'), 'в диалоге есть блок «Что обновится»', msg.slice(0, 40));
+    check(msg.includes('2 коммита') || msg.includes('2 коммитов'), 'указано количество коммитов', msg.slice(0, 60));
+    check(msg.includes('7ddab29'), 'показан сокращённый хэш первого коммита', msg.slice(0, 80));
+    check(msg.includes('refresh db_config'), 'показано сообщение коммита', msg.slice(0, 120));
+}
+(async () => {
+    await testLoadsWithoutReferenceError();
+    await testPopulateBranchSelect();
+    await testPopulateOnError();
+    await testWarningIsShown();
+    await testApplySendsBranch();
+    await testChangeSavesBranch();
+    await testUpdateReportShowsInsteadOfSilentReload();
+    await testUpdateReportButtons();
+    await testAlreadyUpToDateStaysToast();
+    await testReportEscapesServerText();
+    await testMissingWorkerExplainsFix();
+    await testVersionBadgeShowsInstalledCommit();
+    await testVersionBadgeHiddenWithoutCommit();
+    await testActualToastIncludesVersion();
+    await testApplyRefreshesVersionBadge();
+    await testApplyClickDoesNotForceReset();
+    await testConfirmShowsUpdateCommits();
+
+    console.log(`\nИтог: passed=${passed} failed=${failed}`);
+    process.exit(failed > 0 ? 1 : 0);
+})();
