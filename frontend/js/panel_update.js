@@ -19,15 +19,22 @@
     /** Короткий git-хэш (7 символов — как rev-parse --short по умолчанию). */
     const shortCommit = (commit) => String(commit || '').trim().slice(0, 7);
 
+    /** Русское склонение: 1 коммит, 2 коммита, 5 коммитов, 21 коммит. */
+    const pluralCommits = (n) => {
+        const abs = Math.abs(Number(n) || 0);
+        const mod100 = abs % 100;
+        const mod10 = abs % 10;
+        if (mod10 === 1 && mod100 !== 11) return 'коммит';
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'коммита';
+        return 'коммитов';
+    };
+
     /**
-     * Описание обновления из git-лога.
+     * Описание обновления из git-лога в виде HTML (для стилизованного диалога).
      *
      * Диалог подтверждения раньше был общим («будет выполнен git pull») и не
      * говорил, что именно встанет. Данные уже приходят в action=check
      * (commits = HEAD..origin/<branch>), поэтому показываем список коммитов.
-     */
-    /**
-     * Описание обновления из git-лога в виде HTML (для стилизованного диалога).
      */
     const updateDescriptionHtml = () => {
         const commits = Array.isArray(availableCommits) ? availableCommits : [];
@@ -46,10 +53,9 @@
             more = `<li>… и ещё ${commits.length - MAX}</li>`;
         }
         const n = commits.length;
-        const noun = n === 1 ? 'коммит' : (n < 5 ? 'коммита' : 'коммитов');
         return `
             <div class="update-confirm-commits">
-                <strong>Что обновится (${n} ${noun}):</strong>
+                <strong>Что обновится (${n} ${pluralCommits(n)}):</strong>
                 <ul class="update-confirm-commits-list">${items}${more}</ul>
             </div>`;
     };
@@ -338,7 +344,7 @@
                 if (data.available) {
                     const n = (data.commits || []).length;
                     toast(n > 0
-                        ? `Доступно обновление (${n} коммит${n === 1 ? '' : n < 5 ? 'а' : 'ов'})${suffix}`
+                        ? `Доступно обновление (${n} ${pluralCommits(n)})${suffix}`
                         : `Доступно обновление панели${suffix}`, 'success');
                 } else {
                     toast(`Панель актуальна${suffix}`, 'info');
