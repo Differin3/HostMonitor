@@ -6,6 +6,9 @@
     let updateAvailable = false;
     let isChecking = false;
     let isApplying = false;
+    // Коммиты HEAD..origin/<branch> из последней проверки: показываются в
+    // диалоге подтверждения, чтобы было видно, что именно встанет.
+    let availableCommits = [];
 
     const checkBtn = () => document.getElementById('panelUpdateCheckBtn');
     const applyBtn = () => document.getElementById('panelUpdateApplyBtn');
@@ -15,6 +18,30 @@
 
     /** Короткий git-хэш (7 символов — как rev-parse --short по умолчанию). */
     const shortCommit = (commit) => String(commit || '').trim().slice(0, 7);
+
+    /**
+     * Описание обновления из git-лога.
+     *
+     * Диалог подтверждения раньше был общим («будет выполнен git pull») и не
+     * говорил, что именно встанет. Данные уже приходят в action=check
+     * (commits = HEAD..origin/<branch>), поэтому показываем список коммитов.
+     */
+    const updateDescription = () => {
+        const commits = Array.isArray(availableCommits) ? availableCommits : [];
+        if (!commits.length) return '';
+        const MAX = 10;
+        const lines = commits.slice(0, MAX).map((c) => {
+            const hash = shortCommit(c && c.hash);
+            const msg = String((c && c.message) || '').trim();
+            return (hash ? hash + ' ' : '') + msg;
+        });
+        if (commits.length > MAX) {
+            lines.push(`… и ещё ${commits.length - MAX}`);
+        }
+        const n = commits.length;
+        const noun = n === 1 ? 'коммит' : (n < 5 ? 'коммита' : 'коммитов');
+        return `\n\nЧто обновится (${n} ${noun}):\n${lines.join('\n')}`;
+    };
 
     /**
      * Показывает установленную версию панели рядом с кнопкой обновления.
@@ -276,6 +303,7 @@
             // Версия показывается до любых ранних выходов: даже при ошибке
             // канал/коммит из ответа полезны.
             setVersion(data);
+            availableCommits = (data && Array.isArray(data.commits)) ? data.commits : [];
             // Сохранённый канал мог пропасть с origin — backend откатился на
             // текущую ветку и вернул warning. Показываем даже при silent, иначе
             // после перезагрузки страницы админ не узнает, что канал слетел.
@@ -316,10 +344,11 @@
         if (isApplying || (!updateAvailable && !force)) return;
         const branch = selectedBranch();
         const where = branch ? ` на ветку «${branch}»` : '';
+        const desc = updateDescription();
         const confirmed = await window.showConfirm(
             force
-                ? `Сбросить локальные изменения на сервере и обновить панель${where}?\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.`
-                : `Обновить панель из репозитория${where}?\n\nБудет выполнен git pull${branch ? ' с переключением ветки' : ''}. Страница перезагрузится после успешного обновления.`,
+                ? `Сбросить локальные изменения на сервере и обновить панель${where}?${desc}\n\ngit reset --hard + git pull. Файлы data/*.local.php не удаляются.`
+                : `Обновить панель из репозитория${where}?${desc}\n\nСтраница перезагрузится после успешного обновления.`,
             force ? 'Сброс и обновление' : 'Обновление панели',
             force ? 'warning' : 'info'
         );
@@ -382,7 +411,10 @@ if (data.success) {
 
     document.addEventListener('DOMContentLoaded', () => {
         checkBtn()?.addEventListener('click', () => checkPanelUpdate(false));
-        applyBtn()?.addEventListener('click', applyPanelUpdate);
+        // Обёртка обязательна: без неё браузер передаёт в applyPanelUpdate
+        // объект MouseEvent первым аргументом, он трактуется как force=true,
+        // и всегда показывался диалог «Сброс и обновление» с git reset --hard.
+        applyBtn()?.addEventListener('click', () => applyPanelUpdate());
         branchSel()?.addEventListener('change', async (e) => {
             const branch = e.target.value;
             setUpdateAvailable(false);
