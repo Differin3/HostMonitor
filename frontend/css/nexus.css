@@ -3328,3 +3328,127 @@ select optgroup {
 .update-report-worker-info > svg { color: #3b82f6; }
 .update-report-worker-warning > svg { color: #f59e0b; }
 .update-report-worker-danger > svg { color: #ef4444; }
+
+/* ——— Update confirm dialog (styled like post-update report) ——— */
+.confirm-dialog.update-confirm {
+    width: min(94vw, 560px);
+    max-width: 560px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.confirm-dialog.update-confirm .confirm-header {
+    align-items: center;
+    gap: 12px;
+    padding: 20px 24px 6px;
+}
+
+.confirm-dialog.update-confirm .confirm-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.14);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.08);
+}
+
+.confirm-dialog.update-confirm .confirm-icon svg {
+    width: 20px;
+    height: 20px;
+    color: var(--accent, #3b82f6);
+}
+
+.confirm-dialog.update-confirm .confirm-header h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.confirm-dialog.update-confirm .confirm-body {
+    padding: 10px 24px 4px;
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.update-confirm-lead {
+    font-size: 14px;
+}
+
+.update-confirm-commits {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-card-hover);
+    border: 1px solid var(--border-color);
+}
+
+.update-confirm-commits > strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+    color: var(--text-muted);
+}
+
+.update-confirm-commits-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.update-confirm-commits-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border-left: 2px solid var(--accent, #3b82f6);
+    background: rgba(59, 130, 246, 0.06);
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.update-confirm-commits-list code {
+    flex: 0 0 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.14);
+    color: var(--accent, #3b82f6);
+}
+
+.update-confirm-commits-list span {
+    flex: 1 1 auto;
+    color: var(--text-primary);
+}
+
+.update-confirm-note {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.update-confirm-note code {
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--bg-card-hover);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+}
+
+.confirm-dialog.update-confirm .confirm-actions {
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--border-color);
+}
