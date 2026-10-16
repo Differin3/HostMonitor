@@ -60,6 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error) {
         $error = 'Логин и пароль обязательны';
     } elseif ($password !== $password2) {
         $error = 'Пароли не совпадают';
+    } elseif (($policyError = password_policy_error($password)) !== null) {
+        $error = $policyError;
     } else {
         try {
             $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')");

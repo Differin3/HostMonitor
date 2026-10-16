@@ -157,6 +157,45 @@ if (!function_exists('log_auth_event')) {
     }
 }
 
+if (!function_exists('password_min_length')) {
+    /**
+     * Минимальная длина пароля из настроек панели (ключ min_password_length).
+     *
+     * Раньше значение сохранялось, но нигде не читалось — политика была
+     * декоративной. Клэмпим 6–32 на случай мусора в settings.
+     */
+    function password_min_length(): int
+    {
+        $n = function_exists('setting_get') ? (int)setting_get('min_password_length', '8') : 8;
+        if ($n < 6) {
+            $n = 6;
+        }
+        if ($n > 32) {
+            $n = 32;
+        }
+        return $n;
+    }
+}
+
+if (!function_exists('password_policy_error')) {
+    /**
+     * Проверяет пароль по политике панели. null — пароль принят, иначе
+     * готовый текст ошибки для формы/API.
+     */
+    function password_policy_error(string $password, int $minLength = 0): ?string
+    {
+        $min = $minLength > 0 ? $minLength : password_min_length();
+        $len = function_exists('mb_strlen') ? mb_strlen($password) : strlen($password);
+        if ($len < $min) {
+            return 'Пароль слишком короткий: минимум ' . $min . ' символов';
+        }
+        if ($len > 200) {
+            return 'Пароль слишком длинный: максимум 200 символов';
+        }
+        return null;
+    }
+}
+
 if (!function_exists('require_api_auth')) {
     /**
      * Единая точка аутентификации API.
@@ -1003,6 +1042,21 @@ if (!function_exists('session_revoke_all')) {
     {
         user_sessions_ensure_table($pdo);
         $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ?")->execute([$userId]);
+    }
+}
+
+if (!function_exists('session_revoke_current')) {
+    /**
+     * Удаляет запись текущей сессии из user_sessions. Нужен при обычном
+     * выходе: раньше logout() уничтожал PHP-сессию, но строка в реестре
+     * оставалась и висела в «Активных сессиях» как призрак до ручного
+     * отзыва. Вызывать пока session_id() ещё жив.
+     */
+    function session_revoke_current(PDO $pdo, int $userId): void
+    {
+        user_sessions_ensure_table($pdo);
+        $pdo->prepare("DELETE FROM user_sessions WHERE user_id = ? AND session_hash = ?")
+            ->execute([$userId, current_session_hash()]);
     }
 }
 

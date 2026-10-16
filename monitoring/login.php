@@ -53,6 +53,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($_SESSION['pending_2fa']) && isset($_POST['totp_code'])) {
         $pending = $_SESSION['pending_2fa'];
         $code = trim((string)($_POST['totp_code'] ?? ''));
+        $clientIp = client_ip() ?: '0.0.0.0';
+
+        // TTL окна 2FA: пароль введён, но код так и не пришёл — окно живёт
+        // ограниченное время. Раньше ts писался, но не читался, и брошенная
+        // после шага 1 сессия навсегда пускала к вводу кода без пароля.
+        $twofaTtl = 600; // 10 минут
+        if ((time() - (int)($pending['ts'] ?? 0)) > $twofaTtl) {
+            unset($_SESSION['pending_2fa']);
+            session_write_close();
+            header('Location: login.php?expired=1');
+            exit;
+        }
+
+        // Ограничение перебора кода: те же лимиты, что и на шаге пароля —
+        // 5 попыток за 15 минут по IP и по аккаунту.
+        $rlFile = __DIR__ . '/data/login_attempts.json';
+        $rlMax = 5;
+        $rlWindow = 900;
+        $attempts = [];
+        if (file_exists($rlFile)) {
+            $attempts = json_decode(file_get_contents($rlFile), true) ?: [];
+        }
+        $now = time();
+        $ipAttempts = array_filter($attempts[$clientIp] ?? [], fn($ts) => $ts > $now - $rlWindow);
+        $tooMany = count($ipAttempts) >= $rlMax;
+        if (!$tooMany) {
+            try {
+                $pdoRl = getDbConnection();
+                $failedQ = $pdoRl->prepare("SELECT COUNT(*) FROM login_attempts
+                    WHERE username = ? AND success = 0 AND created_at > (NOW() - INTERVAL ? SECOND)");
+                $failedQ->execute([(string)$pending['username'], $rlWindow]);
+                $tooMany = (int)$failedQ->fetchColumn() >= $rlMax;
+            } catch (Throwable $e) {
+                // таблицы нет — остаёмся на IP-лимите
+            }
+        }
+        if ($tooMany) {
+            $error = 'Слишком много неудачных попыток. Попробуйте через 15 минут.';
+        } else {
         try {
             $pdo = getDbConnection();
             users_ensure_totp_columns($pdo);
@@ -76,15 +115,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $token = trusted_device_issue($pdo, (int)$pending['id']);
                     setcookie('hm_trusted', $token, trusted_device_cookie_options(30));
                 }
+                // Успех — снимаем счётчики, как на шаге пароля.
+                unset($attempts[$clientIp]);
+                file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+                try {
+                    $del = $pdo->prepare("DELETE FROM login_attempts WHERE username = ?");
+                    $del->execute([(string)$pending['username']]);
+                } catch (Throwable $e) {
+                    // таблицы нет — не критично
+                }
                 log_auth_event($pdo, (int)$pending['id'], $pending['username'], 'login_2fa', true, $okRecovery ? 'Recovery code used' : '2FA verified');
                 session_write_close();
                 header('Location: index.php');
                 exit;
             }
             $error = 'Неверный код подтверждения';
+            $ipAttempts[] = $now;
+            $attempts[$clientIp] = $ipAttempts;
+            file_put_contents($rlFile, json_encode($attempts), LOCK_EX);
+            try {
+                $ins = $pdo->prepare("INSERT INTO login_attempts (username, ip_address, success, message) VALUES (?, ?, 0, 'invalid 2fa')");
+                $ins->execute([(string)$pending['username'], substr($clientIp, 0, 45)]);
+            } catch (Throwable $e) {
+                // таблицы нет — остаёмся на IP-лимите
+            }
             log_auth_event($pdo, (int)$pending['id'], $pending['username'], 'login_2fa', false, 'Invalid 2FA code');
         } catch (Exception $e) {
             $error = 'Ошибка подключения к базе данных';
+        }
         }
     } else {
         // ——— Шаг 1: логин + пароль ———

@@ -93,6 +93,13 @@ function settings_defaults(): array
         'upnp_mx' => '3',
         'upnp_timeout' => '8',
         'upnp_gena_port' => '0',
+        'lldp_passive' => 'true',
+        'lldp_active_poll_known' => 'true',
+        'lldp_listen_interface' => '',
+        'snmp_enabled' => 'true',
+        'snmp_community' => 'public',
+        'snmp_timeout' => '0.8',
+        'snmp_targets' => '',
         'notify_email_enabled' => '1',
         'notify_telegram_enabled' => '0',
         'notify_email' => '',
@@ -103,6 +110,8 @@ function settings_defaults(): array
         'smtp_from' => '',
         'telegram_bot_token' => '',
         'telegram_chat_id' => '',
+        'notify_webhook_enabled' => '0',
+        'notify_webhook_url' => '',
         'min_password_length' => '8',
         'session_timeout_minutes' => '60',
         'api_rate_limit' => '100',
@@ -272,8 +281,43 @@ function settings_normalize(string $key, $value): string
                 throw new InvalidArgumentException('UPNP_GENA_PORT: 0–65535');
             }
             return (string)$n;
+        case 'lldp_passive':
+        case 'lldp_active_poll_known':
+        case 'snmp_enabled':
+            return in_array(strtolower($raw), ['1', 'true', 'yes', 'on'], true) ? 'true' : 'false';
+        case 'lldp_listen_interface':
+            // Имя интерфейса: буквы/цифры/._:- (@vlan допускаем), пусто — авто.
+            if ($raw !== '' && !preg_match('/^[A-Za-z0-9._:@-]{1,32}$/', $raw)) {
+                throw new InvalidArgumentException('LLDP_LISTEN_INTERFACE: недопустимое имя интерфейса');
+            }
+            return $raw;
+        case 'snmp_community':
+            if ($raw === '') {
+                return 'public';
+            }
+            return substr($raw, 0, 64);
+        case 'snmp_timeout':
+            $n = (float)($raw === '' ? '0.8' : $raw);
+            if ($n < 0.1 || $n > 60) {
+                throw new InvalidArgumentException('SNMP_TIMEOUT: 0.1–60 секунд');
+            }
+            return rtrim(rtrim(sprintf('%.2f', $n), '0'), '.');
+        case 'snmp_targets':
+            // Список IPv4 через запятую (пробелы допускаем). Пусто — выключено.
+            $clean = trim($raw);
+            if ($clean === '') {
+                return '';
+            }
+            $parts = array_values(array_filter(array_map('trim', explode(',', $clean)), static fn($v) => $v !== ''));
+            foreach ($parts as $ip) {
+                if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                    throw new InvalidArgumentException('SNMP_TARGETS: «' . $ip . '» не похож на IP');
+                }
+            }
+            return implode(',', $parts);
         case 'notify_email_enabled':
         case 'notify_telegram_enabled':
+        case 'notify_webhook_enabled':
             return in_array(strtolower($raw), ['1', 'true', 'yes', 'on'], true) ? '1' : '0';
         case 'notify_email':
         case 'smtp_from':
@@ -281,6 +325,14 @@ function settings_normalize(string $key, $value): string
         case 'smtp_host':
         case 'smtp_user':
         case 'telegram_chat_id':
+            return $raw;
+        case 'notify_webhook_url':
+            if ($raw !== '' && !filter_var($raw, FILTER_VALIDATE_URL)) {
+                throw new InvalidArgumentException('Webhook URL: некорректный URL');
+            }
+            if ($raw !== '' && !preg_match('#^https?://#i', $raw)) {
+                throw new InvalidArgumentException('Webhook URL: допустимы только http/https');
+            }
             return $raw;
         case 'smtp_port':
             $n = (int)$raw;
