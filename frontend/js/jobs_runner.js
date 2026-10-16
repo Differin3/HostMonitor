@@ -229,6 +229,10 @@
     function toastFinished(job) {
         const title = job.title || job.kind;
         if (job.status === 'done') {
+            // Рутинная проверка обновлений агентов — фоновая операция,
+            // её успех не несёт новостей: «Готово: Проверка обновлений
+            // агентов» только шумит. Об ошибке проверки всё равно скажем.
+            if (job.kind === 'agent.check') return;
             const rows = Number(job.result && job.result.rows) || 0;
             const tables = Number(job.result && job.result.tables) || 0;
             const tail = tables ? ` · ${tables} табл., ${rows.toLocaleString('ru-RU')} строк` : '';
@@ -313,22 +317,39 @@
             renderList(data.recent);
             active = Array.isArray(data.active) && data.active.length > 0;
 
-            // Тост только один раз на задачу за вкладку, иначе каждое
-            // обновление опрашивало бы его заново.
-            const already = new Set(seenIds());
-            const fresh = (data.recent || []).filter(
-                (j) => ['done', 'failed', 'canceled'].includes(j.status) && !already.has(String(j.id))
+            // Тост показываем только по задачам, которые сервер ещё
+            // считает непрочитанными (data.unseen_ids). Раньше дедупликация
+            // держалась на sessionStorage, а он пуст в новой вкладке или
+            // после закрытия вкладки, поэтому завершённые задачи заново
+            // всплывали тостом на каждой загрузке. sessionStorage оставляем
+            // как быстрый барьер на случай, если ack ещё не дошёл.
+            //
+            // В скрытой вкладке тост всё равно никто не увидит, а задача
+            // станет прочитанной навсегда. Поэтому, пока вкладка не видна,
+            // не показываем тост и НЕ подтверждаем: непрочитанное дождётся
+            // возврата (visibilitychange дёрнет tick) и всплывёт тогда.
+            const visible = document.visibilityState !== 'hidden';
+            const unseenIds = new Set(
+                (Array.isArray(data.unseen_ids) ? data.unseen_ids : []).map(String)
             );
-            for (const job of fresh.slice(0, 3)) {
-                toastFinished(job);
-                rememberToast(job.id);
-            }
+            if (visible) {
+                const already = new Set(seenIds());
+                const fresh = (data.recent || []).filter(
+                    (j) => FINISHED.includes(j.status)
+                        && unseenIds.has(String(j.id))
+                        && !already.has(String(j.id))
+                );
+                for (const job of fresh.slice(0, 3)) {
+                    toastFinished(job);
+                    rememberToast(job.id);
+                }
 
-            const unreadIds = (data.recent || [])
-                .filter((j) => ['done', 'failed', 'canceled'].includes(j.status))
-                .filter((j) => !already.has(String(j.id)))
-                .map((j) => j.id);
-            markSeen(unreadIds);
+                // Отмечаем прочитанными ровно те задачи, что сервер отдал
+                // как непрочитанные: счётчик и тосты перестают расходиться.
+                if (unseenIds.size) {
+                    markSeen(Array.from(unseenIds));
+                }
+            }
 
             // Страницы, показывающие прогресс копирования, не опрашивают
             // сервер сами: получают готовое состояние отсюда.

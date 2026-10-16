@@ -427,6 +427,7 @@ async function main() {
         t.respond(() => ({
             body: Object.assign({}, BELL_BODY, {
                 unseen: 1,
+                unseen_ids: [1],
                 recent: [job({ status: 'done', result: { tables: 5, rows: 54271 } })],
             }),
         }));
@@ -440,11 +441,85 @@ async function main() {
         eq(t.toasts.length, 1, 'повторный опрос не дублирует тост');
     }
 
+    console.log('\n== Колокольчик: прочитанное не всплывает в новой вкладке ==');
+    {
+        // Задача завершилась раньше и уже отмечена прочитанной на сервере:
+        // приходит в recent, но unseen_ids пуст. В новой вкладке
+        // (sessionStorage очищен) тост всё равно не должен появиться —
+        // иначе он всплывал бы на каждой перезагрузке.
+        const t = boot();
+        t.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                unseen: 0,
+                unseen_ids: [],
+                recent: [job({ status: 'done', kind: 'db.sync', result: { tables: 5, rows: 1 } })],
+            }),
+        }));
+        await t.window.HostJobsBell.refresh();
+        eq(t.toasts.length, 0, 'прочитанная задача не даёт тоста');
+    }
+
+    console.log('\n== Колокольчик: скрытая вкладка не съедает тост ==');
+    {
+        // Задача завершилась, вкладка в фоне. Тост показать некому, но
+        // задача не должна стать прочитанной: иначе вернувшись к вкладке
+        // пользователь её уже не увидит. Проверяем, что ack не отправлен
+        // и тост не всплыл, а после возврата — всплывает.
+        const t = boot();
+        t.document.visibilityState = 'hidden';
+        t.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                unseen: 1,
+                unseen_ids: [42],
+                recent: [job({ id: 42, status: 'done', kind: 'db.sync', result: { tables: 5, rows: 1 } })],
+            }),
+        }));
+        await t.window.HostJobsBell.refresh();
+        eq(t.toasts.length, 0, 'в скрытой вкладке тоста нет');
+        const acked = t.fetchLog.filter((f) => /action=ack/.test(f.url)).length;
+        eq(acked, 0, 'в скрытой вкладке задача не помечается прочитанной');
+
+        t.document.visibilityState = 'visible';
+        await t.window.HostJobsBell.refresh();
+        eq(t.toasts.length, 1, 'при возврате тост появляется');
+        const acked2 = t.fetchLog.filter((f) => /action=ack/.test(f.url)).length;
+        eq(acked2, 1, 'при возврате задача отмечается прочитанной');
+    }
+
+
+    {
+        const t = boot();
+        t.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                unseen: 1,
+                unseen_ids: [11],
+                recent: [job({ id: 11, kind: 'agent.check', title: 'Проверка обновлений агентов', status: 'done' })],
+            }),
+        }));
+        await t.window.HostJobsBell.refresh();
+        eq(t.toasts.length, 0, 'успешная проверка обновлений агентов не показывает тост');
+
+        // Ошибка проверки — по-прежнему важна.
+        const t2 = boot();
+        t2.respond(() => ({
+            body: Object.assign({}, BELL_BODY, {
+                unseen: 1,
+                unseen_ids: [12],
+                recent: [job({ id: 12, kind: 'agent.check', title: 'Проверка обновлений агентов', status: 'failed', error: 'нет связи' })],
+            }),
+        }));
+        await t2.window.HostJobsBell.refresh();
+        eq(t2.toasts.length, 1, 'ошибка проверки агентов показывается');
+        check(t2.toasts[0].kind === 'error', 'тост помечен как ошибка', t2.toasts[0].kind);
+    }
+
     console.log('\n== Колокольчик: ошибка и отмена ==');
     {
         const t = boot();
         t.respond(() => ({
             body: Object.assign({}, BELL_BODY, {
+                unseen: 1,
+                unseen_ids: [5],
                 recent: [job({ id: 5, status: 'failed', error: 'нет связи с резервом' })],
             }),
         }));

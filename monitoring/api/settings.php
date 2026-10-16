@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/notify.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -30,7 +31,7 @@ try {
             echo json_encode(['key' => $key, 'value' => $public[$key] ?? null], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        echo json_encode(['ok' => true, 'settings' => $public], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => true, 'settings' => $public, 'notify' => notify_channels_status()], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -50,6 +51,26 @@ try {
         require_once __DIR__ . '/../includes/retention.php';
         $result = retention_run($pdo, true);
         echo json_encode(['ok' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (($data['action'] ?? '') === 'notify_test') {
+        // Сначала сохраняем переданные настройки, чтобы кнопка «Проверить»
+        // тестировала то, что видит пользователь, а не прошлую конфигурацию.
+        if (isset($data['settings']) && is_array($data['settings'])) {
+            settings_upsert($pdo, $data['settings']);
+        }
+        $channels = null;
+        if (isset($data['channels']) && is_array($data['channels']) && $data['channels'] !== []) {
+            $channels = array_values(array_map('strval', $data['channels']));
+        }
+        $results = notify_send_test($pdo, $channels);
+        echo json_encode([
+            'ok' => true,
+            'success' => true,
+            'results' => $results,
+            'notify' => notify_channels_status(),
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
