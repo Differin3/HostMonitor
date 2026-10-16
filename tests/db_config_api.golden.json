@@ -1,5 +1,10 @@
 {
     "declared": [
+        "app_log",
+        "app_log_debug",
+        "app_log_error",
+        "app_log_levels",
+        "app_log_warning",
         "db_active_role",
         "db_apply_schema",
         "db_assert_configured",
@@ -68,6 +73,44 @@
         "web_config_save"
     ],
     "signatures": {
+        "app_log": {
+            "params": [
+                "string $message",
+                "string $level = 'info'",
+                "array $context = array ()"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "app_log_debug": {
+            "params": [
+                "string $message",
+                "array $context = array ()"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "app_log_error": {
+            "params": [
+                "string $message",
+                "array $context = array ()"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
+        "app_log_levels": {
+            "params": [],
+            "return": "array",
+            "by_ref_return": false
+        },
+        "app_log_warning": {
+            "params": [
+                "string $message",
+                "array $context = array ()"
+            ],
+            "return": "void",
+            "by_ref_return": false
+        },
         "db_active_role": {
             "params": [],
             "return": "string",
@@ -506,6 +549,11 @@
         }
     },
     "calls": {
+        "app_log": [],
+        "app_log_debug": [],
+        "app_log_error": [],
+        "app_log_levels": [],
+        "app_log_warning": [],
         "db_active_role": [
             "db_config_load",
             "db_ha_state_load",
@@ -690,10 +738,6 @@
             "web_config_path"
         ]
     },
-    "polyfilled_at_runtime": [
-        "str_contains",
-        "str_ends_with",
-        "str_starts_with"
-    ],
-    "included_files": 1
+    "native_at_runtime": [],
+    "included_files": 11
 }
