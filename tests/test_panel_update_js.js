@@ -573,6 +573,36 @@ async function testConfirmShowsUpdateCommits() {
     check(html.includes('refresh db_config'), 'показано сообщение коммита', html.slice(0, 160));
 }
 
+/**
+ * Склонение «коммит/коммита/коммитов» должно учитывать 21, 22, 11.
+ */
+async function testCommitPluralization() {
+    console.log('\npanel_update.js: склонение числа коммитов');
+    const feed = (n) => harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+            commits: Array.from({ length: n }, (_, i) => (
+                { hash: 'abcdef' + i, message: 'commit #' + i }
+            )),
+        },
+    });
+    const dialogHtml = async (n) => {
+        const h = feed(n);
+        await tick();
+        await h.els.panelUpdateApplyBtn._h.click();
+        await tick();
+        const dlg = h.byId('panel-update-confirm-modal');
+        return dlg ? dlg.innerHTML : '';
+    };
+    check((await dialogHtml(1)).includes('1 коммит'), '1 — коммит');
+    check((await dialogHtml(2)).includes('2 коммита'), '2 — коммита');
+    check((await dialogHtml(15)).includes('15 коммитов'), '15 — коммитов');
+    check((await dialogHtml(21)).includes('21 коммит'), '21 — коммит (не «коммитов»)');
+    check((await dialogHtml(22)).includes('22 коммита'), '22 — коммита');
+    check((await dialogHtml(11)).includes('11 коммитов'), '11 — коммитов');
+}
+
 (async () => {
     await testLoadsWithoutReferenceError();
     await testPopulateBranchSelect();
@@ -591,6 +621,7 @@ async function testConfirmShowsUpdateCommits() {
     await testApplyRefreshesVersionBadge();
     await testApplyClickDoesNotForceReset();
     await testConfirmShowsUpdateCommits();
+    await testCommitPluralization();
 
     console.log(`\nИтог: passed=${passed} failed=${failed}`);
     process.exit(failed > 0 ? 1 : 0);
