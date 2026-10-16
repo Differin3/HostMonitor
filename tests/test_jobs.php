@@ -165,6 +165,26 @@ check(
     strpos($worker, 'jobs_claim') !== false && strpos($worker, '$currentJobId') !== false,
     'воркер продолжает свою задачу, а не забирает её заново'
 );
+// Сбой задачи должен уходить в уведомления, а не ждать, пока кто-то
+// откроет панель. Проверяем связку воркер → notify_job_failed.
+check(
+    strpos($worker, 'notify_job_failed($pdo, $jobId, $kind') !== false,
+    'падение задачи ставит уведомление в outbox'
+);
+
+echo "\n== Уведомление о сбое задачи ==\n";
+require_once $root . '/monitoring/includes/log_helpers.php';
+require_once $root . '/monitoring/includes/notify.php';
+$msg = notify_job_failure_message(7, 'agent.update', 'агент сообщил об ошибке без подробностей');
+check(is_array($msg) && isset($msg['subject'], $msg['body']), 'сообщение о сбое собирается');
+check(strpos($msg['subject'], 'Обновление агентов') !== false, 'в теме вид задачи человекочитаем');
+check(strpos($msg['subject'], '#7') === false, 'в теме нет лишнего id');
+check(strpos($msg['body'], '#7') !== false, 'в теле есть id задачи');
+check(strpos($msg['body'], 'агент сообщил об ошибке') !== false, 'в теле есть текст ошибки');
+$msg2 = notify_job_failure_message(3, 'db.sync', '');
+check(strpos($msg2['body'], 'подробности не сообщены') !== false, 'пустая ошибка заменяется понятной фразой');
+check(notify_job_failure_message(1, 'unknown.kind', 'x')['subject'] !== '', 'неизвестный вид не роняет сборку');
+check(function_exists('notify_job_failed'), 'есть функция постановки уведомления о сбое');
 
 echo "\n== Дедлайн ожидания нод ==\n";
 // Регрессия: локальная $deadline оставалась 0, когда воркер выставлял дедлайн

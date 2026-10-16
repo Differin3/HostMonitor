@@ -23,6 +23,7 @@ require_once __DIR__ . '/../monitoring/includes/database.php';
 require_once __DIR__ . '/../monitoring/includes/jobs.php';
 require_once __DIR__ . '/../monitoring/includes/db/ha.php';
 require_once __DIR__ . '/../monitoring/includes/db/replication.php';
+require_once __DIR__ . '/../monitoring/includes/notify.php';
 
 // Порция строк за шаг. Совпадает с тем, что раньше делал браузер:
 // достаточно мало, чтобы не залипнуть на медленном резерве и при этом
@@ -395,7 +396,14 @@ function jobs_handler(string $kind, array &$state, PDO $queue, int $jobId): stri
                   $done++;
                   if (count($errors) < 4) {
                       $msg = (string)($r['last_message'] ?? '');
-                      $errors[] = $label . ': ' . jobs_str_cut($msg !== '' ? $msg : 'ошибка', 120);
+                      if ($msg === '') {
+                          // Агент не прислал текст — не показываем
+                          // бесполезное «Proxmox: ошибка», говорим как есть.
+                          $msg = $mode === 'agent'
+                              ? 'агент сообщил об ошибке без подробностей'
+                              : 'команда завершилась ошибкой без подробностей';
+                      }
+                      $errors[] = $label . ': ' . jobs_str_cut($msg, 120);
                   }
                   continue;
               }
@@ -709,6 +717,11 @@ fwrite(STDOUT, "[jobs] воркер запущен, pid " . getmypid() . "\n");
 
         if (time() - $lastPrune >= JOB_PRUNE_EVERY) {
             jobs_prune($pdo);
+            try {
+                notify_prune_outbox($pdo, 30);
+            } catch (Throwable $e) {
+                error_log('[jobs] notify prune: ' . $e->getMessage());
+            }
             $lastPrune = time();
         }
 
@@ -718,6 +731,15 @@ fwrite(STDOUT, "[jobs] воркер запущен, pid " . getmypid() . "\n");
         if ($currentJobId === 0) {
             $claimed = jobs_claim($pdo);
             if ($claimed === null) {
+                // Очередь пуста — самое время разослать уведомления из
+                // notification_outbox. Делаем это только на простое, чтобы
+                // блокирующие SMTP/HTTP-запросы не тормозили тяжёлые задачи
+                // (копирование БД и т.п.).
+                try {
+                    notify_process_outbox($pdo, 20);
+                } catch (Throwable $e) {
+                    error_log('[jobs] notify: ' . $e->getMessage());
+                }
                 sleep(JOB_IDLE_SLEEP);
                 continue;
             }
@@ -756,6 +778,13 @@ fwrite(STDOUT, "[jobs] воркер запущен, pid " . getmypid() . "\n");
         } catch (Throwable $e) {
             error_log('[jobs] задача #' . $jobId . ' (' . $kind . '): ' . $e->getMessage());
             jobs_finish($pdo, $jobId, 'failed', [], $e->getMessage());
+            // Уведомляем о сбое: раньше о падении задачи можно было узнать,
+            // только открыв панель. Если каналы не настроены — no-op.
+            try {
+                notify_job_failed($pdo, $jobId, $kind, $e->getMessage());
+            } catch (Throwable $ne) {
+                error_log('[jobs] notify failed: ' . $ne->getMessage());
+            }
             fwrite(STDOUT, '[jobs] задача #' . $jobId . ' упала: ' . $e->getMessage() . "\n");
             // После обрыва соединения следующий шаг должен взять новое.
             $pdo = null;
