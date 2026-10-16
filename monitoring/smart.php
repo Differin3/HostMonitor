@@ -1,7 +1,28 @@
 <?php
 require_once __DIR__ . '/includes/layout.php';
 
-render_layout_start('SMART Мониторинг', 'smart');
+render_layout_start('SMART Мониторинг', 'smart', '
+    <div class="hm-drop">
+        <button class="primary" type="button" id="smartExportBtn" data-drop="smartExportMenu" aria-haspopup="true">
+            <i data-lucide="download"></i> Экспорт <i data-lucide="chevron-down"></i>
+        </button>
+        <div class="hm-menu hidden" id="smartExportMenu">
+            <button type="button" class="hm-menu-item" onclick="smartExport(\'drives-csv\')">
+                <i data-lucide="table"></i><span>Список дисков (CSV)</span>
+            </button>
+            <button type="button" class="hm-menu-item" onclick="smartExport(\'drives-json\')">
+                <i data-lucide="braces"></i><span>Диски и атрибуты (JSON)</span>
+            </button>
+            <div class="hm-menu-sep"></div>
+            <button type="button" class="hm-menu-item" id="smartExportAttrsBtn" onclick="smartExport(\'attrs-csv\')" disabled>
+                <i data-lucide="list-tree"></i><span>Атрибуты диска (CSV)</span>
+            </button>
+            <button type="button" class="hm-menu-item" id="smartExportHistoryBtn" onclick="smartExport(\'history-csv\')" disabled>
+                <i data-lucide="history"></i><span>История диска (CSV)</span>
+            </button>
+        </div>
+    </div>
+');
 ?>
     <div class="compact-filters">
         <select id="nodeFilter" class="compact-select">
@@ -91,11 +112,19 @@ render_layout_start('SMART Мониторинг', 'smart');
         <div id="drive-detail" style="display: none;">
             <div class="smart-detail-header">
                 <h3 id="detail-title">Детали диска</h3>
-                <div class="dash-ranges" id="smart-ranges" role="tablist" aria-label="Диапазон графиков">
-                    <button type="button" data-range="1h">1 час</button>
-                    <button type="button" data-range="24h">сутки</button>
-                    <button type="button" data-range="7d" class="active">7 дней</button>
-                    <button type="button" data-range="30d">30 дней</button>
+                <div class="smart-detail-tools">
+                    <div class="dash-ranges" id="smart-ranges" role="tablist" aria-label="Диапазон графиков">
+                        <button type="button" data-range="1h">1 час</button>
+                        <button type="button" data-range="24h">сутки</button>
+                        <button type="button" data-range="7d" class="active">7 дней</button>
+                        <button type="button" data-range="30d">30 дней</button>
+                    </div>
+                    <button type="button" class="icon-btn" id="drive-export-attrs" title="Экспорт атрибутов (CSV)" aria-label="Экспорт атрибутов (CSV)">
+                        <i data-lucide="list-tree"></i>
+                    </button>
+                    <button type="button" class="icon-btn" id="drive-export-history" title="Экспорт истории (CSV)" aria-label="Экспорт истории (CSV)">
+                        <i data-lucide="history"></i>
+                    </button>
                 </div>
             </div>
 

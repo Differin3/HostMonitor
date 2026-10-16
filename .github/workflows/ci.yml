@@ -93,6 +93,12 @@ jobs:
         # для старых агентов и бэкфилл logs.
         run: php tests/test_log_source.php
 
+      - name: Тесты настроек панели
+        # Регрессия: settings.js отправлял lldp_*/snmp_*-ключи, которых не
+        # было в settings_defaults(), и сохранение всегда падало с 400.
+        # Сверяет ключи UI и defaults, нормализацию и политику пароля.
+        run: php tests/test_settings.php
+
       - name: Слепок API db_config
         # Сверяет набор функций, сигнатуры и граф вызовов с эталоном. Требует
         # только чтения исходников, подключения к БД не нужно.
@@ -125,6 +131,10 @@ jobs:
         # Отдельный файл: страница обновления тянет fetch/DOM и не относится
         # к общему модулю экранирования.
         run: node tests/test_panel_update_js.js
+
+      - name: Тесты выгрузки данных SMART
+        # Проверяет генерацию CSV/JSON на frontend/js/smart.js.
+        run: node tests/test_smart_export_js.js
 
       - name: Тесты разбора результата сохранения БД
         # dbHaSaveProblems() из settings.js. Регрессия: сохранение показывало
