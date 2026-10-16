@@ -98,7 +98,10 @@ classList: {
           panelUpdateApplyBtn: makeElement('panelUpdateApplyBtn'),
           panelUpdateBranch: makeElement('panelUpdateBranch'),
           panelUpdateActions: makeElement('panelUpdateActions'),
+          panelUpdateVersion: makeElement('panelUpdateVersion'),
       };
+      // В реальной разметке бейдж скрыт, пока не пришёл ответ проверки.
+      els.panelUpdateVersion.classList.add('hidden');
       // Первоначально в разметке лежит единственный пустой пункт.
       els.panelUpdateBranch.appendChild({ value: '', textContent: '— ветка не выбрана —' });
 
@@ -315,7 +318,7 @@ async function testUpdateReportShowsInsteadOfSilentReload() {
 
     check(modal.innerHTML.includes('Панель обновлена'), 'в окне есть заголовок результата');
     check(modal.innerHTML.includes('main'), 'в окне указана ветка');
-    check(modal.innerHTML.includes('1a2b3c4d'), 'в окне указан сокращённый коммит');
+    check(modal.innerHTML.includes('1a2b3c4'), 'в окне указан сокращённый коммит');
     check(!modal.innerHTML.includes('1a2b3c4d5e6f7890abcdef1234567890abcdef12'),
         'коммит показан коротко, а не целиком');
     check(modal.innerHTML.includes('перезапустится'), 'окно объясняет, что воркер перезапустится');
@@ -353,8 +356,7 @@ async function testUpdateReportButtons() {
 /**
  * «Уже актуально» — обновления не было, отчёт был бы враньём.
  */
-async function testAlreadyUpToDateStaysToast() {
-    console.log('\npanel_update.js: «уже актуально» остаётся тостом');
+async function testAlreadyUpToDateStaysToast() {    console.log('\npanel_update.js: «уже актуально» остаётся тостом');
     const h = harness({
         checkResponse: {
             available: true, branch: 'main', selected_branch: 'main',
@@ -428,6 +430,77 @@ async function testMissingWorkerExplainsFix() {
     check(modal.innerHTML.includes('Воркер не запущен'), 'окно явно говорит, что воркер не запущен');
 }
 
+  /**
+   * Бейдж версии панели.
+   *
+   * «Панель актуальна» раньше приходилось принимать на веру: коммит нигде не
+   * отображался. Теперь установленная версия видна рядом с кнопкой обновления
+   * и упоминается в тосте.
+   */
+  async function testVersionBadgeShowsInstalledCommit() {
+      console.log('\npanel_update.js: бейдж версии панели');
+      const h = harness({
+          checkResponse: {
+              available: false, error: null, branch: 'main', selected_branch: 'main',
+              current_commit: 'a6a2d3b57f34501e574642569a0fe3aaef000ae8',
+              branches: [{ name: 'main' }],
+          },
+      });
+      await tick();
+      const el = h.els.panelUpdateVersion;
+      eq(el.textContent, 'main@a6a2d3b', 'бейдж показывает канал и сокращённый коммит');
+      check(!el.classList.contains('hidden'), 'бейдж показан после получения версии');
+      check(el.title.includes('a6a2d3b57f34501e574642569a0fe3aaef000ae8'),
+          'в title — полный коммит');
+  }
+
+  async function testVersionBadgeHiddenWithoutCommit() {
+      console.log('\npanel_update.js: без коммита бейдж скрыт');
+      const h = harness({
+          checkResponse: {
+              available: false, error: null, branch: 'main', selected_branch: 'main',
+              branches: [{ name: 'main' }],
+          },
+      });
+      await tick();
+      check(h.els.panelUpdateVersion.classList.contains('hidden'),
+          'бейдж остаётся скрытым, если версия неизвестна');
+  }
+
+  async function testActualToastIncludesVersion() {
+      console.log('\npanel_update.js: тост «актуальна» содержит версию');
+      const h = harness({
+          checkResponse: {
+              available: false, error: null, branch: 'main', selected_branch: 'main',
+              current_commit: 'a6a2d3b57f34501e574642569a0fe3aaef000ae8',
+              branches: [{ name: 'main' }],
+          },
+      });
+      await tick();
+      await h.els.panelUpdateCheckBtn._h.click();
+      await tick();
+      const t = h.toasts.find((x) => (x.msg || '').includes('актуальна'));
+      check(!!t, 'показан тост об актуальности');
+      if (t) eq(t.msg, 'Панель актуальна (main@a6a2d3b)', 'в тосте указана установленная версия');
+  }
+
+  async function testApplyRefreshesVersionBadge() {
+      console.log('\npanel_update.js: после pull бейдж обновляется');
+      const h = harness({
+          checkResponse: {
+              available: true, branch: 'main', selected_branch: 'main',
+              current_commit: '1111111111111111111111111111111111111111',
+              branches: [{ name: 'main' }],
+          },
+          applyResponse: applyOk({ state: 'ok', alive: true, up_to_date: true, text: 'Воркер работает на новом коде.' }),
+      });
+      await tick();
+      await h.els.panelUpdateApplyBtn._h.click();
+      await tick();
+      await tick();
+      eq(h.els.panelUpdateVersion.textContent, 'main@1a2b3c4', 'после обновления показан новый коммит');
+  }
+
   (async () => {
       await testLoadsWithoutReferenceError();
       await testPopulateBranchSelect();
@@ -440,6 +513,10 @@ async function testMissingWorkerExplainsFix() {
       await testAlreadyUpToDateStaysToast();
       await testReportEscapesServerText();
       await testMissingWorkerExplainsFix();
+      await testVersionBadgeShowsInstalledCommit();
+      await testVersionBadgeHiddenWithoutCommit();
+      await testActualToastIncludesVersion();
+      await testApplyRefreshesVersionBadge();
 
       console.log(`\nИтог: passed=${passed} failed=${failed}`);
       process.exit(failed > 0 ? 1 : 0);

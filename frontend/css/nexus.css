@@ -973,6 +973,24 @@ body.light .table-container thead th {
     outline-offset: 1px;
 }
 
+/* Установленная версия панели рядом с кнопкой обновления. Компактно: канал
+ * (ветка) уже показан select'ом, поэтому здесь только шортен коммита с полной
+ * строкой в title. */
+.panel-update-version {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+}
+
 
 .panel-update-check.panel-update-pending {
     color: #fbbf24;

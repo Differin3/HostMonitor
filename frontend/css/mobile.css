@@ -97,6 +97,11 @@ body.hm-nav-locked {
         gap: 4px;
     }
 
+    /* Версия панели — справочная, на узком экране уступает место. */
+    .panel-update-version {
+        display: none;
+    }
+
     /* ——— Гамбургер ——— */
     .hm-mobile-nav {
         display: grid;
