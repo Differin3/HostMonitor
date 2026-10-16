@@ -46,17 +46,24 @@ render_layout_start('Профиль', 'profile');
                         </div>
                     </div>
                     <div class="form-field">
+                        <label class="form-label">Текущий пароль</label>
+                        <div class="input-with-icon">
+                            <i data-lucide="lock" class="input-icon"></i>
+                            <input type="password" id="current-password" placeholder="Текущий пароль" autocomplete="current-password">
+                        </div>
+                    </div>
+                    <div class="form-field">
                         <label class="form-label">Новый пароль</label>
                         <div class="input-with-icon">
                             <i data-lucide="lock" class="input-icon"></i>
-                            <input type="password" id="new-password" placeholder="Новый пароль">
+                            <input type="password" id="new-password" placeholder="Новый пароль" autocomplete="new-password">
                         </div>
                     </div>
                     <div class="form-field">
                         <label class="form-label">Подтверждение пароля</label>
                         <div class="input-with-icon">
                             <i data-lucide="lock" class="input-icon"></i>
-                            <input type="password" id="confirm-password" placeholder="Повторите пароль">
+                            <input type="password" id="confirm-password" placeholder="Повторите пароль" autocomplete="new-password">
                         </div>
                     </div>
                 </div>

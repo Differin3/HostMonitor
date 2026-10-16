@@ -1,4 +1,5 @@
 // Управление профилем
+const PROFILE_API = (window.MONITORING_API_BASE || '/api') + '/profile.php';
 document.addEventListener('DOMContentLoaded', () => {
     // Загрузка сохранённых настроек
     loadSavedSettings();
@@ -41,23 +42,54 @@ function loadSavedSettings() {
 }
 
 window.saveProfile = saveProfile;
-function saveProfile() {
-    const newPassword = document.getElementById('new-password').value;
-    const confirmPassword = document.getElementById('confirm-password').value;
-    
-    // Проверяем пароли только если хотя бы один указан
+async function saveProfile() {
+    const currentPassword = document.getElementById('current-password')?.value ?? '';
+    const newPassword = document.getElementById('new-password')?.value ?? '';
+    const confirmPassword = document.getElementById('confirm-password')?.value ?? '';
+
+    // Пароль меняем только если заполнено новое поле.
+    let passwordAttempted = false;
     if (newPassword || confirmPassword) {
+        passwordAttempted = true;
         if (!newPassword || !confirmPassword) {
-            showToast('Заполните оба поля пароля', 'warning'); // единый стиль уведомлений
+            showToast('Заполните оба поля нового пароля', 'warning');
             return;
         }
         if (newPassword !== confirmPassword) {
-            showToast('Пароли не совпадают', 'error'); // ошибка пароля
+            showToast('Пароли не совпадают', 'error');
+            return;
+        }
+        if (!currentPassword) {
+            showToast('Укажите текущий пароль', 'warning');
+            return;
+        }
+        try {
+            const res = await fetch(PROFILE_API + '?action=password', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_password: currentPassword,
+                    new_password: newPassword,
+                    new_password2: confirmPassword,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                showToast(data.error || 'Не удалось сменить пароль', 'error');
+                return;
+            }
+            document.getElementById('current-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+            showToast('Пароль изменён. Другие сессии завершены', 'success');
+        } catch (e) {
+            showToast(e.message || 'Ошибка смены пароля', 'error');
             return;
         }
     }
-    
-    // Сохранение всех настроек
+
+    // Прочие настройки профиля — локальные предпочтения браузера.
     const settings = {
         'notify-email': document.getElementById('notify-email')?.checked ?? false,
         'notify-nodes': document.getElementById('notify-nodes')?.checked ?? false,
@@ -66,23 +98,21 @@ function saveProfile() {
         'auto-refresh': document.getElementById('auto-refresh')?.checked ?? false,
         'refresh-interval': document.getElementById('refresh-interval')?.value ?? '30'
     };
-    
+
     Object.keys(settings).forEach(key => {
         localStorage.setItem(key, settings[key]);
     });
-    
-    const theme = document.getElementById('theme-select')?.value ?? 'light';
+
+    const theme = document.getElementById('theme-select')?.value ?? 'dark';
     localStorage.setItem('theme', theme);
-    
-    // Применение темы
-    if (theme === 'dark') {
-        document.body.classList.add('dark');
-    } else if (theme === 'light') {
-        document.body.classList.remove('dark');
+    // Тема панели: тёмная по умолчанию, класс body.light включает светлую
+    // (см. applyTheme в layout.php). Раньше здесь добавляли body.dark,
+    // которого нет в CSS, — переключение не срабатывало до перезагрузки.
+    document.body.classList.toggle('light', theme === 'light');
+
+    if (!passwordAttempted) {
+        showToast('Профиль сохранён', 'success');
     }
-    
-    // TODO: API call для сохранения профиля
-    showToast('Профиль сохранён', 'success'); // успешное сохранение
 }
 
 const showToast = (message, type = 'info') => {
