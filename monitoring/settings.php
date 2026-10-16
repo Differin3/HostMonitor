@@ -259,6 +259,17 @@ render_layout_start('Настройки', 'settings');
                         <label for="telegram_chat_id">Chat ID</label>
                         <input type="text" id="telegram_chat_id" placeholder="-100…" autocomplete="off">
                     </div>
+                    <div class="form-field">
+                        <label>
+                            <input type="checkbox" id="notify_webhook_enabled">
+                            Webhook уведомления
+                        </label>
+                    </div>
+                    <div class="form-field">
+                        <label for="notify_webhook_url">URL вебхука</label>
+                        <input type="url" id="notify_webhook_url" placeholder="https://example.com/hooks/hostmonitor" autocomplete="off">
+                        <small>POST с JSON <code>{source, subject, body, text, timestamp}</code>. Совместимо со Slack/Discord-style хуками.</small>
+                    </div>
                 </div>
             </div>
 
