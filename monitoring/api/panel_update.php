@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/panel_update.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -25,7 +26,11 @@ try {
     if ($method === 'GET' && $action === 'check') {
         $fetch = !isset($_GET['local']) || $_GET['local'] !== '1';
         $branch = trim((string)($_GET['branch'] ?? ''));
-        echo json_encode(panel_update_check($fetch, $branch));
+        $result = panel_update_check($fetch, $branch);
+        $root = (string)($result['repo_root'] ?? '');
+        $result['tags'] = $root !== '' ? panel_git_tag_list($root) : [];
+        $result['changelog'] = $root !== '' ? panel_changelog_text($root) : '';
+        echo json_encode($result);
         exit;
     }
     if ($method === 'POST' && $action === 'apply') {
@@ -55,9 +60,7 @@ try {
         if ($branch !== '' && !in_array($branch, panel_git_branch_list(panel_repo_root()), true)) {
             json_error('Бранч ' . $branch . ' недоступен', 400);
         }
-        $cfg = panel_config_load();
-        $cfg['update_branch'] = $branch;
-        panel_config_save($cfg);
+        settings_upsert(getDbConnection(), ['update_branch' => $branch]);
         echo json_encode(['success' => true, 'selected_branch' => $branch]);
         exit;
     }

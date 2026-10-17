@@ -92,7 +92,7 @@ classList: {
    * Готовит песочницу: элементы, fetch и журнал вызовов.
    * checkResponse — ответ на action=check, applyResponse — на action=apply.
    */
-  function harness({ checkResponse, applyResponse }) {
+  function harness({ checkResponse, applyResponse, withTab }) {
       const els = {
           panelUpdateCheckBtn: makeElement('panelUpdateCheckBtn'),
           panelUpdateApplyBtn: makeElement('panelUpdateApplyBtn'),
@@ -104,6 +104,19 @@ classList: {
       els.panelUpdateVersion.classList.add('hidden');
       // Первоначально в разметке лежит единственный пустой пункт.
       els.panelUpdateBranch.appendChild({ value: '', textContent: '— ветка не выбрана —' });
+
+      // Вкладка «Обновление панели» есть только на странице настроек. Когда она
+      // нужна тесту, добавляем её элементы; на остальных страницах их нет, и
+      // renderTab() тихо ничего не делает.
+      if (withTab) {
+          els.panelUpdateTabCheckBtn = makeElement('panelUpdateTabCheckBtn');
+          els.panelUpdateTabApplyBtn = makeElement('panelUpdateTabApplyBtn');
+          els.panelUpdateTabVersion = makeElement('panelUpdateTabVersion');
+          els.panelUpdateTabStatus = makeElement('panelUpdateTabStatus');
+          els.panelUpdateTabCommits = makeElement('panelUpdateTabCommits');
+          els.panelUpdateTabReleases = makeElement('panelUpdateTabReleases');
+          els.panelUpdateTabChangelog = makeElement('panelUpdateTabChangelog');
+      }
 
       const toasts = [];
       const confirms = [];
@@ -603,6 +616,50 @@ async function testCommitPluralization() {
     check((await dialogHtml(11)).includes('11 коммитов'), '11 — коммитов');
 }
 
+async function testTabRendersVersionCommitsReleases() {
+    console.log('\npanel_update.js: вкладка «Обновление панели»');
+    const h = harness({
+        withTab: true,
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            current_commit: 'abcdef1234567890abcdef1234567890abcdef12',
+            branches: [{ name: 'main' }],
+            commits: [{ hash: '1234567abcdef', message: 'fix: тест' }],
+            tags: ['v1.2.3', 'v1.2.2'],
+            changelog: '## 1.2.3\n- что-то',
+        },
+    });
+    await tick();
+    check(h.els.panelUpdateTabVersion.textContent.includes('main@abcdef1'),
+        'вкладка: версия = канал@коммит', h.els.panelUpdateTabVersion.textContent);
+    check(h.els.panelUpdateTabStatus.textContent.includes('Доступно обновление'),
+        'вкладка: статус «доступно обновление»', h.els.panelUpdateTabStatus.textContent);
+    check(h.els.panelUpdateTabCommits.innerHTML.includes('fix: тест'),
+        'вкладка: список коммитов заполнен');
+    check(h.els.panelUpdateTabReleases.innerHTML.includes('v1.2.3'),
+        'вкладка: релизы (git-теги) показаны');
+    check(h.els.panelUpdateTabChangelog.textContent.includes('1.2.3'),
+        'вкладка: журнал изменений показан');
+}
+
+async function testTabShowsChannelError() {
+    console.log('\npanel_update.js: вкладка показывает ошибку канала');
+    const h = harness({
+        withTab: true,
+        checkResponse: {
+            available: false, error: 'Ветка нет-такой не найдена на origin.\n\nподробности',
+            branch: 'main', selected_branch: '',
+            branches: [{ name: 'main' }],
+        },
+    });
+    await tick();
+    const st = h.els.panelUpdateTabStatus;
+    check(st.textContent === 'Ветка нет-такой не найдена на origin.',
+        'вкладка: выведен только первый абзац ошибки', st.textContent);
+    check(st.classList.contains('panel-update-status-error'),
+        'вкладка: статус помечен как ошибка');
+}
+
 (async () => {
     await testLoadsWithoutReferenceError();
     await testPopulateBranchSelect();
@@ -622,6 +679,8 @@ async function testCommitPluralization() {
     await testApplyClickDoesNotForceReset();
     await testConfirmShowsUpdateCommits();
     await testCommitPluralization();
+    await testTabRendersVersionCommitsReleases();
+    await testTabShowsChannelError();
 
     console.log(`\nИтог: passed=${passed} failed=${failed}`);
     process.exit(failed > 0 ? 1 : 0);

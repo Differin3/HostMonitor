@@ -399,6 +399,55 @@ function panel_git_branch_list(string $root): array
     return $names;
 }
 
+/**
+ * Список релизных тегов (страница «Обновление панели»). Свежие — первыми.
+ * Сортировка по дате создания ref (creatordate), fallback — ls-remote.
+ */
+function panel_git_tag_list(string $root): array
+{
+    $tags = [];
+    $r = panel_git($root, 'for-each-ref --sort=-creatordate --format=%(refname:short) refs/tags', 10);
+    if ($r['ok'] && $r['output'] !== '') {
+        foreach (preg_split('/\r?\n/', $r['output']) ?: [] as $line) {
+            $line = trim($line);
+            if ($line !== '' && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$#', $line)) {
+                $tags[] = $line;
+            }
+        }
+    }
+    if ($tags === []) {
+        $lr = panel_git($root, 'ls-remote --tags origin', 15);
+        if ($lr['ok'] && $lr['output'] !== '') {
+            foreach (preg_split('/\r?\n/', $lr['output']) ?: [] as $line) {
+                if (preg_match('#refs/tags/(.+)$#', trim($line), $m)) {
+                    $name = preg_replace('/\^\{\}$/', '', $m[1]);
+                    if ($name !== '' && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$#', $name)) {
+                        $tags[] = $name;
+                    }
+                }
+            }
+        }
+    }
+    return array_values(array_unique($tags));
+}
+
+/**
+ * Содержимое CHANGELOG.md из репозитория панели (с обрезкой по размеру).
+ * Возвращает '' если файла нет.
+ */
+function panel_changelog_text(string $root, int $maxBytes = 20000): string
+{
+    $path = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'CHANGELOG.md';
+    if (!is_file($path) || !is_readable($path)) {
+        return '';
+    }
+    $text = (string)file_get_contents($path);
+    if ($maxBytes > 0 && strlen($text) > $maxBytes) {
+        $text = substr($text, 0, $maxBytes);
+    }
+    return $text;
+}
+
 function panel_git_remote_url(string $root): string
 {
     $r = panel_git($root, 'remote get-url origin', 10);
@@ -496,10 +545,41 @@ function panel_branch_guard(?string $branch, $root): string
 }
 
 /**
+ * Сохранённый канал обновления панели (ветка origin).
+ *
+ * Раньше выбор жил в data/panel.local.php (ключ update_branch). Теперь он
+ * хранится в таблице settings — там же, где остальные настройки панели, и
+ * переживает переустановку/перенос. При первом чтении, если в БД пусто,
+ * переносим значение из старого файла (однократная миграция).
+ */
+function panel_update_saved_branch(): string
+{
+    require_once __DIR__ . '/database.php';
+
+    $saved = trim(setting_get('update_branch', ''));
+    if ($saved !== '') {
+        return $saved;
+    }
+
+    $legacy = trim((string)(panel_config_load()['update_branch'] ?? ''));
+    if ($legacy === '') {
+        return '';
+    }
+    try {
+        settings_upsert(getDbConnection(), ['update_branch' => $legacy]);
+    } catch (Throwable $e) {
+        // БД недоступна/значение не прошло валидацию — работаем по файлу,
+        // миграцию повторим при следующем открытии.
+        app_log_error('panel_update: не удалось перенести update_branch в БД: ' . $e->getMessage());
+    }
+    return $legacy;
+}
+
+/**
  * Определяет ветку, относительно которой считаем обновления.
  *
- * Порядок: явно запрошенная ветка → сохранённый в конфиге update_branch →
- * текущая ветка рабочей копии. Раньше update_branch только записывался и
+ * Порядок: явно запрошенная ветка → сохранённая в настройках (settings.update_branch,
+ * ранее — panel.local.php) → текущая ветка рабочей копии. Раньше update_branch только записывался и
  * нигде не читался, поэтому после перезагрузки страницы выбор терялся, а
  * check всегда считал обновления для текущей ветки.
  *
@@ -518,8 +598,7 @@ function panel_update_resolve_branch(string $requested, $root): array
         return ['branch' => $requested, 'warning' => ''];
     }
 
-    $cfg = panel_config_load();
-    $saved = trim((string)($cfg['update_branch'] ?? ''));
+    $saved = panel_update_saved_branch();
     if ($saved === '') {
         return ['branch' => '', 'warning' => ''];
     }

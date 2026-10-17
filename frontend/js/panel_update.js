@@ -15,6 +15,14 @@
     const branchSel = () => document.getElementById('panelUpdateBranch');
     const actions = () => document.getElementById('panelUpdateActions');
     const versionEl = () => document.getElementById('panelUpdateVersion');
+    // Элементы вкладки «Обновление панели» (Настройки). Есть только на settings.php.
+    const tabCheckBtn = () => document.getElementById('panelUpdateTabCheckBtn');
+    const tabApplyBtn = () => document.getElementById('panelUpdateTabApplyBtn');
+    const tabVersion = () => document.getElementById('panelUpdateTabVersion');
+    const tabStatus = () => document.getElementById('panelUpdateTabStatus');
+    const tabCommits = () => document.getElementById('panelUpdateTabCommits');
+    const tabReleases = () => document.getElementById('panelUpdateTabReleases');
+    const tabChangelog = () => document.getElementById('panelUpdateTabChangelog');
 
     /** Короткий git-хэш (7 символов — как rev-parse --short по умолчанию). */
     const shortCommit = (commit) => String(commit || '').trim().slice(0, 7);
@@ -100,6 +108,70 @@
     const selectedBranch = () => {
         const sel = branchSel();
         return sel ? sel.value : '';
+    };
+
+    /**
+     * Заполняет вкладку «Обновление панели» в Настройках: версия, статус, список
+     * коммитов, релизы (git-теги) и CHANGELOG.md. Элементов нет на других
+     * страницах — тогда функция тихо ничего не делает.
+     */
+    const renderTab = (data) => {
+        if (!tabVersion() && !tabStatus()) return;
+
+        const branch = String((data && (data.selected_branch || data.branch)) || '').trim();
+        const short = shortCommit(data && data.current_commit);
+        const verEl = tabVersion();
+        if (verEl) verEl.textContent = short ? (branch ? `${branch}@${short}` : short) : '—';
+
+        const statusEl = tabStatus();
+        if (statusEl) {
+            let text = 'Панель актуальна';
+            let isError = false;
+            if (data && data.error && !data.available) {
+                text = String(data.error).split('\n\n')[0];
+                isError = true;
+            } else if (data && data.available) {
+                const n = (data.commits || []).length;
+                text = n > 0 ? `Доступно обновление (${n} ${pluralCommits(n)})` : 'Доступно обновление';
+            }
+            statusEl.textContent = text;
+            statusEl.classList.toggle('panel-update-status-error', isError);
+        }
+
+        const commitsBox = tabCommits();
+        if (commitsBox) {
+            const commits = (data && Array.isArray(data.commits)) ? data.commits : [];
+            if (commits.length) {
+                const items = commits.map((c) => {
+                    const hash = shortCommit(c && c.hash);
+                    const msg = String((c && c.message) || '').trim();
+                    return `<li>${hash ? `<code>${escapeHtml(hash)}</code>` : ''}<span>${escapeHtml(msg)}</span></li>`;
+                }).join('');
+                commitsBox.innerHTML = `<strong>Что обновится</strong><ul class="update-confirm-commits-list">${items}</ul>`;
+                commitsBox.classList.remove('hidden');
+            } else {
+                commitsBox.innerHTML = '';
+                commitsBox.classList.add('hidden');
+            }
+        }
+
+        const relBox = tabReleases();
+        if (relBox) {
+            const tags = (data && Array.isArray(data.tags)) ? data.tags : [];
+            relBox.innerHTML = tags.length
+                ? tags.map((t) => `<span class="panel-update-tag"><i data-lucide="tag"></i>${escapeHtml(String(t))}</span>`).join('')
+                : '<span class="panel-update-empty">Релизов пока нет — отметьте версию git-тегом.</span>';
+        }
+
+        const clBox = tabChangelog();
+        if (clBox) {
+            const text = (data && data.changelog) ? String(data.changelog) : '';
+            clBox.textContent = text.trim() !== '' ? text : 'Файл CHANGELOG.md не найден в репозитории.';
+        }
+
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            try { window.lucide.createIcons(); } catch (_) {}
+        }
     };
 
     /**
@@ -280,6 +352,10 @@
             apply.classList.toggle('hidden', !available);
             apply.classList.toggle('panel-update-available', available);
         }
+        const tabApply = tabApplyBtn();
+        if (tabApply) {
+            tabApply.classList.toggle('hidden', !available);
+        }
         if (check) {
             check.classList.toggle('panel-update-pending', available);
             if (!isChecking && !isApplying) {
@@ -323,6 +399,7 @@
             // Версия показывается до любых ранних выходов: даже при ошибке
             // канал/коммит из ответа полезны.
             setVersion(data);
+            renderTab(data);
             availableCommits = (data && Array.isArray(data.commits)) ? data.commits : [];
             // Сохранённый канал мог пропасть с origin — backend откатился на
             // текущую ветку и вернул warning. Показываем даже при silent, иначе
@@ -474,11 +551,13 @@ if (data.success) {
 
     document.addEventListener('DOMContentLoaded', () => {
         checkBtn()?.addEventListener('click', () => checkPanelUpdate(false));
+        tabCheckBtn()?.addEventListener('click', () => checkPanelUpdate(false));
         // Обёртка обязательна: без неё браузер передаёт в applyPanelUpdate
         // объект MouseEvent первым аргументом, он трактуется как force=true,
         // и всегда показывался диалог «Сброс и обновление» с git reset --hard.
         // Промис намеренно не возвращаем: обработчик события его не ждёт.
         applyBtn()?.addEventListener('click', () => { applyPanelUpdate(); });
+        tabApplyBtn()?.addEventListener('click', () => { applyPanelUpdate(); });
         branchSel()?.addEventListener('change', async (e) => {
             const branch = e.target.value;
             setUpdateAvailable(false);

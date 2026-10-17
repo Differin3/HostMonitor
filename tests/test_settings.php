@@ -117,5 +117,16 @@ check(is_string(password_policy_error('abc', 6)), 'пароль 3 символа
 check(password_policy_error('a', 8) !== null, 'пароль 1 символ при минимуме 8 — ошибка');
 check(password_policy_error(str_repeat('a', 201), 8) !== null, 'пароль >200 символов — ошибка');
 
+// —— 5. Канал обновления панели (update_branch) ——
+echo "\n== settings_normalize: update_branch ==\n";
+
+check(array_key_exists('update_branch', settings_defaults()), 'defaults содержит update_branch');
+check(settings_normalize('update_branch', '') === '', 'update_branch пусто -> пусто (канал не выбран)');
+check(settings_normalize('update_branch', 'main') === 'main', 'update_branch main проходит');
+check(settings_normalize('update_branch', 'feature/x-1.2') === 'feature/x-1.2', 'update_branch feature/x-1.2 проходит');
+expect_throws(fn() => settings_normalize('update_branch', '-bad'), 'update_branch с ведущим дефисом -> throw');
+expect_throws(fn() => settings_normalize('update_branch', 'a..b'), 'update_branch с .. -> throw');
+expect_throws(fn() => settings_normalize('update_branch', 'bad branch'), 'update_branch с пробелом -> throw');
+
 echo "\nПройдено: {$passed}, провалено: {$failed}\n";
 exit($failed ? 1 : 0);

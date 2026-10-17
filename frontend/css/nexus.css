@@ -954,25 +954,6 @@ body.light .table-container thead th {
     gap: 6px;
 }
 
-.panel-update-branch {
-    max-width: 230px;
-    padding: 5px 26px 5px 8px;
-    border: 1px solid rgba(148, 163, 142, 0.3);
-    border-radius: 6px;
-    background: var(--panel-bg, #0d0e1a) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b93a6' stroke-width='2'%3E%3Cpath d='m6 9 6 6-6 6'/%3E%3C/svg%3E") no-repeat right 8px center;
-    color: var(--panel-text, #d4d6e4);
-    font: inherit;
-    font-size: 12.5px;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-}
-.panel-update-branch:hover { border-color: rgba(148, 163, 142, 0.55); }
-.panel-update-branch:focus-visible {
-    outline: 2px solid rgba(99, 102, 222, 0.6);
-    outline-offset: 1px;
-}
-
 /* Установленная версия панели рядом с кнопкой обновления. Компактно: канал
  * (ветка) уже показан select'ом, поэтому здесь только шортен коммита с полной
  * строкой в title. */
@@ -3432,6 +3413,49 @@ select optgroup {
 .update-confirm-commits-list span {
     flex: 1 1 auto;
     color: var(--text-primary);
+}
+
+.panel-update-releases {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.panel-update-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.14);
+    border: 1px solid var(--border-color);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.panel-update-tag svg {
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+}
+
+.panel-update-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.panel-update-status-error {
+    color: #f87171;
+}
+
+.panel-update-changelog {
+    max-height: 360px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-size: 13px;
+    line-height: 1.5;
 }
 
 .update-confirm-note {
