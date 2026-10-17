@@ -9,6 +9,9 @@
     // Коммиты HEAD..origin/<branch> из последней проверки: показываются в
     // диалоге подтверждения, чтобы было видно, что именно встанет.
     let availableCommits = [];
+    // Ответ на apply не содержит версию (только commit/branch): запоминаем её,
+    // чтобы после обновления бейдж не терял «0.1.0 · main@abc» → «main@abc».
+    let knownVersion = '';
 
     const checkBtn = () => document.getElementById('panelUpdateCheckBtn');
     const applyBtn = () => document.getElementById('panelUpdateApplyBtn');
@@ -78,16 +81,21 @@
      */
     const versionLabel = (data) => {
         const commit = String((data && data.current_commit) || '').trim();
-        if (!commit) return '';
+        const version = String((data && data.version) || '').trim();
+        if (!commit && !version) return '';
         const short = shortCommit(commit);
         const branch = String((data && (data.branch || data.selected_branch)) || '').trim();
-        return branch ? `${branch}@${short}` : short;
+        const ref = short ? (branch ? `${branch}@${short}` : short) : '';
+        return [version, ref].filter(Boolean).join(' · ');
     };
 
     const setVersion = (data) => {
         const el = versionEl();
         if (!el) return;
-        const label = versionLabel(data);
+        const src = data || {};
+        const version = String(src.version || '').trim();
+        if (version) knownVersion = version;
+        const label = versionLabel(Object.assign({}, src, { version: version || knownVersion }));
         if (!label) {
             el.classList.add('hidden');
             el.textContent = '';
@@ -120,8 +128,10 @@
 
         const branch = String((data && (data.selected_branch || data.branch)) || '').trim();
         const short = shortCommit(data && data.current_commit);
+        const version = String((data && data.version) || '').trim();
+        const ref = short ? (branch ? `${branch}@${short}` : short) : '';
         const verEl = tabVersion();
-        if (verEl) verEl.textContent = short ? (branch ? `${branch}@${short}` : short) : '—';
+        if (verEl) verEl.textContent = [version, ref].filter(Boolean).join(' · ') || '—';
 
         const statusEl = tabStatus();
         if (statusEl) {

@@ -462,12 +462,13 @@ async function testMissingWorkerExplainsFix() {
           checkResponse: {
               available: false, error: null, branch: 'main', selected_branch: 'main',
               current_commit: 'a6a2d3b57f34501e574642569a0fe3aaef000ae8',
+              version: '0.1.0-beta.1',
               branches: [{ name: 'main' }],
           },
       });
       await tick();
       const el = h.els.panelUpdateVersion;
-      eq(el.textContent, 'main@a6a2d3b', 'бейдж показывает канал и сокращённый коммит');
+      eq(el.textContent, '0.1.0-beta.1 · main@a6a2d3b', 'бейдж показывает версию, канал и сокращённый коммит');
       check(!el.classList.contains('hidden'), 'бейдж показан после получения версии');
       check(el.title.includes('a6a2d3b57f34501e574642569a0fe3aaef000ae8'),
           'в title — полный коммит');
@@ -492,6 +493,7 @@ async function testMissingWorkerExplainsFix() {
           checkResponse: {
               available: false, error: null, branch: 'main', selected_branch: 'main',
               current_commit: 'a6a2d3b57f34501e574642569a0fe3aaef000ae8',
+              version: '0.1.0-beta.1',
               branches: [{ name: 'main' }],
           },
       });
@@ -500,7 +502,7 @@ async function testMissingWorkerExplainsFix() {
       await tick();
       const t = h.toasts.find((x) => (x.msg || '').includes('актуальна'));
       check(!!t, 'показан тост об актуальности');
-      if (t) eq(t.msg, 'Панель актуальна (main@a6a2d3b)', 'в тосте указана установленная версия');
+      if (t) eq(t.msg, 'Панель актуальна (0.1.0-beta.1 · main@a6a2d3b)', 'в тосте указана установленная версия');
   }
 
   async function testApplyRefreshesVersionBadge() {
@@ -509,13 +511,14 @@ async function testMissingWorkerExplainsFix() {
           checkResponse: {
               available: true, branch: 'main', selected_branch: 'main',
               current_commit: '1111111111111111111111111111111111111111',
+              version: '0.1.0-beta.1',
               branches: [{ name: 'main' }],
           },
           applyResponse: applyOk({ state: 'ok', alive: true, up_to_date: true, text: 'Воркер работает на новом коде.' }),
       });
       await tick();
       await applyAndConfirm(h);
-      eq(h.els.panelUpdateVersion.textContent, 'main@1a2b3c4', 'после обновления показан новый коммит');
+      eq(h.els.panelUpdateVersion.textContent, '0.1.0-beta.1 · main@1a2b3c4', 'после обновления версия и новый коммит сохранены');
   }
 
 /**
@@ -623,6 +626,7 @@ async function testTabRendersVersionCommitsReleases() {
         checkResponse: {
             available: true, branch: 'main', selected_branch: 'main',
             current_commit: 'abcdef1234567890abcdef1234567890abcdef12',
+            version: '0.1.0-beta.1',
             branches: [{ name: 'main' }],
             commits: [{ hash: '1234567abcdef', message: 'fix: тест' }],
             tags: ['v1.2.3', 'v1.2.2'],
@@ -630,8 +634,9 @@ async function testTabRendersVersionCommitsReleases() {
         },
     });
     await tick();
-    check(h.els.panelUpdateTabVersion.textContent.includes('main@abcdef1'),
-        'вкладка: версия = канал@коммит', h.els.panelUpdateTabVersion.textContent);
+    check(h.els.panelUpdateTabVersion.textContent.includes('0.1.0-beta.1')
+        && h.els.panelUpdateTabVersion.textContent.includes('main@abcdef1'),
+        'вкладка: версия = версия · канал@коммит', h.els.panelUpdateTabVersion.textContent);
     check(h.els.panelUpdateTabStatus.textContent.includes('Доступно обновление'),
         'вкладка: статус «доступно обновление»', h.els.panelUpdateTabStatus.textContent);
     check(h.els.panelUpdateTabCommits.innerHTML.includes('fix: тест'),

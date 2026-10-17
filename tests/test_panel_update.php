@@ -388,6 +388,19 @@ check(!file_exists($canary), 'инъекция через apply не выпол�
       'panel_changelog_text без файла -> пусто'
   );
 
+  // ─── Версия панели (monitoring/VERSION) ──────────────────────────────────────
+
+  check(
+      panel_version() === '0.1.0-beta.1',
+      'panel_version читает monitoring/VERSION',
+      'получено ' . var_export(panel_version(), true)
+  );
+  check(
+      ($checkMain['version'] ?? null) === panel_version(),
+      'check() отдаёт версию панели в поле version',
+      'получено ' . var_export($checkMain['version'] ?? null, true)
+  );
+
   // ─── Итог ─────────────────────────────────────────────────────────────────────
   
   echo "\n";
