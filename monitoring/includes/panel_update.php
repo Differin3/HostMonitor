@@ -614,13 +614,36 @@ function panel_update_resolve_branch(string $requested, $root): array
     ];
 }
 
+/**
+ * Версия панели из файла monitoring/VERSION (первая строка).
+ *
+ * Раньше у панели не было собственной версии — в UI был только канал@коммит.
+ * Для релизов (git-тег + GitHub Release) нужна явная версия, которая читается
+ * без git (например, при установке из архива) и переживает переключение ветки.
+ */
+function panel_version(): string
+{
+    $file = __DIR__ . '/../VERSION';
+    if (!is_file($file)) {
+        return '';
+    }
+    $raw = trim((string)@file_get_contents($file));
+    if ($raw === '') {
+        return '';
+    }
+    $lines = preg_split("/\r\n|\n|\r/", $raw) ?: [];
+    return trim((string)($lines[0] ?? ''));
+}
+
 function panel_update_check(bool $fetch = true, string $targetBranch = ''): array
 {
     $root = panel_repo_root();
+    $panelVersion = panel_version();
     if ($root === null) {
         return [
             'available' => false,
             'error' => 'Репозиторий git не найден. Укажите repo_root в data/panel.local.php (обычно /opt/monitoring).',
+            'version' => $panelVersion,
             'current_commit' => '',
             'remote_commit' => '',
             'branch' => '',
@@ -640,6 +663,7 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
             'available' => false,
             'error' => $guard,
             'warning' => $warning,
+            'version' => $panelVersion,
             'current_commit' => '',
             'remote_commit' => '',
             'branch' => panel_git_branch($root),
@@ -665,6 +689,7 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
                 'available' => false,
                 'error' => 'git fetch не удался: ' . $detail . $hint . "\n\nДиагностика: " . $diag,
                 'warning' => $warning,
+                'version' => $panelVersion,
                 'current_commit' => '',
                 'remote_commit' => '',
                 'branch' => panel_git_branch($root),
@@ -687,6 +712,7 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
             'error' => 'Не удалось определить коммиты: ' . trim((string)($local['output'] ?? ''))
                 . ' / ' . trim((string)($remote['output'] ?? '')),
             'warning' => $warning,
+            'version' => $panelVersion,
             'current_commit' => trim((string)($local['output'] ?? '')),
             'remote_commit' => trim((string)($remote['output'] ?? '')),
             'branch' => $branch,
@@ -722,6 +748,7 @@ function panel_update_check(bool $fetch = true, string $targetBranch = ''): arra
         'available' => $available,
         'error' => null,
         'warning' => $warning,
+        'version' => $panelVersion,
         'current_commit' => $currentCommit,
         'remote_commit' => $remoteCommit,
         'branch' => $branch,
