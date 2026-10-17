@@ -43,6 +43,9 @@ body.hm-nav-locked {
         height: 54px;
         padding: 0 10px;
         gap: 8px;
+        /* Одна неразрывная строка: блоки должны сжиматься, а не наезжать
+         * друг на друга, когда места мало (узкий телефон в портрете). */
+        flex-wrap: nowrap;
     }
 
     .topbar-left,
@@ -52,8 +55,14 @@ body.hm-nav-locked {
     }
 
     .topbar-left {
-        flex: 1;
+        flex: 1 1 auto;
         min-width: 0;
+        overflow: hidden;
+    }
+
+    .topbar-right {
+        flex: 0 1 auto;
+        justify-content: flex-end;
     }
 
     .topbar-center {
@@ -95,11 +104,36 @@ body.hm-nav-locked {
 
     .panel-update-actions {
         gap: 4px;
+        min-width: 0;
+    }
+
+    .panel-update-branch {
+        max-width: 140px;
+        min-width: 0;
+        flex: 0 1 auto;
     }
 
     /* Версия панели — справочная, на узком экране уступает место. */
     .panel-update-version {
         display: none;
+    }
+
+    /* Телефоны: убираем широкие/дублирующие контролы, иначе одна строка
+     * переполняется и блоки наезжают друг на друга. */
+    @media (max-width: 640px) {
+        /* Канал обновления удобнее выбирать на десктопе; проверка на телефоне
+         * использует текущую ветку (panel_update_check это поддерживает). */
+        .panel-update-branch {
+            display: none;
+        }
+    }
+
+    @media (max-width: 480px) {
+        /* «Мониторинг» дублирует пункты бокового меню — на узких экранах
+         * скрываем, чтобы верхний бар не выглядел громоздко. */
+        .view-pill {
+            display: none;
+        }
     }
 
     /* ——— Гамбургер ——— */
