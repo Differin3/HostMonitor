@@ -39,6 +39,7 @@
         "db_render_error_page",
         "db_replica_enabled",
         "db_replica_password_inherited",
+        "db_replica_stored",
         "db_replication_skip_tables",
         "db_reset_pdo",
         "db_schema_path",
@@ -353,6 +354,13 @@
             "return": "bool",
             "by_ref_return": false
         },
+        "db_replica_stored": {
+            "params": [
+                "array $cfg"
+            ],
+            "return": "array",
+            "by_ref_return": false
+        },
         "db_replication_skip_tables": {
             "params": [],
             "return": "array",
@@ -652,6 +660,7 @@
         ],
         "db_replica_enabled": [],
         "db_replica_password_inherited": [],
+        "db_replica_stored": [],
         "db_replication_skip_tables": [],
         "db_reset_pdo": [],
         "db_schema_path": [],
