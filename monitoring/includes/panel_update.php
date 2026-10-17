@@ -947,13 +947,24 @@ $after = panel_git($root, 'rev-parse HEAD', 10);
       if (!empty($sync['message'])) {
           $msg .= '. ' . $sync['message'];
       }
+      // Воркер — отдельный процесс: новый код он подхватит только после
+      // перезапуска. Если он вообще не запущен (частая причина — юнит не был
+      // установлен), поднимаем его через root-обёртку, чтобы админу не нужно
+      // было идти на сервер руками.
+      $report = panel_update_worker_report();
+      $ensure = null;
+      if (($report['state'] ?? '') === 'missing') {
+          $ensure = panel_worker_ensure();
+          $report = panel_update_worker_report();
+      }
       return [
           'success' => true,
           'message' => $msg,
           'output' => $pull['output'],
           'commit' => $after['output'] ?? '',
           'branch' => $target,
-          'worker' => panel_update_worker_report(),
+          'worker' => $report,
+          'worker_ensure' => $ensure,
       ];
   }
 
@@ -970,15 +981,19 @@ $after = panel_git($root, 'rev-parse HEAD', 10);
   {
       require_once __DIR__ . '/jobs.php';
       $status = jobs_worker_status();
+      $canEnsure = panel_worker_ensure_available();
       $report = [
           'alive' => (bool)$status['alive'],
           'up_to_date' => $status['up_to_date'],
           'code_mtime' => $status['code_mtime'],
           'expected_mtime' => $status['expected_mtime'],
+          'can_ensure' => $canEnsure,
       ];
       if (!$status['alive']) {
           $report['state'] = 'missing';
-          $report['text'] = 'Воркер не отвечает. Выполнить sudo bash scripts/install_jobs_worker.sh — без него копирование базы недоступно.';
+          $report['text'] = $canEnsure
+              ? 'Воркер не запущен. Запустить его можно кнопкой ниже — без воркера копирование базы недоступно.'
+              : 'Воркер не запущен. Установить: sudo bash ' . panel_worker_installer_path() . ' — без воркера копирование базы недоступно.';
       } elseif ($status['up_to_date'] === false) {
           $report['state'] = 'stale';
           $report['text'] = 'Воркер работает на старом коде и перезапустится сам через несколько секунд. Текущая задача вернётся в очередь и продолжится с курсора.';
@@ -990,6 +1005,49 @@ $after = panel_git($root, 'rev-parse HEAD', 10);
           $report['text'] = 'Воркер работает на новом коде.';
       }
       return $report;
+  }
+
+  function panel_worker_installer_path(): string
+  {
+      $root = panel_repo_root();
+      return ($root !== null ? $root : '/opt/monitoring') . '/scripts/install_jobs_worker.sh';
+  }
+
+  function panel_worker_ensure_path(): string
+  {
+      $cfg = panel_config_load();
+      $override = trim((string)($cfg['worker_ensure'] ?? ''));
+      return $override !== '' ? $override : '/usr/local/sbin/hostmonitor-jobs-ensure';
+  }
+
+  function panel_worker_ensure_available(): bool
+  {
+      $path = panel_worker_ensure_path();
+      return is_file($path) && is_executable($path);
+  }
+
+  /**
+   * Поднимает воркер через root-обёртку.
+   *
+   * Обёртка вызывается без аргументов — ровно на такую команду выдано
+   * sudo-право (NOPASSWD), поэтому произвольный root из веба недоступен:
+   * подставить свои аргументы или другой скрипт нельзя.
+   */
+  function panel_worker_ensure(): array
+  {
+      if (!panel_worker_ensure_available()) {
+          return [
+              'ok' => false,
+              'configured' => false,
+              'output' => 'Root-обёртка не установлена. На сервере один раз: sudo bash ' . panel_worker_installer_path(),
+          ];
+      }
+      $res = panel_run_shell('sudo -n ' . escapeshellarg(panel_worker_ensure_path()) . ' 2>&1', 30);
+      return [
+          'ok' => (bool)($res['ok'] ?? false),
+          'configured' => true,
+          'output' => trim((string)($res['output'] ?? '')),
+      ];
   }
 
 function panel_config_save(array $cfg): void

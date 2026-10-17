@@ -92,7 +92,7 @@ classList: {
    * Готовит песочницу: элементы, fetch и журнал вызовов.
    * checkResponse — ответ на action=check, applyResponse — на action=apply.
    */
-  function harness({ checkResponse, applyResponse, withTab }) {
+  function harness({ checkResponse, applyResponse, ensureResponse, withTab }) {
       const els = {
           panelUpdateCheckBtn: makeElement('panelUpdateCheckBtn'),
           panelUpdateApplyBtn: makeElement('panelUpdateApplyBtn'),
@@ -158,6 +158,11 @@ classList: {
           let data = {};
           if (url.includes('action=check')) data = checkResponse;
           else if (url.includes('action=select')) data = { success: true };
+          else if (url.includes('action=ensure-worker')) {
+              data = ensureResponse === undefined
+                  ? { success: false, configured: false, output: '' }
+                  : ensureResponse;
+          }
           else if (url.includes('action=apply')) {
               data = applyResponse === undefined
                   ? { success: true, message: 'ок' }
@@ -447,6 +452,51 @@ async function testMissingWorkerExplainsFix() {
     if (!modal) return;
     check(modal.innerHTML.includes('install_jobs_worker.sh'), 'окно подсказывает, как поднять воркер');
     check(modal.innerHTML.includes('Воркер не запущен'), 'окно явно говорит, что воркер не запущен');
+    check(!modal.innerHTML.includes('data-role="ensure"'),
+        'без can_ensure кнопка запуска не показывается');
+}
+
+/**
+ * Воркер можно поднять прямо из окна, когда сервер это умеет.
+ */
+async function testMissingWorkerShowsEnsureButton() {
+    console.log('\npanel_update.js: кнопка запуска воркера при missing + can_ensure');
+    const h = harness({
+        checkResponse: {
+            available: true, branch: 'main', selected_branch: 'main',
+            branches: [{ name: 'main' }],
+        },
+        applyResponse: applyOk({
+            state: 'missing', alive: false, up_to_date: null, can_ensure: true,
+            text: 'Воркер не запущен. Запустить его можно кнопкой ниже.',
+        }),
+        ensureResponse: {
+            success: true,
+            configured: true,
+            output: '[jobs-ensure] hostmonitor-jobs: запущен',
+            worker: {
+                state: 'ok', alive: true, up_to_date: true, can_ensure: true,
+                text: 'Воркер работает на новом коде.',
+            },
+        },
+    });
+    await tick();
+    await applyAndConfirm(h);
+
+    const modal = h.modal();
+    check(!!modal, 'окно создано');
+    if (!modal) return;
+    check(modal.innerHTML.includes('data-role="ensure"'), 'при missing+can_ensure показана кнопка запуска');
+    check(modal.innerHTML.includes('Запустить воркер'), 'кнопка подписана по-русски');
+
+    const ensure = modal.querySelector('[data-role="ensure"]');
+    await ensure._h.click();
+    await tick();
+    await tick();
+    const ensureCall = h.calls.find((c) => c.url.includes('action=ensure-worker'));
+    check(!!ensureCall, 'кнопка шлёт запрос action=ensure-worker');
+    check(ensureCall && ensureCall.method === 'POST', 'запрос уходит методом POST');
+    check(h.toasts.some((t) => (t.msg || '').includes('Воркер запущен')), 'успех показан тостом');
 }
 
   /**
@@ -677,6 +727,7 @@ async function testTabShowsChannelError() {
     await testAlreadyUpToDateStaysToast();
     await testReportEscapesServerText();
     await testMissingWorkerExplainsFix();
+    await testMissingWorkerShowsEnsureButton();
     await testVersionBadgeShowsInstalledCommit();
     await testVersionBadgeHiddenWithoutCommit();
     await testActualToastIncludesVersion();

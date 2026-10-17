@@ -64,6 +64,16 @@ try {
         echo json_encode(['success' => true, 'selected_branch' => $branch]);
         exit;
     }
+    if ($method === 'POST' && $action === 'ensure-worker') {
+        $ensure = panel_worker_ensure();
+        echo json_encode([
+            'success' => (bool)$ensure['ok'],
+            'configured' => (bool)$ensure['configured'],
+            'output' => (string)$ensure['output'],
+            'worker' => panel_update_worker_report(),
+        ]);
+        exit;
+    }
     json_error('Invalid action', 400);
 } catch (Throwable $e) {
     app_log_error('panel_update.php error: ' . $e->getMessage());
