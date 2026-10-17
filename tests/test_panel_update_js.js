@@ -441,7 +441,7 @@ async function testMissingWorkerExplainsFix() {
         },
         applyResponse: applyOk({
             state: 'missing', alive: false, up_to_date: null,
-            text: 'Воркер не отвечает. Выполнить sudo bash scripts/install_jobs_worker.sh',
+            text: 'Воркер не запущен. Обратитесь к администратору сервера, чтобы включить фоновые задачи.',
         }),
     });
     await tick();
@@ -450,7 +450,7 @@ async function testMissingWorkerExplainsFix() {
     const modal = h.modal();
     check(!!modal, 'окно создано');
     if (!modal) return;
-    check(modal.innerHTML.includes('install_jobs_worker.sh'), 'окно подсказывает, как поднять воркер');
+    check(modal.innerHTML.includes('администратору'), 'окно показывает подсказку из ответа сервера');
     check(modal.innerHTML.includes('Воркер не запущен'), 'окно явно говорит, что воркер не запущен');
     check(!modal.innerHTML.includes('data-role="ensure"'),
         'без can_ensure кнопка запуска не показывается');
