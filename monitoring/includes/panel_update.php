@@ -993,24 +993,18 @@ $after = panel_git($root, 'rev-parse HEAD', 10);
           $report['state'] = 'missing';
           $report['text'] = $canEnsure
               ? 'Воркер не запущен. Запустить его можно кнопкой ниже — без воркера копирование базы недоступно.'
-              : 'Воркер не запущен. Установить: sudo bash ' . panel_worker_installer_path() . ' — без воркера копирование базы недоступно.';
+              : 'Воркер не запущен. Обратитесь к администратору сервера, чтобы включить фоновые задачи — без воркера копирование базы недоступно.';
       } elseif ($status['up_to_date'] === false) {
           $report['state'] = 'stale';
           $report['text'] = 'Воркер работает на старом коде и перезапустится сам через несколько секунд. Текущая задача вернётся в очередь и продолжится с курсора.';
       } elseif ($status['up_to_date'] === null) {
           $report['state'] = 'unknown';
-          $report['text'] = 'Воркер отвечает, версию его кода определить нельзя — он запущен до этой правки. Перезапустить: sudo systemctl restart hostmonitor-jobs';
+          $report['text'] = 'Воркер работает, но версию его кода определить не удалось. Если обновление не применяется — перезапустите фоновые задачи.';
       } else {
           $report['state'] = 'ok';
           $report['text'] = 'Воркер работает на новом коде.';
       }
       return $report;
-  }
-
-  function panel_worker_installer_path(): string
-  {
-      $root = panel_repo_root();
-      return ($root !== null ? $root : '/opt/monitoring') . '/scripts/install_jobs_worker.sh';
   }
 
   function panel_worker_ensure_path(): string
@@ -1039,7 +1033,7 @@ $after = panel_git($root, 'rev-parse HEAD', 10);
           return [
               'ok' => false,
               'configured' => false,
-              'output' => 'Root-обёртка не установлена. На сервере один раз: sudo bash ' . panel_worker_installer_path(),
+              'output' => 'Фоновые задачи на сервере не настроены. Обратитесь к администратору.',
           ];
       }
       $res = panel_run_shell('sudo -n ' . escapeshellarg(panel_worker_ensure_path()) . ' 2>&1', 30);

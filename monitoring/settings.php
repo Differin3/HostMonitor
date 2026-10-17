@@ -60,7 +60,7 @@ render_layout_start('Настройки', 'settings');
                     <div class="form-field">
                         <label for="collect-interval">Интервал отправки данных агентами (секунды)</label>
                         <input type="number" id="collect-interval" value="60" min="10" max="300">
-                        <small>Попадает в node.conf как COLLECT_INTERVAL (от 10 до 300 секунд). Меньший интервал — больше нагрузка на БД.</small>
+                        <small>Как часто агенты отправляют данные (10–300 секунд). Меньший интервал — больше нагрузка на базу.</small>
                         <div id="collect-interval-warning" class="settings-warn hidden"></div>
                     </div>
                 </div>
@@ -69,19 +69,19 @@ render_layout_start('Настройки', 'settings');
             <div class="tab-content" id="web-tab">
                 <div class="settings-section">
                     <h3>Веб-сервер панели</h3>
-                    <p class="form-hint-text">Эти параметры также записываются в <code>monitoring/data/web.local.php</code> — их подхватывает Python-сервер при следующем перезапуске (<code>systemctl restart monitoring-web</code>). Если панель работает за nginx — изменения применяются в конфиге nginx.</p>
+                    <p class="form-hint-text">Изменения применятся после перезапуска веб-сервера панели.</p>
                     <div class="form-field">
                         <label for="web_host">Адрес прослушивания (bind)</label>
                         <select id="web_host">
                             <option value="0.0.0.0">0.0.0.0 — все интерфейсы (локальный + публичный IP)</option>
                             <option value="127.0.0.1">127.0.0.1 — только локально (127.0.0.1 / localhost)</option>
                         </select>
-                        <small>0.0.0.0 — доступно из всей сети; 127.0.0.1 — только с этого сервера (например, если стоит за nginx или туннелем)</small>
+                        <small>0.0.0.0 — доступно из всей сети; 127.0.0.1 — только с этого сервера.</small>
                     </div>
                     <div class="form-field">
                         <label for="web_port">Порт веб-интерфейса</label>
                         <input type="number" id="web_port" min="1" max="65535">
-                        <small>Для production (nginx) обычно 80 или 443; для standalone Python-сервера — 8080, 8000 и т.п. Требуется перезапуск сервиса.</small>
+                        <small>Обычно 80 или 443 при доступе по домену, 8080 — при прямом подключении. Требуется перезапуск сервиса.</small>
                     </div>
                     <div class="form-field">
                         <label for="public_url">Публичный URL панели (необязательно)</label>
@@ -97,7 +97,7 @@ render_layout_start('Настройки', 'settings');
             <div class="tab-content" id="upnp-tab">
                 <div class="settings-section">
                     <h3>UPnP / SSDP</h3>
-                    <p class="form-hint-text">Эти значения записываются в конфиг агента при скачивании node.conf. Уже установленные агенты нужно обновить вручную или перевыпустить конфиг.</p>
+                    <p class="form-hint-text">Эти значения попадут в конфиг, который вы скачиваете для агента. На уже установленных агентах они применятся после обновления конфига.</p>
                     <div class="form-field">
                         <label>
                             <input type="checkbox" id="upnp_enabled" checked>
@@ -131,7 +131,7 @@ render_layout_start('Настройки', 'settings');
                 </div>
                 <div class="settings-section" style="margin-top: 24px;">
                     <h3>LLDP / SNMP</h3>
-                    <p class="form-hint-text">Пишутся в node.conf при скачивании/копировании конфига агента. Пассивный LLDP требует root и пакет scapy на ноде.</p>
+                    <p class="form-hint-text">Эти значения попадут в конфиг агента. Для пассивного LLDP на ноде нужны дополнительные права.</p>
                     <div class="form-field">
                         <label>
                             <input type="checkbox" id="lldp_passive" checked>
@@ -272,7 +272,7 @@ render_layout_start('Настройки', 'settings');
                     <div class="form-field">
                         <label for="notify_webhook_url">URL вебхука</label>
                         <input type="url" id="notify_webhook_url" placeholder="https://example.com/hooks/hostmonitor" autocomplete="off">
-                        <small>POST с JSON <code>{source, subject, body, text, timestamp}</code>. Совместимо со Slack/Discord-style хуками.</small>
+                        <small>Уведомление отправляется POST-запросом. Совместимо со Slack/Discord-style хуками.</small>
                     </div>
                 </div>
             </div>
@@ -296,7 +296,7 @@ render_layout_start('Настройки', 'settings');
             <div class="tab-content" id="api-tab">
                 <div class="settings-section">
                     <h3>API панели</h3>
-                    <p class="form-hint-text">Агенты ходят в API с заголовком <code>Authorization: Bearer &lt;node_token&gt;</code>. Токен выдаётся на странице ноды, общего ключа панели нет.</p>
+                    <p class="form-hint-text">Агенты обращаются к API по своему токену, который выдаётся на странице ноды.</p>
                     <div class="form-field">
                         <label for="api_base_url">Базовый URL API</label>
                         <div class="input-with-action">
@@ -309,7 +309,7 @@ render_layout_start('Настройки', 'settings');
                     <div class="form-field">
                         <label for="api_rate_limit">Ориентир лимита запросов в минуту</label>
                         <input type="number" id="api_rate_limit" value="100" min="10" max="10000">
-                        <small>Сохраняется в настройках. Жёсткий лимит на стороне PHP пока не режется — значение для прокси и планирования.</small>
+                        <small>Ориентировочный лимит запросов от агентов в минуту.</small>
                     </div>
                 </div>
             </div>
@@ -320,7 +320,7 @@ render_layout_start('Настройки', 'settings');
                     <p class="form-hint-text">Подключения панели к MySQL (основная и резерв). Мониторинг сторонних СУБД — на странице <a href="databases.php">Базы данных</a>.</p>
 
                     <div class="db-ha-locked-banner hidden" id="db-ha-locked-banner" role="alert">
-                        Редактирование недоступно: нет соединения ни с основной, ни с резервной базой. Исправьте сервер MySQL или отредактируйте <code>data/db.local.php</code> по SSH.
+                        Редактирование недоступно: нет соединения ни с основной, ни с резервной базой. Проверьте сервер базы данных или обратитесь к администратору.
                     </div>
 
                     <div class="ha-status-row" id="ha-status-row">
@@ -453,7 +453,7 @@ render_layout_start('Настройки', 'settings');
                     <h3>Экспорт / импорт нод</h3>
                     <p class="form-hint-text">
                         Перенос списка нод между серверами. Экспорт сохраняет имя, адрес, токен и биллинг —
-                        при импорте на новом сервере агенты подхватят новый <code>MASTER_URL</code> без переустановки.
+                        при импорте на новом сервере агенты продолжат работать без переустановки.
                     </p>
 
                     <div class="ha-actions ha-actions-primary" style="margin-bottom:24px">
@@ -506,9 +506,8 @@ render_layout_start('Настройки', 'settings');
                 <div class="settings-section">
                     <h3>Обновление панели</h3>
                     <p class="form-hint-text">
-                        Панель устанавливается из git-репозитория. Канал обновления (ветка) сохраняется
-                        в базе и переживает перезагрузку страницы; версия берётся из <code>monitoring/VERSION</code>,
-                        рядом показан коммит текущей сборки.
+                        Канал обновления (ветка) сохраняется и переживает перезагрузку страницы.
+                        Рядом показана текущая версия панели и коммит сборки.
                     </p>
 
                     <div class="form-field">
@@ -545,8 +544,7 @@ render_layout_start('Настройки', 'settings');
 
                     <h3 style="margin-top:24px">Релизы</h3>
                     <p class="form-hint-text">
-                        Git-теги репозитория. Отмечайте релизы тегами (например, <code>v1.2.0</code>) —
-                        они появятся здесь.
+                        Список вышедших версий панели.
                     </p>
                     <div id="panelUpdateTabReleases" class="panel-update-releases">
                         <span class="panel-update-empty">Загрузка…</span>

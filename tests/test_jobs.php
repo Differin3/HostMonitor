@@ -577,8 +577,13 @@ if ($rep['state'] === 'stale') {
 }
 if ($rep['state'] === 'missing') {
     check(
-        strpos($rep['text'], 'install_jobs_worker.sh') !== false,
-        'если воркера нет, сказано чем это починить',
+        strpos($rep['text'], 'администратор') !== false,
+        'если воркера нет, пользователю сказано, к кому обратиться',
+        $rep['text']
+    );
+    check(
+        strpos($rep['text'], 'sudo') === false && strpos($rep['text'], '.sh') === false,
+        'текст о воркере не подсказывает пользователю shell-команды',
         $rep['text']
     );
 }
