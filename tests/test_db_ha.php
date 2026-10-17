@@ -111,5 +111,60 @@ check(
     'успешный toast показывается только когда проблем нет'
 );
 
+// Регрессия: db_endpoint() подставляет name/user основной базы, когда у
+// резерва они пусты. Форма не должна показывать унаследованные значения —
+// иначе первое же сохранение закрепит их как явные, и резерв «прилипнет»
+// к старому имени/пользователю основной базы.
+echo "\ndb_replica_stored: форма показывает сохранённые значения резерва\n";
+
+$stored = db_replica_stored([
+    'name' => 'prod_db',
+    'user' => 'prod_user',
+    'password' => 'main-secret',
+    'replica' => ['host' => 'db-standby', 'name' => '', 'user' => '', 'password' => ''],
+]);
+check($stored['name'] === '', 'пустое имя резерва не подменяется именем основной');
+check($stored['user'] === '', 'пустой пользователь резерва не подменяется пользователем основной');
+check($stored['has_password'] === false, 'пустой пароль резерва не считается заданным');
+
+$storedExplicit = db_replica_stored([
+    'name' => 'prod_db',
+    'user' => 'prod_user',
+    'password' => 'main-secret',
+    'replica' => ['name' => 'rep_db', 'user' => 'rep_user', 'password' => 'rep-secret'],
+]);
+check($storedExplicit['name'] === 'rep_db', 'явное имя резерва возвращается как есть');
+check($storedExplicit['user'] === 'rep_user', 'явный пользователь резерва возвращается как есть');
+check($storedExplicit['has_password'] === true, 'заданный пароль резерва отмечается как сохранённый');
+
+$storedNoSection = db_replica_stored(['name' => 'prod_db', 'user' => 'prod_user']);
+check(
+    $storedNoSection['name'] === '' && $storedNoSection['user'] === '' && $storedNoSection['has_password'] === false,
+    'без секции replica форма пуста, наследования нет'
+);
+
+check(
+    strpos($api, "'replica_stored' => db_replica_stored(\$cfg)") !== false,
+    'api/db_ha.php отдаёт replica_stored'
+);
+
+$settingsPhp = (string)file_get_contents(dirname(__DIR__) . '/monitoring/settings.php');
+check(
+    strpos($settingsPhp, 'db_replica_stored($dbHaCfg)') !== false,
+    'settings.php берёт сохранённые значения резерва'
+);
+check(
+    strpos($settingsPhp, "dbHaReplicaStored['name']") !== false
+        && strpos($settingsPhp, "dbHaReplicaStored['user']") !== false,
+    'settings.php рендерит имя и пользователя резерва из хранилища'
+);
+
+check(strpos($js, 'data.replica_stored') !== false, 'settings.js читает data.replica_stored');
+check(
+    strpos($js, "setv('db-replica-name', replicaName)") !== false
+        && strpos($js, "setv('db-replica-user', replicaUser)") !== false,
+    'settings.js берёт имя и пользователя резерва из сохранённых'
+);
+
 echo "\nИтог: passed={$passed} failed={$failed}\n";
 exit($failed > 0 ? 1 : 0);

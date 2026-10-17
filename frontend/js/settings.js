@@ -474,6 +474,12 @@ function paintSslCaStatus(replica) {
 function fillDbHaForm(data) {
     const primary = data.primary || {};
     const replica = data.replica || {};
+    // Поля резерва показываем по сохранённым значениям, а не по наследованным
+    // от основной: пустое поле означает «как у основной» и не должно закрепляться.
+    const replicaStored = data.replica_stored || null;
+    const replicaName = replicaStored ? replicaStored.name : replica.name;
+    const replicaUser = replicaStored ? replicaStored.user : replica.user;
+    const replicaHasPassword = replicaStored ? !!replicaStored.has_password : !!replica.has_password;
     const setv = (id, value) => {
         const el = val(id);
         if (!el) return;
@@ -488,8 +494,8 @@ function fillDbHaForm(data) {
     setv('db-user', primary.user);
     setv('db-replica-host', replica.host);
     setv('db-replica-port', replica.port || '3306');
-    setv('db-replica-name', replica.name);
-    setv('db-replica-user', replica.user);
+    setv('db-replica-name', replicaName);
+    setv('db-replica-user', replicaUser);
 
     const passPrimary = val('db-password');
     if (passPrimary) {
@@ -501,7 +507,7 @@ function fillDbHaForm(data) {
     const passReplica = val('db-replica-password');
     if (passReplica) {
         passReplica.value = '';
-        passReplica.placeholder = replica.has_password
+        passReplica.placeholder = replicaHasPassword
             ? 'Сохранён, оставьте пустым'
             : 'Пусто — не менять / как у основной';
     }
