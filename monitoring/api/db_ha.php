@@ -32,6 +32,7 @@ function db_ha_status_payload(bool $ping): array
         'replica_failback' => !empty($cfg['replica_failback']),
         'primary' => db_public_endpoint($primary),
         'replica' => db_public_endpoint($replica),
+        'replica_stored' => db_replica_stored($cfg),
         'state' => [
             'role' => $state['role'],
             'reason' => $state['reason'],

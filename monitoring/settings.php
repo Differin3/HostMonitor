@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/layout.php';
 $dbHaCfg = db_config_load();
 $dbHaPrimary = db_public_endpoint(db_endpoint($dbHaCfg, 'primary'));
 $dbHaReplica = db_public_endpoint(db_endpoint($dbHaCfg, 'replica'));
+$dbHaReplicaStored = db_replica_stored($dbHaCfg);
 $dbHaReplicaEnabled = db_replica_enabled($dbHaCfg);
 $dbHaReplicaFailback = ($dbHaCfg['replica_failback'] ?? true) !== false;
 $dbHaEsc = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
@@ -372,15 +373,15 @@ render_layout_start('Настройки', 'settings');
                         </div>
                         <div class="form-field">
                             <label for="db-replica-name">Имя базы резерва</label>
-                            <input type="text" id="db-replica-name" value="<?= $dbHaEsc($dbHaReplica['name']) ?>" placeholder="как у основной">
+                            <input type="text" id="db-replica-name" value="<?= $dbHaEsc($dbHaReplicaStored['name']) ?>" placeholder="как у основной">
                         </div>
                         <div class="form-field">
                             <label for="db-replica-user">Пользователь резерва</label>
-                            <input type="text" id="db-replica-user" value="<?= $dbHaEsc($dbHaReplica['user']) ?>" placeholder="как у основной">
+                            <input type="text" id="db-replica-user" value="<?= $dbHaEsc($dbHaReplicaStored['user']) ?>" placeholder="как у основной">
                         </div>
                         <div class="form-field ha-span-2">
                             <label for="db-replica-password">Пароль резерва</label>
-                            <input type="password" id="db-replica-password" placeholder="<?= !empty($dbHaReplica['has_password']) ? 'Сохранён, оставьте пустым' : 'Пусто — не менять / как у основной' ?>" autocomplete="new-password">
+                            <input type="password" id="db-replica-password" placeholder="<?= $dbHaReplicaStored['has_password'] ? 'Сохранён, оставьте пустым' : 'Пусто — не менять / как у основной' ?>" autocomplete="new-password">
                         </div>
                         <div class="form-field ha-span-2 db-ha-ssl-checks">
                             <label>

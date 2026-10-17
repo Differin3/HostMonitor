@@ -43,6 +43,24 @@ function db_replica_password_inherited(array $cfg): bool
     return (string)($cfg['password'] ?? '') !== '';
 }
 
+/**
+ * Сырые сохранённые значения резерва для формы редактирования.
+ *
+ * db_endpoint() подставляет name/user/password основной базы, когда у резерва
+ * они пусты, — это нужно для подключения, но не для формы: поле должно
+ * показывать то, что реально сохранено (пусто = «как у основной»). Иначе
+ * унаследованные значения закрепляются при первом же сохранении.
+ */
+function db_replica_stored(array $cfg): array
+{
+    $replica = is_array($cfg['replica'] ?? null) ? $cfg['replica'] : [];
+    return [
+        'name' => (string)($replica['name'] ?? ''),
+        'user' => (string)($replica['user'] ?? ''),
+        'has_password' => (string)($replica['password'] ?? '') !== '',
+    ];
+}
+
 function db_endpoint(array $cfg, string $role): array
 {
     if ($role === 'replica') {
