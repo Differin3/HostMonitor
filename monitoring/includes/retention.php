@@ -74,9 +74,31 @@ function retention_table_exists(PDO $pdo, string $table): bool
     return (bool)$stmt->fetchColumn();
 }
 
-function retention_delete_before(PDO $pdo, string $table, string $column, string $cutoff, int $batch): int
+/**
+ * Есть ли колонка в таблице.
+ *
+ * Нужна там, где чистка обращается к колонке по имени. Набор таблиц в
+ * retention задан списком, но схемы у них разные: например, auth_logs —
+ * это журнал входов на самой панели, у него нет node_id, и попытка
+ * чистить его «по нодам» валится в SQL-ошибку и превращает ручную очистку
+ * в 500. Проверка колонки позволяет пропустить такую таблицу, а не падать.
+ */
+function retention_column_exists(PDO $pdo, string $table, string $column): bool
 {
     if (!retention_table_exists($pdo, $table)) {
+        return false;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT 1 FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1'
+    );
+    $stmt->execute([$table, $column]);
+    return (bool)$stmt->fetchColumn();
+}
+
+function retention_delete_before(PDO $pdo, string $table, string $column, string $cutoff, int $batch): int
+{
+    if (!retention_column_exists($pdo, $table, $column)) {
         return 0;
     }
     $deleted = 0;
@@ -104,7 +126,7 @@ function retention_approx_rows(PDO $pdo, string $table): int
 
 function retention_trim_oldest(PDO $pdo, string $table, int $keep, int $batch): int
 {
-    if ($keep <= 0 || !retention_table_exists($pdo, $table)) {
+    if ($keep <= 0 || !retention_column_exists($pdo, $table, 'timestamp')) {
         return 0;
     }
     $approx = retention_approx_rows($pdo, $table);
@@ -132,7 +154,9 @@ function retention_trim_oldest(PDO $pdo, string $table, int $keep, int $batch): 
 
 function retention_trim_per_node(PDO $pdo, string $table, int $keep, int $batch): int
 {
-    if ($keep <= 0 || !retention_table_exists($pdo, $table)) {
+    // auth_logs и подобные журналы панели не привязаны к ноде: без node_id
+    // «прижимать по нодам» нечего, и запрос сломал бы всю очистку.
+    if ($keep <= 0 || !retention_column_exists($pdo, $table, 'node_id') || !retention_column_exists($pdo, $table, 'timestamp')) {
         return 0;
     }
     $deleted = 0;
@@ -172,37 +196,55 @@ function retention_run(PDO $pdo, bool $applyRowCaps = true): array
         'log_days' => $cfg['log_days'],
         'metrics_days' => $cfg['metrics_days'],
         'deleted' => [],
+        'errors' => [],
     ];
+
+    // Каждая таблица чистится изолированно. Схемы у таблиц разные (у
+    // auth_logs нет node_id, database_metrics может отсутствовать), и одна
+    // такая таблица не должна ронять всю ручную очистку в 500: ошибку
+    // запоминаем в errors и продолжаем с остальными.
+    $each = static function (string $label, callable $fn) use (&$result): void {
+        try {
+            $result['deleted'][$label] = $fn();
+        } catch (Throwable $e) {
+            app_log_warning('[retention] ' . $label . ': ' . $e->getMessage());
+            $result['errors'][$label] = $e->getMessage();
+        }
+    };
 
     $logTables = ['logs', 'process_logs', 'container_logs', 'ssh_auth_logs', 'auth_logs'];
     foreach ($logTables as $table) {
-        $result['deleted'][$table] = retention_delete_before($pdo, $table, 'timestamp', $logCutoff, $batch);
+        $each($table, static fn(): int => retention_delete_before($pdo, $table, 'timestamp', $logCutoff, $batch));
     }
 
-    $result['deleted']['metrics'] = retention_delete_before($pdo, 'metrics', 'timestamp', $metricsCutoff, $batch);
-    $result['deleted']['gpu_metrics'] = retention_delete_before($pdo, 'gpu_metrics', 'timestamp', $metricsCutoff, $batch);
-    $result['deleted']['database_metrics'] = retention_delete_before($pdo, 'database_metrics', 'timestamp', $metricsCutoff, $batch);
-    $result['deleted']['smart_metrics'] = retention_delete_before($pdo, 'smart_metrics', 'timestamp', $metricsCutoff, $batch);
-    $result['deleted']['update_history'] = retention_delete_before($pdo, 'update_history', 'timestamp', $updatesCutoff, $batch);
+    $each('metrics', static fn(): int => retention_delete_before($pdo, 'metrics', 'timestamp', $metricsCutoff, $batch));
+    $each('gpu_metrics', static fn(): int => retention_delete_before($pdo, 'gpu_metrics', 'timestamp', $metricsCutoff, $batch));
+    $each('database_metrics', static fn(): int => retention_delete_before($pdo, 'database_metrics', 'timestamp', $metricsCutoff, $batch));
+    $each('smart_metrics', static fn(): int => retention_delete_before($pdo, 'smart_metrics', 'timestamp', $metricsCutoff, $batch));
+    $each('update_history', static fn(): int => retention_delete_before($pdo, 'update_history', 'timestamp', $updatesCutoff, $batch));
 
-    $result['deleted']['alerts'] = 0;
-    if (retention_table_exists($pdo, 'alerts')) {
+    $each('alerts', static function () use ($pdo, $alertsCutoff, $batch): int {
+        if (!retention_table_exists($pdo, 'alerts')) {
+            return 0;
+        }
+        $deleted = 0;
         $stmt = $pdo->prepare("DELETE FROM alerts WHERE resolved = 1 AND created_at < ? LIMIT {$batch}");
         for ($i = 0; $i < 40; $i++) {
             $stmt->execute([$alertsCutoff]);
             $n = $stmt->rowCount();
-            $result['deleted']['alerts'] += $n;
+            $deleted += $n;
             if ($n < $batch) {
                 break;
             }
         }
-    }
+        return $deleted;
+    });
 
     if ($applyRowCaps) {
         foreach ($logTables as $table) {
-            $result['deleted'][$table . '_cap'] = retention_trim_oldest($pdo, $table, $cfg['log_max_rows'], $batch);
+            $each($table . '_cap', static fn(): int => retention_trim_oldest($pdo, $table, $cfg['log_max_rows'], $batch));
             if ($cfg['log_max_rows_per_node'] > 0) {
-                $result['deleted'][$table . '_node'] = retention_trim_per_node($pdo, $table, $cfg['log_max_rows_per_node'], $batch);
+                $each($table . '_node', static fn(): int => retention_trim_per_node($pdo, $table, $cfg['log_max_rows_per_node'], $batch));
             }
         }
     }

@@ -110,6 +110,12 @@ jobs:
         # только чтения исходников, подключения к БД не нужно.
         run: php tests/db_config_api.php compare tests/db_config_api.golden.json
 
+      - name: Тесты очистки истории
+        # Ручная очистка падала в 500 на auth_logs — журнал панели без
+        # node_id. Статическая часть проверяет защиту в исходниках; живая
+        # часть помечается skip без TEST_DB_DSN (полный прогон — job security).
+        run: php tests/test_retention.php
+
   frontend:
     name: Фронтенд
     runs-on: ubuntu-22.04
@@ -310,3 +316,12 @@ jobs:
           TEST_DB_USER: root
           TEST_DB_PASS: test
         run: php tests/test_enroll.php
+
+      - name: Тесты очистки истории (с БД)
+        # Живая проверка регрессии: retention_run(applyRowCaps=true) не должен
+        # падать на схеме без node_id (auth_logs — журнал входов панели).
+        env:
+          TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=monitoring'
+          TEST_DB_USER: root
+          TEST_DB_PASS: test
+        run: php tests/test_retention.php
