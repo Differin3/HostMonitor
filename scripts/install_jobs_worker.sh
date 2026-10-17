@@ -19,6 +19,10 @@ SERVICE_USER="${2:-$(stat -c '%U' "${INSTALL_DIR}/monitoring" 2>/dev/null || ech
 UNIT_NAME="hostmonitor-jobs"
 UNIT_SRC="${SCRIPT_DIR}/../systemd/${UNIT_NAME}.service"
 UNIT_DST="/etc/systemd/system/${UNIT_NAME}.service"
+WRAPPER_SRC="${SCRIPT_DIR}/hostmonitor_jobs_ensure.sh"
+WRAPPER_DST="/usr/local/sbin/hostmonitor-jobs-ensure"
+PRISTINE_DIR="/usr/local/share/hostmonitor"
+SUDOERS_DST="/etc/sudoers.d/hostmonitor-jobs"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "[jobs_worker] Нужен root: sudo bash $0" >&2
@@ -71,6 +75,44 @@ if ! grep -q '^Environment=.*DB_HOST' "${UNIT_DST}" 2>/dev/null; then
     sed -i "/^\[Service\]/a Environment=\"DB_PORT=3306\"" "${UNIT_DST}"
     sed -i "/^\[Service\]/a Environment=\"DB_NAME=monitoring\"" "${UNIT_DST}"
     sed -i "/^\[Service\]/a Environment=\"DB_USER=monitoring\"" "${UNIT_DST}"
+fi
+
+# ---------------------------------------------------------------------------
+# Автоматизация запуска воркера из панели.
+#
+# Обновление панели делает только git pull, а systemd требует root — значит,
+# веб-процесс не может поднять воркер сам. Даём ему ровно одно право: запускать
+# фиксированную root-обёртку без аргументов. Сама обёртка и эталонный юнит
+# кладутся в root-каталоги, чтобы их нельзя было подменить из репозитория
+# (репозиторий принадлежит сервисному пользователю, под которым работает PHP).
+# ---------------------------------------------------------------------------
+if [ ! -f "${WRAPPER_SRC}" ]; then
+    echo "[jobs_worker] Не найден ${WRAPPER_SRC} — панель не сможет запускать воркер сама" >&2
+else
+    install -d -m 755 "${PRISTINE_DIR}"
+    install -m 644 "${UNIT_DST}" "${PRISTINE_DIR}/${UNIT_NAME}.service"
+    install -m 755 -o root -g root "${WRAPPER_SRC}" "${WRAPPER_DST}"
+
+    PHP_USERS=()
+    for u in www-data nginx apache monitoring; do
+        if id "$u" &>/dev/null; then
+            PHP_USERS+=("$u")
+        fi
+    done
+    {
+        echo "# HostMonitor: запуск воркера фоновых задач из панели (root-обёртка без аргументов)."
+        echo "# Управляется scripts/install_jobs_worker.sh. Не редактировать вручную."
+        for u in "${PHP_USERS[@]}"; do
+            echo "${u} ALL=(root) NOPASSWD: ${WRAPPER_DST}"
+        done
+    } > "${SUDOERS_DST}"
+    chmod 440 "${SUDOERS_DST}"
+    if command -v visudo >/dev/null 2>&1 && ! visudo -cf "${SUDOERS_DST}" >/dev/null 2>&1; then
+        echo "[jobs_worker] Некорректный sudoers ${SUDOERS_DST} — удаляю" >&2
+        rm -f "${SUDOERS_DST}"
+    else
+        echo "[jobs_worker] Обёртка запуска воркера: ${WRAPPER_DST} (sudoers: ${SUDOERS_DST})"
+    fi
 fi
 
 # Каталог данных должен остаться доступен воркеру: там lock-файл и

@@ -212,9 +212,22 @@
         }
     }
 
+    function workerBlockHtml(worker) {
+        const view = WORKER_VIEWS[worker.state] || WORKER_VIEWS.unknown;
+        return `<div class="update-report-worker update-report-worker-${view.kind}">
+            <i data-lucide="${view.icon}"></i>
+            <div>
+                <strong>${escapeHtml(view.title)}</strong>
+                <p>${escapeHtml(worker.text || '')}</p>
+            </div>
+        </div>`;
+    }
+
     function showUpdateReport(data) {
         const worker = (data && data.worker) || {};
-        const view = WORKER_VIEWS[worker.state] || WORKER_VIEWS.unknown;
+        // Кнопка «Запустить воркер» уместна, только если воркер не поднят и
+        // сервер сообщил, что умеет его поднять (root-обёртка установлена).
+        const canEnsure = worker.state === 'missing' && !!worker.can_ensure;
         const commit = String((data && data.commit) || '').trim();
         const short = shortCommit(commit);
 
@@ -237,15 +250,10 @@
                         ${short ? `<div><dt>Коммит</dt><dd><code>${escapeHtml(short)}</code></dd></div>` : ''}
                         <div><dt>Итог</dt><dd>${escapeHtml((data && data.message) || 'Файлы панели обновлены')}</dd></div>
                     </dl>
-                    <div class="update-report-worker update-report-worker-${view.kind}">
-                        <i data-lucide="${view.icon}"></i>
-                        <div>
-                            <strong>${escapeHtml(view.title)}</strong>
-                            <p>${escapeHtml(worker.text || '')}</p>
-                        </div>
-                    </div>
+                    <div class="update-report-worker-slot">${workerBlockHtml(worker)}</div>
                 </div>
                 <div class="confirm-actions">
+                    ${canEnsure ? '<button type="button" class="btn-confirm" data-role="ensure"><i data-lucide="play"></i> Запустить воркер</button>' : ''}
                     <button type="button" class="btn-cancel" data-role="later">Позже</button>
                     <button type="button" class="btn-confirm success" data-role="reload">Обновить страницу</button>
                 </div>
@@ -258,6 +266,10 @@
 
         modal.querySelector('[data-role="later"]').addEventListener('click', close);
         modal.querySelector('[data-role="reload"]').addEventListener('click', () => location.reload());
+        const ensureBtn = modal.querySelector('[data-role="ensure"]');
+        if (ensureBtn) {
+            ensureBtn.addEventListener('click', () => runWorkerEnsure(modal, ensureBtn));
+        }
         modal.addEventListener('click', (ev) => {
             if (ev.target === modal) close();
         });
@@ -265,6 +277,28 @@
         modal.classList.remove('hidden');
         requestAnimationFrame(() => modal.classList.add('active'));
         paintIcons(modal);
+    }
+
+    async function runWorkerEnsure(modal, btn) {
+        if (btn.disabled) return;
+        setBtnLoading(btn, true, 'play');
+        try {
+            const data = await fetchJson(`${API}?action=ensure-worker`, { method: 'POST' });
+            const worker = (data && data.worker) || {};
+            const slot = modal.querySelector('.update-report-worker-slot');
+            if (slot) slot.innerHTML = workerBlockHtml(worker);
+            if (data && data.success) {
+                toast('Воркер запущен', 'success');
+                if (btn.parentNode) btn.parentNode.removeChild(btn);
+                paintIcons(modal);
+            } else {
+                toast((data && data.output) || 'Не удалось запустить воркер', 'warning');
+                setBtnLoading(btn, false, 'play');
+            }
+        } catch (e) {
+            toast(e.message || 'Не удалось запустить воркер', 'error');
+            setBtnLoading(btn, false, 'play');
+        }
     }
 
     function escapeHtml(value) {

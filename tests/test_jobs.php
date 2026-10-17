@@ -686,6 +686,93 @@ if (!empty($m)) {
     );
 }
 
+echo "\n== Автоматизация запуска воркера из панели ==\n";
+$ensureSrc = $root . '/scripts/hostmonitor_jobs_ensure.sh';
+check(is_file($ensureSrc), 'scripts/hostmonitor_jobs_ensure.sh на месте');
+$ensure = is_file($ensureSrc) ? (string)file_get_contents($ensureSrc) : '';
+// Обёртка запускается как root по NOPASSWD, поэтому её командная поверхность
+// фиксирована: никаких аргументов от вызывающего и чтения репозитория, который
+// пишет PHP-пользователь. Проверяем именно это, а не стиль.
+$ensureCode = (string)preg_replace('!^\s*#.*$!m', '', $ensure);
+check(
+    strpos($ensure, 'id -u') !== false && preg_match('/\bid -u\b.*-ne\s+0/s', $ensure) === 1,
+    'обёртка отказывается работать не от root'
+);
+check(
+    preg_match('/\$\{?[1-9]/', $ensureCode) !== 1,
+    'обёртка не читает позиционные аргументы — sudo-право выдано на пустую команду'
+);
+check(
+    strpos($ensure, 'PRISTINE_UNIT') !== false && strpos($ensure, '/usr/local/share/hostmonitor') !== false,
+    'юнит берётся из root-ового эталона, а не из репозитория'
+);
+check(
+    strpos($ensure, 'SYSTEMCTL_TIMEOUT') !== false && strpos($ensure, 'timeout') !== false,
+    'обращения к systemd ограничены по времени'
+);
+check(
+    strpos($ensure, 'is-active') !== false,
+    'обёртка проверяет, что юнит реально поднялся'
+);
+
+// Установщик обязан разложить обёртку, эталонный юнит и sudoers — иначе после
+// обновления существующей установки кнопка в панели останется недоступной.
+check(
+    strpos($ji, 'hostmonitor_jobs_ensure.sh') !== false,
+    'установщик копирует обёртку запуска воркера'
+);
+check(
+    strpos($ji, '/usr/local/sbin/hostmonitor-jobs-ensure') !== false,
+    'обёртка ставится в /usr/local/sbin (root-каталог)'
+);
+check(
+    strpos($ji, '/etc/sudoers.d/hostmonitor-jobs') !== false && strpos($ji, 'NOPASSWD') !== false,
+    'установщик выдаёт NOPASSWD-право ровно на обёртку'
+);
+check(
+    strpos($ji, 'visudo -cf') !== false,
+    'sudoers проверяется visudo, прежде чем остаться на диске'
+);
+check(
+    strpos($ji, '/usr/local/share/hostmonitor') !== false,
+    'эталонный юнит кладётся в /usr/local/share/hostmonitor'
+);
+
+// fix_panel_git.sh для уже установленных панелей должен доводить воркер сам.
+$fixGit = (string)@file_get_contents($root . '/scripts/fix_panel_git.sh');
+check(
+    strpos($fixGit, 'install_jobs_worker.sh') !== false,
+    'fix_panel_git.sh доставляет воркер на существующих установках'
+);
+
+// Функции ensure объявлены и безопасны в окружении без root-обёртки.
+foreach (['panel_worker_ensure_path', 'panel_worker_ensure_available', 'panel_worker_ensure'] as $fn) {
+    check(function_exists($fn), "функция {$fn} объявлена");
+}
+$ensurePath = panel_worker_ensure_path();
+check(
+    is_string($ensurePath) && strpos($ensurePath, 'hostmonitor-jobs-ensure') !== false,
+    'путь обёртки по умолчанию — /usr/local/sbin/hostmonitor-jobs-ensure',
+    $ensurePath
+);
+check(is_bool(panel_worker_ensure_available()), 'доступность обёртки — булев ответ');
+check(
+    array_key_exists('can_ensure', $rep),
+    'в отчёте есть can_ensure — UI знает, можно ли поднять воркер'
+);
+$ensureRes = panel_worker_ensure();
+check(
+    is_array($ensureRes) && array_key_exists('ok', $ensureRes) && array_key_exists('configured', $ensureRes),
+    'panel_worker_ensure возвращает ok/configured даже без обёртки'
+);
+
+// API: действие ensure-worker существует и вызывает panel_worker_ensure().
+$apiSrc = (string)@file_get_contents($root . '/monitoring/api/panel_update.php');
+check(
+    strpos($apiSrc, "'ensure-worker'") !== false && strpos($apiSrc, 'panel_worker_ensure()') !== false,
+    'API принимает action=ensure-worker'
+);
+
 echo "\n";
 echo "\n";
 echo "Пройдено: {$passed}, провалено: {$failed}\n";

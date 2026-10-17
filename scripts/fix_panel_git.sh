@@ -65,6 +65,15 @@ echo "[fix_panel_git] test wrapper (как PHP)..."
 sudo -u "${SERVICE_USER}" -H "${WRAPPER}" "${ROOT}" fetch origin --prune
 echo "[fix_panel_git] OK"
 
+# Воркер фоновых задач: доставить юнит, root-обёртку и sudoers, чтобы панель
+# могла поднимать воркер сама. Без этого после обновления юнит ставили руками.
+if [[ -f "${ROOT}/scripts/install_jobs_worker.sh" ]]; then
+  sudo bash "${ROOT}/scripts/install_jobs_worker.sh" "${ROOT}" "${SERVICE_USER}" \
+    || echo "[fix_panel_git] ВНИМАНИЕ: воркер фоновых задач не настроен" >&2
+else
+  echo "[fix_panel_git] нет ${ROOT}/scripts/install_jobs_worker.sh — сначала обновите панель" >&2
+fi
+
 # перезапуск веб-сервиса, если есть
 if systemctl list-unit-files | grep -qE '^(monitoring-web|hostmonitor-web)\.service'; then
   UNIT=$(systemctl list-unit-files | awk '/^(monitoring-web|hostmonitor-web)\.service/{print $1; exit}')
