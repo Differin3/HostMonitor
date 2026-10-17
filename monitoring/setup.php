@@ -46,8 +46,12 @@ $old = [
     'replica_port' => $_POST['replica_port'] ?? ($oldReplica['port'] ?? '3306'),
     'replica_name' => $_POST['replica_name'] ?? ($oldReplica['name'] ?? ''),
     'replica_user' => $_POST['replica_user'] ?? ($oldReplica['user'] ?? ''),
-    'replica_ssl' => isset($_POST['replica_ssl']),
-    'replica_ssl_verify' => isset($_POST['replica_ssl_verify']),
+    'replica_ssl' => ($_SERVER['REQUEST_METHOD'] === 'POST')
+        ? isset($_POST['replica_ssl'])
+        : !empty($oldReplica['ssl']),
+    'replica_ssl_verify' => ($_SERVER['REQUEST_METHOD'] === 'POST')
+        ? isset($_POST['replica_ssl_verify'])
+        : !empty($oldReplica['ssl_verify']),
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
