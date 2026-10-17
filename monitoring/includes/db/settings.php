@@ -115,6 +115,7 @@ function settings_defaults(): array
         'min_password_length' => '8',
         'session_timeout_minutes' => '60',
         'api_rate_limit' => '100',
+        'update_branch' => '',
     ];
 }
 
@@ -361,6 +362,15 @@ function settings_normalize(string $key, $value): string
                 throw new InvalidArgumentException('Лимит запросов: 10–10 000 в минуту');
             }
             return (string)$n;
+        case 'update_branch':
+            // Канал обновления панели: имя ветки origin. Пусто — не выбран.
+            if ($raw === '') {
+                return '';
+            }
+            if (!preg_match('#^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$#', $raw) || strpos($raw, '..') !== false) {
+                throw new InvalidArgumentException('Канал обновления: недопустимое имя ветки');
+            }
+            return $raw;
         default:
             throw new InvalidArgumentException('Неизвестный ключ настройки');
     }

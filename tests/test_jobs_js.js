@@ -844,12 +844,6 @@ async function main() {
         check(/position:\s*fixed/.test(topMenu), 'меню шапки фиксировано от вьюпорта', topMenu.trim());
         check(/max-width:\s*none/.test(topMenu), 'меню шапки не ограничено десктопными 360px', topMenu.trim());
 
-        const branch = mblock('.panel-update-branch');
-        check(branch !== '', 'в mobile.css есть правило для селектора ветки');
-        check(/max-width:\s*\d\dpx/.test(branch), 'селектор ветки ограничен по ширине', branch.trim());
-        const cap = Number((branch.match(/max-width:\s*(\d+)px/) || [])[1]);
-        check(!(cap > 100), `ширина селектора ужата до ${cap}px, чтобы шапка не разъезжалась`);
-
         const topRight = mblock('.topbar-right');
         check(/min-width:\s*0/.test(topRight), 'правая группа шапки может сжиматься', topRight.trim());
         check(/flex-shrink:\s*0/.test(topRight), 'правая группа не сжимается в ноль', topRight.trim());

@@ -22,6 +22,9 @@ render_layout_start('Настройки', 'settings');
             <button class="tab-btn" type="button" data-tab="security">Безопасность</button>
             <button class="tab-btn" type="button" data-tab="api">API</button>
             <button class="tab-btn" type="button" data-tab="database">База данных</button>
+            <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
+            <button class="tab-btn" type="button" data-tab="panel-update">Обновление панели</button>
+            <?php endif; ?>
             <button class="tab-btn" type="button" data-tab="manage">Управление</button>
         </div>
 
@@ -498,6 +501,61 @@ render_layout_start('Настройки', 'settings');
                     </div>
                 </div>
             </div>
+            <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
+            <div class="tab-content" id="panel-update-tab">
+                <div class="settings-section">
+                    <h3>Обновление панели</h3>
+                    <p class="form-hint-text">
+                        Панель устанавливается из git-репозитория. Канал обновления (ветка) сохраняется
+                        в базе и переживает перезагрузку страницы; версия — это коммит текущей сборки.
+                    </p>
+
+                    <div class="form-field">
+                        <label for="panelUpdateBranch">Канал обновления</label>
+                        <select id="panelUpdateBranch"
+                                title="Канал обновления панели: main — стабильная, dev — разработка"
+                                aria-label="Канал обновления панели">
+                            <option value="">— ветка не выбрана —</option>
+                        </select>
+                        <small><code>main</code> — стабильная версия, <code>dev</code> — разработка. Сохраняется сразу после выбора.</small>
+                    </div>
+
+                    <dl class="update-report-list" id="panelUpdateTabMeta">
+                        <div>
+                            <dt>Установлено</dt>
+                            <dd id="panelUpdateTabVersion">—</dd>
+                        </div>
+                        <div>
+                            <dt>Статус</dt>
+                            <dd id="panelUpdateTabStatus">Проверка…</dd>
+                        </div>
+                    </dl>
+
+                    <div class="ha-actions ha-actions-primary">
+                        <button type="button" class="primary" id="panelUpdateTabCheckBtn">
+                            <i data-lucide="refresh-cw"></i> Проверить обновления
+                        </button>
+                        <button type="button" class="primary hidden" id="panelUpdateTabApplyBtn">
+                            <i data-lucide="download"></i> Обновить панель
+                        </button>
+                    </div>
+
+                    <div id="panelUpdateTabCommits" class="update-confirm-commits hidden"></div>
+
+                    <h3 style="margin-top:24px">Релизы</h3>
+                    <p class="form-hint-text">
+                        Git-теги репозитория. Отмечайте релизы тегами (например, <code>v1.2.0</code>) —
+                        они появятся здесь.
+                    </p>
+                    <div id="panelUpdateTabReleases" class="panel-update-releases">
+                        <span class="panel-update-empty">Загрузка…</span>
+                    </div>
+
+                    <h3 style="margin-top:24px">Журнал изменений</h3>
+                    <pre class="ha-log panel-update-changelog" id="panelUpdateTabChangelog">Загрузка…</pre>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
 
         <div class="settings-actions" id="settings-footer">

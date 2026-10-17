@@ -108,12 +108,6 @@ body.hm-nav-locked {
         min-width: 0;
     }
 
-    .panel-update-branch {
-        max-width: 140px;
-        min-width: 0;
-        flex: 0 1 auto;
-    }
-
     /* Версия панели — справочная, на узком экране уступает место. */
     .panel-update-version {
         display: none;
@@ -612,12 +606,6 @@ body.hm-nav-locked {
         overflow: hidden;
     }
 
-    .panel-update-branch {
-        max-width: 78px;
-        padding: 5px 18px 5px 6px;
-        font-size: 11px;
-    }
-
     .icon-btn {
         flex: 0 0 auto;
     }
@@ -720,18 +708,6 @@ body.hm-nav-locked {
     .jobs-bell-empty {
         padding: 22px 14px;
         font-size: 13px;
-    }
-}
-
-/* ——— Верхний бар: на телефонах убираем широкие/дублирующие контролы ———
- * Отдельные (не вложенные) media-запросы, чтобы правило применялось во всех
- * мобильных браузерах: при нехватке места ветка/«Мониторинг» иначе снова
- * наезжают друг на друга. */
-@media (max-width: 640px) {
-    /* Канал обновления выбирается на десктопе; проверка на телефоне
-     * использует текущую ветку (panel_update_check это поддерживает). */
-    .panel-update-branch {
-        display: none;
     }
 }
 

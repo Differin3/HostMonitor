@@ -202,9 +202,6 @@ function render_layout_start(string $title, string $activeSlug, string $actionsH
                     <?php if (($_SESSION['role'] ?? 'admin') === 'admin'): ?>
                     <div class="panel-update-actions" id="panelUpdateActions">
                         <span class="panel-update-version hidden" id="panelUpdateVersion" title="Версия панели" aria-label="Версия панели"></span>
-                        <select class="panel-update-branch" id="panelUpdateBranch" title="Канал обновления панели: main — стабильная, dev — разработка" aria-label="Канал обновления панели">
-                            <option value="">— ветка не выбрана —</option>
-                        </select>
                         <button type="button" class="icon-btn panel-update-check" id="panelUpdateCheckBtn" title="Проверить обновление панели" aria-label="Проверить обновление панели">
                             <i data-lucide="refresh-cw"></i>
                         </button>

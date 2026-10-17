@@ -137,7 +137,7 @@ function activateSettingsTab(tabId) {
     });
     const footer = document.getElementById('settings-footer');
     if (footer) {
-        footer.classList.toggle('hidden', tabId === 'database');
+        footer.classList.toggle('hidden', tabId === 'database' || tabId === 'panel-update');
     }
     if (tabId === 'database') {
         loadDbHa(true);

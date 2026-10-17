@@ -365,6 +365,29 @@ check(!file_exists($canary), 'инъекция через apply не выпол�
       );
   }
   
+  // ─── Релизы (git-теги) и CHANGELOG для вкладки настроек ──────────────────────
+
+  sh('git ' . $author . ' tag v9.9.9', $work);
+  sh('git push -q origin v9.9.9', $work);
+  // panel_git_tag_list читает локальные refs, поэтому тег виден только после fetch.
+  sh('git fetch -q --tags origin', $panel);
+  $tags = panel_git_tag_list($panel);
+  check(
+      in_array('v9.9.9', $tags, true),
+      'panel_git_tag_list видит релизный тег',
+      implode(',', $tags)
+  );
+
+  file_put_contents($panel . '/CHANGELOG.md', "# Журнал\n\n- пункт\n");
+  check(
+      strpos(panel_changelog_text($panel), 'пункт') !== false,
+      'panel_changelog_text читает CHANGELOG.md'
+  );
+  check(
+      panel_changelog_text($panel . '/нет-такого') === '',
+      'panel_changelog_text без файла -> пусто'
+  );
+
   // ─── Итог ─────────────────────────────────────────────────────────────────────
   
   echo "\n";
