@@ -11,16 +11,13 @@ $menuItems = [
         'icon' => 'server',
         'children' => [
             ['slug' => 'nodes', 'label' => 'Управление', 'href' => 'nodes.php', 'icon' => 'settings'],
-            ['slug' => 'nodes-stats', 'label' => 'Статистика', 'href' => 'nodes_stats.php', 'icon' => 'bar-chart-2'],
             ['slug' => 'nodes-billing', 'label' => 'биллинг', 'href' => 'billing.php', 'icon' => 'wallet'],
-            ['slug' => 'nodes-traffic', 'label' => 'Расход трафика', 'href' => 'nodes_traffic.php', 'icon' => 'trending-up'],
-            ['slug' => 'nodes-metrics', 'label' => 'Метрики', 'href' => 'nodes_metrics.php', 'icon' => 'activity'],
-            ['slug' => 'nodes-ports', 'label' => 'Порты', 'href' => 'nodes_ports.php', 'icon' => 'network'],
             ['slug' => 'upnp', 'label' => 'UPnP', 'href' => 'upnp.php', 'icon' => 'router'],
             ['slug' => 'databases', 'label' => 'Базы данных', 'href' => 'databases.php', 'icon' => 'database'],
         ]
     ],
     ['slug' => 'nodes-network', 'label' => 'Сеть', 'href' => 'nodes_network.php', 'icon' => 'network'],
+    ['slug' => 'monitoring', 'label' => 'Мониторинг', 'href' => 'monitoring.php', 'icon' => 'activity'],
     ['slug' => 'processes', 'label' => 'Процессы', 'href' => 'processes.php', 'icon' => 'cpu'],
     [
         'slug' => 'containers',

@@ -1194,9 +1194,9 @@ function bindBoard() {
 const DETAIL_META = {
     nodes: { title: 'Ноды', link: 'nodes.php', metric: null, topKey: null },
     alerts: { title: 'Алерты', link: 'logs.php', metric: null, topKey: null },
-    cpu: { title: 'CPU', link: 'nodes_metrics.php', metric: 'cpu', topKey: 'top_cpu', color: '#60a5fa' },
-    ram: { title: 'RAM', link: 'nodes_metrics.php', metric: 'ram', topKey: 'top_ram', color: '#34d399' },
-    disk: { title: 'Диск', link: 'nodes_metrics.php', metric: 'disk', topKey: 'top_disk', color: '#fbbf24' },
+    cpu: { title: 'CPU', link: 'monitoring.php?tab=node', metric: 'cpu', topKey: 'top_cpu', color: '#60a5fa' },
+    ram: { title: 'RAM', link: 'monitoring.php?tab=node', metric: 'ram', topKey: 'top_ram', color: '#34d399' },
+    disk: { title: 'Диск', link: 'monitoring.php?tab=node', metric: 'disk', topKey: 'top_disk', color: '#fbbf24' },
     proc: { title: 'Процессы', link: 'processes.php', metric: null, topKey: null },
     db: { title: 'Базы данных', link: 'databases.php', metric: null, topKey: null },
     ct: { title: 'Контейнеры', link: 'containers.php', metric: null, topKey: null },

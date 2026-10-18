@@ -58,7 +58,7 @@ HTML;
                     <p class="stat-subtitle" id="alerts-sub">не закрыты</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-cpu" data-widget="stat-cpu" data-span="3" data-detail="cpu" data-href="nodes_metrics.php" data-title="CPU">
+            <article class="dash-widget stat-card" id="stat-cpu" data-widget="stat-cpu" data-span="3" data-detail="cpu" data-href="monitoring.php?tab=node" data-title="CPU">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #60a5fa, #2563eb);">
                     <i data-lucide="cpu"></i>
@@ -70,7 +70,7 @@ HTML;
                     <p class="stat-subtitle" id="cpu-sub">среднее · 5 мин</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-ram" data-widget="stat-ram" data-span="3" data-detail="ram" data-href="nodes_metrics.php" data-title="RAM">
+            <article class="dash-widget stat-card" id="stat-ram" data-widget="stat-ram" data-span="3" data-detail="ram" data-href="monitoring.php?tab=node" data-title="RAM">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
                     <i data-lucide="memory-stick"></i>
@@ -82,7 +82,7 @@ HTML;
                     <p class="stat-subtitle" id="ram-sub">среднее · 5 мин</p>
                 </div>
             </article>
-            <article class="dash-widget stat-card" id="stat-disk" data-widget="stat-disk" data-span="3" data-detail="disk" data-href="nodes_metrics.php" data-title="Диск">
+            <article class="dash-widget stat-card" id="stat-disk" data-widget="stat-disk" data-span="3" data-detail="disk" data-href="monitoring.php?tab=node" data-title="Диск">
                 <?= $chrome() ?>
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
                     <i data-lucide="hard-drive"></i>
@@ -290,7 +290,7 @@ HTML;
                 </div>
             </div>
             <div class="modal-actions">
-                <a class="btn-outline" id="dash-detail-link" href="nodes_metrics.php">Открыть раздел</a>
+                <a class="btn-outline" id="dash-detail-link" href="monitoring.php?tab=node">Открыть раздел</a>
                 <button type="button" class="primary" id="dash-detail-ok">Закрыть</button>
             </div>
         </div>
