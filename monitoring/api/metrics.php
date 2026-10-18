@@ -65,6 +65,45 @@ function metrics_ensure_schema(PDO $pdo): void
     $done = true;
 }
 
+function metrics_ensure_iface_table(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('network_interface_metrics')) {
+        $done = true;
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS network_interface_metrics (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            node_id INT NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            rx_bytes BIGINT DEFAULT 0,
+            tx_bytes BIGINT DEFAULT 0,
+            rx_sec FLOAT DEFAULT 0,
+            tx_sec FLOAT DEFAULT 0,
+            errin BIGINT DEFAULT 0,
+            errout BIGINT DEFAULT 0,
+            dropin BIGINT DEFAULT 0,
+            dropout BIGINT DEFAULT 0,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_ifm_node_ts (node_id, timestamp),
+            INDEX idx_ifm_node_name_ts (node_id, name, timestamp)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        if (function_exists('schema_marker_touch')) {
+            schema_marker_touch('network_interface_metrics');
+        }
+    } catch (Exception $e) {
+        app_log_warning('[metrics.php] network_interface_metrics ensure: ' . $e->getMessage());
+    }
+    $done = true;
+}
+
 function metrics_bucket_seconds(int $from, int $to, int $limit): int
 {
     $span = max(60, $to - $from);
@@ -74,6 +113,7 @@ function metrics_bucket_seconds(int $from, int $to, int $limit): int
 
 try {
     metrics_ensure_schema($pdo);
+    metrics_ensure_iface_table($pdo);
     switch ($method) {
         case 'GET':
             handleGet($pdo);
@@ -132,7 +172,103 @@ function handleGetGpu($pdo) {
     echo json_encode(['gpu' => $gpu]);
 }
 
+function handleGetInterfaces($pdo) {
+    $nodeId = isset($_GET['node_id']) ? (int)$_GET['node_id'] : 0;
+    if ($nodeId <= 0) {
+        echo json_encode(['interfaces' => [], 'series' => []]);
+        return;
+    }
+    metrics_ensure_iface_table($pdo);
+    $name = trim((string)($_GET['name'] ?? ''));
+
+    if ($name === '') {
+        $stmt = $pdo->prepare(
+            "SELECT m.name, m.rx_bytes, m.tx_bytes, m.rx_sec, m.tx_sec,
+                    m.errin, m.errout, m.dropin, m.dropout, m.timestamp
+             FROM network_interface_metrics m
+             INNER JOIN (
+                 SELECT name, MAX(timestamp) AS ts
+                 FROM network_interface_metrics
+                 WHERE node_id = ?
+                 GROUP BY name
+             ) last ON last.name = m.name AND last.ts = m.timestamp
+             WHERE m.node_id = ?
+             ORDER BY (m.rx_sec + m.tx_sec) DESC, m.name ASC"
+        );
+        $stmt->execute([$nodeId, $nodeId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $out = array_map(static function (array $r): array {
+            return [
+                'name' => (string)$r['name'],
+                'rx_bytes' => (float)$r['rx_bytes'],
+                'tx_bytes' => (float)$r['tx_bytes'],
+                'rx_sec' => (float)$r['rx_sec'],
+                'tx_sec' => (float)$r['tx_sec'],
+                'errin' => (int)$r['errin'],
+                'errout' => (int)$r['errout'],
+                'dropin' => (int)$r['dropin'],
+                'dropout' => (int)$r['dropout'],
+                'timestamp' => $r['timestamp'] ?? null,
+            ];
+        }, $rows);
+        echo json_encode(['interfaces' => $out]);
+        return;
+    }
+
+    $range = $_GET['range'] ?? '1h';
+    $limit = (int)($_GET['limit'] ?? 400);
+    $limit = max(20, min($limit, 800));
+    $from = isset($_GET['from']) ? (int)$_GET['from'] : null;
+    $to = isset($_GET['to']) ? (int)$_GET['to'] : null;
+    if ($from || $to) {
+        if (!$from) {
+            $from = ($to ?: time()) - 3600;
+        }
+        if (!$to) {
+            $to = time();
+        }
+    } else {
+        $timeRange = strtotime("-{$range}");
+        $from = $timeRange ?: time() - 3600;
+        $to = time();
+    }
+    $bucket = metrics_bucket_seconds((int)$from, (int)$to, $limit);
+
+    // Ошибки и дропы хранятся кумулятивно — за бакет берём MAX-MIN.
+    $sql = "SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(timestamp) / {$bucket}) * {$bucket}) AS ts,
+                   AVG(rx_sec) AS rx_sec,
+                   AVG(tx_sec) AS tx_sec,
+                   MAX(rx_bytes) AS rx_bytes,
+                   MAX(tx_bytes) AS tx_bytes,
+                   (MAX(errin + errout + dropin + dropout) - MIN(errin + errout + dropin + dropout)) AS errors,
+                   (MAX(dropin + dropout) - MIN(dropin + dropout)) AS drops
+            FROM network_interface_metrics
+            WHERE node_id = ? AND name = ?
+              AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+            GROUP BY 1
+            ORDER BY ts ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$nodeId, $name, $from, $to]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $series = array_map(static function (array $r): array {
+        return [
+            'ts' => $r['ts'],
+            'rx_sec' => (float)($r['rx_sec'] ?? 0),
+            'tx_sec' => (float)($r['tx_sec'] ?? 0),
+            'rx_bytes' => (float)($r['rx_bytes'] ?? 0),
+            'tx_bytes' => (float)($r['tx_bytes'] ?? 0),
+            'errors' => (int)($r['errors'] ?? 0),
+            'drops' => (int)($r['drops'] ?? 0),
+        ];
+    }, $rows);
+    echo json_encode(['name' => $name, 'series' => $series]);
+}
+
 function handleGet($pdo) {
+    if (!empty($_GET['interfaces'])) {
+        handleGetInterfaces($pdo);
+        return;
+    }
     if (!empty($_GET['gpu'])) {
         handleGetGpu($pdo);
         return;
@@ -339,6 +475,40 @@ function handlePost($pdo) {
     ]);
     $id = $pdo->lastInsertId();
     retention_maybe_tick($pdo);
+
+    // Per-interface счётчики: история трафика/ошибок по каждому линку.
+    if (!empty($row['interfaces']) && is_array($row['interfaces'])) {
+        try {
+            $ifStmt = $pdo->prepare(
+                "INSERT INTO network_interface_metrics
+                    (node_id, name, rx_bytes, tx_bytes, rx_sec, tx_sec, errin, errout, dropin, dropout)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+            foreach ($row['interfaces'] as $iface) {
+                if (!is_array($iface)) {
+                    continue;
+                }
+                $ifName = substr((string)($iface['name'] ?? ''), 0, 100);
+                if ($ifName === '') {
+                    continue;
+                }
+                $ifStmt->execute([
+                    (int)$nodeId,
+                    $ifName,
+                    (int)($iface['rx_bytes'] ?? 0),
+                    (int)($iface['tx_bytes'] ?? 0),
+                    (float)($iface['rx_sec'] ?? 0),
+                    (float)($iface['tx_sec'] ?? 0),
+                    (int)($iface['errin'] ?? 0),
+                    (int)($iface['errout'] ?? 0),
+                    (int)($iface['dropin'] ?? 0),
+                    (int)($iface['dropout'] ?? 0),
+                ]);
+            }
+        } catch (Exception $e) {
+            app_log_warning('[metrics.php] iface metrics insert: ' . $e->getMessage());
+        }
+    }
 
     if ($gpuInfo && is_array($gpuInfo)) {
         try {

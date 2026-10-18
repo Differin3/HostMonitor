@@ -31,6 +31,17 @@ class NetworkMixin:
     def _normalize_ipv6(addr: str) -> str:
         return (addr or '').split('%', 1)[0].strip()
 
+    @staticmethod
+    def _mac_from_sysfs(name: str) -> str:
+        try:
+            with open(f'/sys/class/net/{name}/address', encoding='utf-8') as fh:
+                mac = (fh.read() or '').strip().lower()
+        except OSError:
+            return ''
+        if mac in ('', '00:00:00:00:00:00'):
+            return ''
+        return mac
+
     @classmethod
     def _ipv6_rank(cls, addr: str) -> int:
         a = cls._normalize_ipv6(addr).lower()
@@ -257,6 +268,7 @@ class NetworkMixin:
                     'ipv6_netmask': ipv6_netmask or '',
                     'gateway': gateways4.get(interface_name) or '',
                     'gateway6': gateways6.get(interface_name) or '',
+                    'mac': self._mac_from_sysfs(interface_name),
                     'status': 'up' if stats and stats.isup else 'down',
                     'speed': stats.speed if stats else 0,
                     'rx_bytes': io_counters.bytes_recv if io_counters else 0,

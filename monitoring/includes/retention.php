@@ -44,6 +44,7 @@ function retention_ensure_indexes(PDO $pdo): void
     $indexes = [
         ['metrics', 'idx_node_ts', 'ALTER TABLE metrics ADD INDEX idx_node_ts (node_id, timestamp)'],
         ['gpu_metrics', 'idx_gpu_node_ts', 'ALTER TABLE gpu_metrics ADD INDEX idx_gpu_node_ts (node_id, timestamp)'],
+        ['network_interface_metrics', 'idx_ifm_node_ts', 'ALTER TABLE network_interface_metrics ADD INDEX idx_ifm_node_ts (node_id, timestamp)'],
         ['alerts', 'idx_alerts_resolved_created', 'ALTER TABLE alerts ADD INDEX idx_alerts_resolved_created (resolved, created_at)'],
         ['logs', 'idx_logs_ts', 'ALTER TABLE logs ADD INDEX idx_logs_ts (timestamp)'],
         ['logs', 'idx_logs_node_ts', 'ALTER TABLE logs ADD INDEX idx_logs_node_ts (node_id, timestamp)'],
@@ -219,6 +220,7 @@ function retention_run(PDO $pdo, bool $applyRowCaps = true): array
 
     $each('metrics', static fn(): int => retention_delete_before($pdo, 'metrics', 'timestamp', $metricsCutoff, $batch));
     $each('gpu_metrics', static fn(): int => retention_delete_before($pdo, 'gpu_metrics', 'timestamp', $metricsCutoff, $batch));
+    $each('network_interface_metrics', static fn(): int => retention_delete_before($pdo, 'network_interface_metrics', 'timestamp', $metricsCutoff, $batch));
     $each('database_metrics', static fn(): int => retention_delete_before($pdo, 'database_metrics', 'timestamp', $metricsCutoff, $batch));
     $each('smart_metrics', static fn(): int => retention_delete_before($pdo, 'smart_metrics', 'timestamp', $metricsCutoff, $batch));
     $each('update_history', static fn(): int => retention_delete_before($pdo, 'update_history', 'timestamp', $updatesCutoff, $batch));

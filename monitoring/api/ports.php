@@ -26,6 +26,7 @@ function ensure_network_interfaces_table(PDO $pdo): void
         id INT AUTO_INCREMENT PRIMARY KEY,
         node_id INT NOT NULL,
         name VARCHAR(100) NOT NULL,
+        mac VARCHAR(32) DEFAULT NULL,
         ip VARCHAR(45),
         ipv6 VARCHAR(45) DEFAULT NULL,
         netmask VARCHAR(45),
@@ -57,6 +58,24 @@ function ensure_network_interfaces_table(PDO $pdo): void
     }
 }
 
+function ensure_network_interfaces_mac_column(PDO $pdo): void
+{
+    if (function_exists('schema_marker_fresh') && schema_marker_fresh('network_interfaces_mac')) {
+        return;
+    }
+    if (function_exists('schema_short_lock')) {
+        schema_short_lock($pdo);
+    }
+    try {
+        $pdo->exec('ALTER TABLE network_interfaces ADD COLUMN mac VARCHAR(32) DEFAULT NULL AFTER name');
+    } catch (Exception $e) {
+        // колонка уже есть
+    }
+    if (function_exists('schema_marker_touch')) {
+        schema_marker_touch('network_interfaces_mac');
+    }
+}
+
 function ensure_network_neighbors_table(PDO $pdo): void
 {
     $pdo->exec("CREATE TABLE IF NOT EXISTS network_neighbors (
@@ -82,6 +101,7 @@ try {
 
             try {
                 ensure_network_interfaces_table($pdo);
+                ensure_network_interfaces_mac_column($pdo);
             } catch (Exception $e) {
                 app_log_warning("Error creating network_interfaces table: " . $e->getMessage());
             }
@@ -104,6 +124,35 @@ try {
             $interfaces = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             echo json_encode(['interfaces' => $interfaces]);
+            exit;
+        }
+
+        // Соседи (ARP/LLDP) для вкладки «Сеть»
+        if ($action === 'neighbors') {
+            $nodeId = $_GET['node_id'] ?? null;
+
+            try {
+                ensure_network_neighbors_table($pdo);
+            } catch (Exception $e) {
+                app_log_warning("Error creating network_neighbors table: " . $e->getMessage());
+            }
+
+            $sql = "SELECT ni.*, COALESCE(n.name, CONCAT('Node ', ni.node_id)) as node_name
+                    FROM network_neighbors ni
+                    LEFT JOIN nodes n ON ni.node_id = n.id
+                    WHERE 1=1";
+            $params = [];
+            if ($nodeId) {
+                $sql .= " AND ni.node_id = ?";
+                $params[] = $nodeId;
+            }
+            $sql .= " ORDER BY ni.node_id ASC, ni.ip ASC";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $neighbors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode(['neighbors' => $neighbors]);
             exit;
         }
         
@@ -232,6 +281,7 @@ try {
             
             try {
                 ensure_network_interfaces_table($pdo);
+                ensure_network_interfaces_mac_column($pdo);
             } catch (Exception $e) {
                 app_log_warning("Error creating network_interfaces table: " . $e->getMessage());
             }
@@ -242,11 +292,12 @@ try {
             $deleteStmt->execute([$nodeId]);
 
             if (count($interfaces) > 0) {
-                $stmt = $pdo->prepare("INSERT INTO network_interfaces (node_id, name, ip, ipv6, netmask, ipv6_netmask, gateway, gateway6, status, speed, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO network_interfaces (node_id, name, mac, ip, ipv6, netmask, ipv6_netmask, gateway, gateway6, status, speed, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 foreach ($interfaces as $iface) {
                     $stmt->execute([
                         $nodeId,
                         $iface['name'] ?? 'unknown',
+                        $iface['mac'] ?? null,
                         $iface['ip'] ?? null,
                         $iface['ipv6'] ?? null,
                         $iface['netmask'] ?? null,

@@ -86,6 +86,24 @@ CREATE TABLE IF NOT EXISTS gpu_metrics (
     INDEX idx_node_id (node_id),
     INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Per-interface метрики (трафик и ошибки по каждому сетевому интерфейсу)
+CREATE TABLE IF NOT EXISTS network_interface_metrics (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    rx_bytes BIGINT DEFAULT 0,
+    tx_bytes BIGINT DEFAULT 0,
+    rx_sec FLOAT DEFAULT 0,
+    tx_sec FLOAT DEFAULT 0,
+    errin BIGINT DEFAULT 0,
+    errout BIGINT DEFAULT 0,
+    dropin BIGINT DEFAULT 0,
+    dropout BIGINT DEFAULT 0,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_ifm_node_ts (node_id, timestamp),
+    INDEX idx_ifm_node_name_ts (node_id, name, timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- Таблица процессов
 CREATE TABLE IF NOT EXISTS processes (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -603,6 +621,26 @@ CREATE TABLE IF NOT EXISTS upnp_port_mappings (
     UNIQUE KEY uniq_map (device_id, external_port, protocol, remote_host),
     INDEX idx_device_id (device_id),
     FOREIGN KEY (device_id) REFERENCES upnp_devices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS network_interfaces (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    node_id INT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    mac VARCHAR(32) DEFAULT NULL,
+    ip VARCHAR(45),
+    ipv6 VARCHAR(45) DEFAULT NULL,
+    netmask VARCHAR(45),
+    ipv6_netmask VARCHAR(45) DEFAULT NULL,
+    gateway VARCHAR(45) DEFAULT NULL,
+    gateway6 VARCHAR(45) DEFAULT NULL,
+    status VARCHAR(20),
+    speed INT DEFAULT 0,
+    rx_bytes BIGINT DEFAULT 0,
+    tx_bytes BIGINT DEFAULT 0,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    INDEX idx_node_id (node_id),
+    INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS network_neighbors (
     id INT AUTO_INCREMENT PRIMARY KEY,

@@ -241,6 +241,65 @@ class SystemMixin:
             return phys_recv, phys_sent
         return bridge_recv, bridge_sent
 
+    def _collect_iface_rates(self, elapsed):
+        """Счётчики и скорость по каждому сетевому интерфейсу.
+
+        Нужны для вкладки «Сеть»: история трафика по линку + ошибки/дропы,
+        по которым видно «сыпет ли интерфейс». Берём только реальные NIC
+        (без lo/veth/tun/tap), чтобы история не пухла от контейнеров и loopback.
+        """
+        try:
+            pernic = psutil.net_io_counters(pernic=True) or {}
+        except Exception:
+            return []
+        prev = getattr(self, 'last_iface_counters', None)
+        if prev is None:
+            prev = {}
+            self.last_iface_counters = prev
+        rows = []
+        for name, io in pernic.items():
+            low = (name or '').lower()
+            if not low or low == 'lo' or low.startswith('lo:') \
+                    or low.startswith('veth') or low.startswith('tun') or low.startswith('tap'):
+                continue
+            rx = int(getattr(io, 'bytes_recv', 0) or 0)
+            tx = int(getattr(io, 'bytes_sent', 0) or 0)
+            errin = int(getattr(io, 'errin', 0) or 0)
+            errout = int(getattr(io, 'errout', 0) or 0)
+            dropin = int(getattr(io, 'dropin', 0) or 0)
+            dropout = int(getattr(io, 'dropout', 0) or 0)
+            before = prev.get(name)
+            if before and elapsed > 0:
+                rx_sec = max(0.0, (rx - before['rx']) / elapsed)
+                tx_sec = max(0.0, (tx - before['tx']) / elapsed)
+                err_delta = max(0, (errin + errout) - (before['errin'] + before['errout']))
+                drop_delta = max(0, (dropin + dropout) - (before['dropin'] + before['dropout']))
+            else:
+                rx_sec = 0.0
+                tx_sec = 0.0
+                err_delta = 0
+                drop_delta = 0
+            prev[name] = {
+                'rx': rx, 'tx': tx,
+                'errin': errin, 'errout': errout,
+                'dropin': dropin, 'dropout': dropout,
+            }
+            rows.append({
+                'name': name,
+                'rx_bytes': rx,
+                'tx_bytes': tx,
+                'rx_sec': round(rx_sec, 2),
+                'tx_sec': round(tx_sec, 2),
+                'errin': errin,
+                'errout': errout,
+                'dropin': dropin,
+                'dropout': dropout,
+                'err_delta': err_delta,
+                'drop_delta': drop_delta,
+            })
+        rows.sort(key=lambda r: (r['rx_sec'] + r['tx_sec']), reverse=True)
+        return rows
+
     def _disk_usage_main(self):
         skip_fs = {'tmpfs', 'devtmpfs', 'overlay', 'squashfs', 'aufs', 'ramfs', 'proc', 'sysfs', 'cgroup', 'cgroup2', 'iso9660'}
         skip_mp = ('/boot', '/dev', '/run', '/sys', '/proc', '/snap', '/var/lib/docker', '/var/lib/containers')
@@ -352,6 +411,8 @@ class SystemMixin:
             self.last_network_in = bytes_recv
             self.last_network_out = bytes_sent
 
+        iface_metrics = self._collect_iface_rates(elapsed)
+
         metrics = {
             "node_name": self.node_name,
             "timestamp": datetime.now().isoformat(),
@@ -370,6 +431,8 @@ class SystemMixin:
             "network_out": round(network_out_sec, 2),
             "network_in_total": bytes_recv,
             "network_out_total": bytes_sent,
+            # Per-interface counters (см. _collect_iface_rates)
+            "interfaces": iface_metrics,
             # Платформа
             "os_name": self._platform.get('os_name', ''),
             "os_family": self._platform.get('os_family', ''),

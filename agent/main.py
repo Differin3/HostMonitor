@@ -91,6 +91,7 @@ class MonitoringAgent(
         # Храним предыдущие значения для расчета расхода трафика
         self.last_network_in = 0
         self.last_network_out = 0
+        self.last_iface_counters = {}
         self.last_collect_time = time.time()
         self.first_network_read = True
         self.upnp_devices = []
