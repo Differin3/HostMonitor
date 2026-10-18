@@ -1,5 +1,6 @@
 // Управление процессами
 const API_URL = API_BASE;
+const CPU_ACTIVE_THRESHOLD = 0.1;
 let allProcesses = [];
 let filteredProcesses = [];
 let selectedNodeId = null;
@@ -86,8 +87,9 @@ function renderProcessSummary(processes) {
     if (!summary) return;
 
     const list = processes || [];
-    const counts = { running: 0, sleeping: 0, stopped: 0 };
+    const counts = { running: 0, active: 0, sleeping: 0, stopped: 0 };
     list.forEach(p => {
+        if ((parseFloat(p.cpu_percent) || 0) > CPU_ACTIVE_THRESHOLD) counts.active++;
         const status = String(p.status || '').toLowerCase();
         if (status.includes('run')) {
             counts.running++;
@@ -104,6 +106,7 @@ function renderProcessSummary(processes) {
     };
     setText('processes-total', list.length);
     setText('processes-running', counts.running);
+    setText('processes-active', counts.active);
     setText('processes-sleeping', counts.sleeping);
     setText('processes-stopped', counts.stopped);
 

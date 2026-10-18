@@ -31,11 +31,22 @@ render_layout_start('Процессы', 'processes', '<button class="primary" on
             </div>
             <div class="stat-card">
                 <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
-                    <i data-lucide="play"></i>
+                    <i data-lucide="zap"></i>
                 </div>
                 <div class="stat-card-content">
-                    <h3>Запущено</h3>
+                    <h3>Сейчас на CPU</h3>
                     <div class="stat-value" id="processes-running">0</div>
+                    <p class="stat-subtitle">в момент опроса</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #22d3ee, #0891b2);">
+                    <i data-lucide="activity"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Активные</h3>
+                    <div class="stat-value" id="processes-active">0</div>
+                    <p class="stat-subtitle">CPU &gt; 0.1%</p>
                 </div>
             </div>
             <div class="stat-card">
@@ -45,6 +56,7 @@ render_layout_start('Процессы', 'processes', '<button class="primary" on
                 <div class="stat-card-content">
                     <h3>Ожидают</h3>
                     <div class="stat-value" id="processes-sleeping">0</div>
+                    <p class="stat-subtitle">спят в ожидании</p>
                 </div>
             </div>
             <div class="stat-card">
