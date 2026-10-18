@@ -8,7 +8,6 @@ let metricsRange = '1h';
 let resChart = null;
 let netChart = null;
 let loadChart = null;
-let cumChart = null;
 let chartsInited = false;
 
 const formatUptime = (sec) => {
@@ -135,7 +134,6 @@ function showMetricsData() {
         resChart?.resize();
         netChart?.resize();
         loadChart?.resize();
-        cumChart?.resize();
     });
 }
 
@@ -144,14 +142,13 @@ function paintRangeButtons() {
         btn.classList.toggle('active', btn.dataset.range === metricsRange);
     });
     const label = RANGE_LABEL[metricsRange] || metricsRange;
-    ['range-res', 'range-net', 'range-load', 'range-cum'].forEach((id) => {
+    ['range-res', 'range-net', 'range-load'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         const bases = {
             'range-res': 'CPU · RAM · диск',
             'range-net': 'вход · выход',
             'range-load': 'load · swap',
-            'range-cum': 'вход · выход · накопительно',
         };
         el.textContent = `${bases[id]} · ${label}`;
     });
@@ -177,7 +174,6 @@ function initCharts() {
     const resCtx = document.getElementById('metrics-res-chart');
     const netCtx = document.getElementById('metrics-net-chart');
     const loadCtx = document.getElementById('metrics-load-chart');
-    const cumCtx = document.getElementById('metrics-cum-chart');
 
     if (resCtx) {
         resChart = new Chart(resCtx, {
@@ -252,29 +248,6 @@ function initCharts() {
             },
         });
     }
-    if (cumCtx) {
-        cumChart = new Chart(cumCtx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    { label: 'Вход всего', borderColor: '#38bdf8', backgroundColor: colorFill('#38bdf8'), fill: true, data: [] },
-                    { label: 'Выход всего', borderColor: '#818cf8', backgroundColor: colorFill('#818cf8'), fill: true, data: [] },
-                ],
-            },
-            options: {
-                ...commonChartOptions({ callback: (v) => formatBytes(v) }),
-                scales: {
-                    x: { ticks: { maxTicksLimit: 7 } },
-                    y: { beginAtZero: true, ticks: { callback: (v) => formatBytes(v) } },
-                },
-                plugins: {
-                    legend: { display: true, position: 'bottom' },
-                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${formatBytes(ctx.raw)}` } },
-                },
-            },
-        });
-    }
 }
 
 function setChartEmpty(id, empty) {
@@ -295,9 +268,8 @@ function updateCharts(payload) {
     setChartEmpty('empty-res', empty);
     setChartEmpty('empty-net', empty);
     setChartEmpty('empty-load', empty);
-    setChartEmpty('empty-cum', empty);
     if (empty) {
-        [resChart, netChart, loadChart, cumChart].forEach((ch) => {
+        [resChart, netChart, loadChart].forEach((ch) => {
             if (!ch) return;
             ch.data.labels = [];
             ch.data.datasets.forEach((ds) => { ds.data = []; });
@@ -332,12 +304,6 @@ function updateCharts(payload) {
         loadChart.data.datasets[0].data = points.map((p) => p.load_avg ?? 0);
         loadChart.data.datasets[1].data = points.map((p) => p.swap_percent ?? 0);
         loadChart.update('none');
-    }
-    if (cumChart) {
-        cumChart.data.labels = labels;
-        cumChart.data.datasets[0].data = points.map((p) => p.network_in_total ?? 0);
-        cumChart.data.datasets[1].data = points.map((p) => p.network_out_total ?? 0);
-        cumChart.update('none');
     }
 }
 
@@ -404,14 +370,6 @@ const loadMetrics = async (nodeId) => {
             const used = Number(node.disk_used) || 0;
             const total = Number(node.disk_total) || 0;
             diskSub.textContent = total ? `${formatBytes(used)} / ${formatBytes(total)}` : '—';
-        }
-        const trafficEl = document.getElementById('traffic-total');
-        if (trafficEl) {
-            const inTotal = Number(node.network_in_total) || 0;
-            const outTotal = Number(node.network_out_total) || 0;
-            trafficEl.textContent = formatBytes(inTotal + outTotal);
-            const trafficSub = document.getElementById('traffic-sub');
-            if (trafficSub) trafficSub.textContent = `↓ ${formatBytes(inTotal)} · ↑ ${formatBytes(outTotal)}`;
         }
         const uptimeEl = document.getElementById('node-uptime');
         if (uptimeEl) uptimeEl.textContent = `аптайм ${formatUptime(node.uptime)}`;
