@@ -20,6 +20,7 @@ $menuItems = [
             ['slug' => 'databases', 'label' => 'Базы данных', 'href' => 'databases.php', 'icon' => 'database'],
         ]
     ],
+    ['slug' => 'nodes-network', 'label' => 'Сеть', 'href' => 'nodes_network.php', 'icon' => 'network'],
     ['slug' => 'processes', 'label' => 'Процессы', 'href' => 'processes.php', 'icon' => 'cpu'],
     [
         'slug' => 'containers',
