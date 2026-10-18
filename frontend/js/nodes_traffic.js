@@ -1,4 +1,5 @@
 const API_URL = `${API_BASE}/nodes.php`;
+const METRICS_URL = `${API_BASE}/metrics.php`;
 
 const formatBytes = (bytes) => {
     const n = Number(bytes) || 0;
@@ -83,6 +84,42 @@ const renderTrafficTable = (nodes, cumulativeTotal, rateTotal) => {
     }).join('');
 };
 
+const renderTrafficIfaces = (interfaces) => {
+    const tbody = document.getElementById('traffic-ifaces-tbody');
+    if (!tbody) return;
+    if (!interfaces.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+        return;
+    }
+    tbody.innerHTML = interfaces.map((iface) => {
+        const errors = Number(iface.errin || 0) + Number(iface.errout || 0);
+        const drops = Number(iface.dropin || 0) + Number(iface.dropout || 0);
+        const nodeLabel = iface.node_name || (iface.node_id ? `#${iface.node_id}` : '-');
+        return `<tr>
+            <td>${escapeHtml(nodeLabel)}</td>
+            <td>${escapeHtml(iface.name || '-')}</td>
+            <td>${formatRate(iface.rx_sec || 0)}</td>
+            <td>${formatRate(iface.tx_sec || 0)}</td>
+            <td>${errors}</td>
+            <td>${drops}</td>
+        </tr>`;
+    }).join('');
+};
+
+const loadTrafficIfaces = async () => {
+    try {
+        const res = await fetch(`${METRICS_URL}?interfaces=1`, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = JSON.parse(await res.text() || '{}');
+        renderTrafficIfaces(Array.isArray(data.interfaces) ? data.interfaces : []);
+        const stamp = document.getElementById('traffic-ifaces-updated');
+        if (stamp) stamp.textContent = formatClock(new Date());
+    } catch (error) {
+        console.error('Ошибка загрузки интерфейсов:', error);
+        renderTrafficIfaces([]);
+    }
+};
+
 const loadTraffic = async (silent = false) => {
     try {
         if (!silent && window.toggleTableLoader) window.toggleTableLoader('traffic-tbody', true);
@@ -114,6 +151,7 @@ const loadTraffic = async (silent = false) => {
 
         renderTrafficTops(nodes);
         renderTrafficTable(nodes, cumulativeTotal, rateTotal);
+        loadTrafficIfaces();
     } catch (error) {
         console.error('Ошибка загрузки трафика:', error);
         document.getElementById('total-download').textContent = '0 Б';

@@ -174,14 +174,45 @@ function handleGetGpu($pdo) {
 
 function handleGetInterfaces($pdo) {
     $nodeId = isset($_GET['node_id']) ? (int)$_GET['node_id'] : 0;
-    if ($nodeId <= 0) {
-        echo json_encode(['interfaces' => [], 'series' => []]);
-        return;
-    }
     metrics_ensure_iface_table($pdo);
     $name = trim((string)($_GET['name'] ?? ''));
 
     if ($name === '') {
+        if ($nodeId <= 0) {
+            $stmt = $pdo->prepare(
+                "SELECT m.node_id, n.name AS node_name,
+                        m.name, m.rx_bytes, m.tx_bytes, m.rx_sec, m.tx_sec,
+                        m.errin, m.errout, m.dropin, m.dropout, m.timestamp
+                 FROM network_interface_metrics m
+                 INNER JOIN (
+                     SELECT node_id, name, MAX(timestamp) AS ts
+                     FROM network_interface_metrics
+                     GROUP BY node_id, name
+                 ) last ON last.node_id = m.node_id AND last.name = m.name AND last.ts = m.timestamp
+                 LEFT JOIN nodes n ON n.id = m.node_id
+                 ORDER BY (m.rx_sec + m.tx_sec) DESC, n.name ASC, m.name ASC"
+            );
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $out = array_map(static function (array $r): array {
+                return [
+                    'node_id' => (int)($r['node_id'] ?? 0),
+                    'node_name' => (string)($r['node_name'] ?? ''),
+                    'name' => (string)$r['name'],
+                    'rx_bytes' => (float)$r['rx_bytes'],
+                    'tx_bytes' => (float)$r['tx_bytes'],
+                    'rx_sec' => (float)$r['rx_sec'],
+                    'tx_sec' => (float)$r['tx_sec'],
+                    'errin' => (int)$r['errin'],
+                    'errout' => (int)$r['errout'],
+                    'dropin' => (int)$r['dropin'],
+                    'dropout' => (int)$r['dropout'],
+                    'timestamp' => $r['timestamp'] ?? null,
+                ];
+            }, $rows);
+            echo json_encode(['interfaces' => $out]);
+            return;
+        }
         $stmt = $pdo->prepare(
             "SELECT m.name, m.rx_bytes, m.tx_bytes, m.rx_sec, m.tx_sec,
                     m.errin, m.errout, m.dropin, m.dropout, m.timestamp

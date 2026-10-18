@@ -350,6 +350,33 @@ render_layout_start('Мониторинг', 'monitoring');
             </div>
         </div>
     </div>
+
+    <div class="card" style="margin-top:16px;">
+        <div class="card-header">
+            <div class="card-title">
+                <i data-lucide="cable"></i>
+                <span>Интерфейсы</span>
+            </div>
+            <span class="pill pill-info" id="traffic-ifaces-updated">—</span>
+        </div>
+        <div class="table-container">
+            <table class="stats-table">
+                <thead>
+                    <tr>
+                        <th>Нода</th>
+                        <th>Интерфейс</th>
+                        <th>Вход</th>
+                        <th>Выход</th>
+                        <th>Ошибки</th>
+                        <th>Дропы</th>
+                    </tr>
+                </thead>
+                <tbody id="traffic-ifaces-tbody">
+                    <tr><td colspan="6" class="text-center">Нет данных</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 <?php endif; ?>
 <?php
 render_layout_end([$hmTabs[$hmTab]["js"]]);
