@@ -19,6 +19,45 @@ render_layout_start('Процессы', 'processes', '<button class="primary" on
     </div>
 
     <div id="processes-tab" class="tab-content active">
+        <div id="processes-summary" class="stats-grid stats-grid-dash" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #60a5fa, #2563eb);">
+                    <i data-lucide="cpu"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Всего процессов</h3>
+                    <div class="stat-value" id="processes-total">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);">
+                    <i data-lucide="play"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Запущено</h3>
+                    <div class="stat-value" id="processes-running">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);">
+                    <i data-lucide="clock"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Ожидают</h3>
+                    <div class="stat-value" id="processes-sleeping">0</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-icon" style="background: linear-gradient(180deg, #94a3b8, #64748b);">
+                    <i data-lucide="circle-slash"></i>
+                </div>
+                <div class="stat-card-content">
+                    <h3>Остановлено</h3>
+                    <div class="stat-value" id="processes-stopped">0</div>
+                </div>
+            </div>
+        </div>
+
         <div id="processes-empty" class="empty-state">
             <i data-lucide="search"></i>
             <h3>Выберите ноду</h3>

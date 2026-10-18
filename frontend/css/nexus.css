@@ -3476,3 +3476,17 @@ select optgroup {
     padding: 16px 24px 20px;
     border-top: 1px solid var(--border-color);
 }
+
+/* ——— Processes page ——— */
+#processes-table td:first-child,
+#processes-table td:nth-child(3),
+#processes-table td:nth-child(4) {
+    font-variant-numeric: tabular-nums;
+}
+
+#processes-table td:nth-child(2) {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

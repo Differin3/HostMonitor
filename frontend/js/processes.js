@@ -77,6 +77,37 @@ function showEmptyState() {
     const el2 = document.getElementById('processes-table');
     if (el1) el1.style.display = 'flex';
     if (el2) el2.style.display = 'none';
+    const summary = document.getElementById('processes-summary');
+    if (summary) summary.style.display = 'none';
+}
+
+function renderProcessSummary(processes) {
+    const summary = document.getElementById('processes-summary');
+    if (!summary) return;
+
+    const list = processes || [];
+    const counts = { running: 0, sleeping: 0, stopped: 0 };
+    list.forEach(p => {
+        const status = String(p.status || '').toLowerCase();
+        if (status.includes('run')) {
+            counts.running++;
+        } else if (status.includes('sleep') || status === 'idle' || status === 'waiting') {
+            counts.sleeping++;
+        } else if (status.includes('stop') || status.includes('dead') || status === 'zombie') {
+            counts.stopped++;
+        }
+    });
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setText('processes-total', list.length);
+    setText('processes-running', counts.running);
+    setText('processes-sleeping', counts.sleeping);
+    setText('processes-stopped', counts.stopped);
+
+    summary.style.display = list.length ? 'grid' : 'none';
 }
 
 function showProcessesTable() {
@@ -95,7 +126,8 @@ function applyFilters() {
         if (searchTerm && !p.name.toLowerCase().includes(searchTerm)) return false;
         return true;
     });
-    
+
+    renderProcessSummary(allProcesses);
     renderProcesses(filteredProcesses);
 }
 
