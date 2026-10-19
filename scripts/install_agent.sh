@@ -200,7 +200,8 @@ if $IS_TRUENAS && ! $IS_FREEBSD; then
     ROOT_READONLY=false
     if ! command -v apt-get &>/dev/null; then
         ROOT_READONLY=true
-    elif awk '$2 == "/" { print $4 }' /proc/mounts 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    # install-dev-tools снимает readonly с /usr и /opt; '/' у TrueNAS остаётся ro.
+    elif awk '$2 == "/usr" || $2 == "/opt" { print $4 }' /proc/mounts 2>/dev/null | tr ',' '\n' | grep -qx ro; then
         ROOT_READONLY=true
     fi
     if $ROOT_READONLY; then
@@ -218,6 +219,8 @@ if $IS_TRUENAS && ! $IS_FREEBSD; then
         echo ""
         exit 1
     fi
+    echo "[install_agent] TrueNAS SCALE: developer mode включён (/usr, /opt — rw), продолжаю."
+    echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: после обновления TrueNAS шаги надо повторить."
 fi
 
 # ─── TrueNAS: проверка установочного пути ─────────────────────────────────────
