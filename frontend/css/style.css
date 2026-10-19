@@ -2588,25 +2588,32 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     padding: 8px 4px 4px 4px;
 }
 
-.hm-dp-foot-left,
+.hm-dp-foot-left {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
 .hm-dp-foot-right {
     display: flex;
     gap: 6px;
+    flex-shrink: 0;
 }
 
 .hm-dp-link,
 .hm-dp-done {
     height: 34px;
-    padding: 0 10px;
+    padding: 0 8px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-input);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
     font-family: Inter, system-ui, sans-serif;
     white-space: nowrap;
+    flex: 0 0 auto;
 }
 
 .hm-dp-link:hover,
