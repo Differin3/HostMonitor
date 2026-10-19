@@ -376,18 +376,21 @@ if ! create_venv; then
 fi
 
 # ─── Python зависимости ──────────────────────────────────────────────────────
-source .venv/bin/activate
+VENV_PYTHON="${INSTALL_DIR}/.venv/bin/python3"
+if [[ ! -x "${VENV_PYTHON}" ]]; then
+    echo "[install_agent] ОШИБКА: venv не создан (${VENV_PYTHON} отсутствует)."
+    exit 1
+fi
 REQ="${INSTALL_DIR}/agent/requirements.txt"
 if [[ ! -f "${REQ}" ]]; then
     REQ="${INSTALL_DIR}/requirements.txt"
 fi
 if [[ -f "${REQ}" ]]; then
-    pip install --upgrade pip
-    pip install -r "${REQ}"
+    "${VENV_PYTHON}" -m pip install --upgrade pip
+    "${VENV_PYTHON}" -m pip install -r "${REQ}"
     # LLDP passive (опционально; без root/CAP_NET_RAW sniff не заведётся)
-    pip install "scapy>=2.5.0" || echo "[install_agent] scapy не установлен — пассивный LLDP будет выключен"
+    "${VENV_PYTHON}" -m pip install "scapy>=2.5.0" || echo "[install_agent] scapy не установлен — пассивный LLDP будет выключен"
 fi
-deactivate
 
 # ─── Пользователь monitoring ─────────────────────────────────────────────────
 if ! id "monitoring" &>/dev/null; then
