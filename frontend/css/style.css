@@ -2585,6 +2585,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     display: flex;
     justify-content: space-between;
     gap: 8px;
+    padding: 8px 4px 4px 4px;
 }
 
 .hm-dp-foot-left,
@@ -2596,7 +2597,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 .hm-dp-link,
 .hm-dp-done {
     height: 34px;
-    padding: 0 12px;
+    padding: 0 10px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-input);
@@ -2605,6 +2606,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     cursor: pointer;
     transition: all 0.2s ease;
     font-family: Inter, system-ui, sans-serif;
+    white-space: nowrap;
 }
 
 .hm-dp-link:hover,
