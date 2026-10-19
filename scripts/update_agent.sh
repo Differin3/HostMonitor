@@ -38,11 +38,10 @@ if command -v systemctl >/dev/null 2>&1 && [[ -w /etc/systemd/system || -w /etc/
   if [[ -d /etc/systemd/system/monitoring-agent.service.d ]]; then
     cat >/etc/systemd/system/monitoring-agent.service.d/git-safe.conf 2>/dev/null <<EOF || true
 [Service]
-Environment=GIT_CONFIG_COUNT=2
+Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=${ROOT}
-Environment=GIT_CONFIG_KEY_1=GIT_TERMINAL_PROMPT
-Environment=GIT_CONFIG_VALUE_1=0
+Environment=GIT_TERMINAL_PROMPT=0
 EOF
     systemctl daemon-reload 2>/dev/null || true
   fi

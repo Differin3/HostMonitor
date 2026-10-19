@@ -276,10 +276,13 @@ if __name__ == "__main__":
     _log(f"Python version: {sys.version}", level="debug")
     _log(f"Current working directory: {os.getcwd()}", level="debug")
     _log(f"Script location: {pathlib.Path(__file__).absolute()}", level="debug")
-    os.environ.setdefault('GIT_CONFIG_COUNT', '1')
-    os.environ.setdefault('GIT_CONFIG_KEY_0', 'safe.directory')
-    os.environ.setdefault('GIT_CONFIG_VALUE_0', '*')
-    os.environ.setdefault('GIT_TERMINAL_PROMPT', '0')
+    for key in [k for k in os.environ if k.startswith('GIT_CONFIG_')]:
+        if key not in ('GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'):
+            os.environ.pop(key, None)
+    os.environ['GIT_CONFIG_COUNT'] = '1'
+    os.environ['GIT_CONFIG_KEY_0'] = 'safe.directory'
+    os.environ['GIT_CONFIG_VALUE_0'] = '*'
+    os.environ['GIT_TERMINAL_PROMPT'] = '0'
     
     try:
         load_node_conf()  # сначала поднимаем node.conf в окружение

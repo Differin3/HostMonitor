@@ -273,10 +273,16 @@ class UpdaterMixin:
 
     def _ensure_git_runtime_env(self) -> None:
         """Чтобы любой git (даже без -c) видел safe.directory=*."""
-        os.environ.setdefault('GIT_CONFIG_COUNT', '1')
-        os.environ.setdefault('GIT_CONFIG_KEY_0', 'safe.directory')
-        os.environ.setdefault('GIT_CONFIG_VALUE_0', '*')
-        os.environ.setdefault('GIT_TERMINAL_PROMPT', '0')
+        # Выкидываем чужие GIT_CONFIG_* (напр. сломанный systemd drop-in,
+        # где GIT_TERMINAL_PROMPT попал в ключ конфига) — иначе git падает
+        # на разборе командной строки: "key does not contain a section".
+        for key in [k for k in os.environ if k.startswith('GIT_CONFIG_')]:
+            if key not in ('GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'):
+                os.environ.pop(key, None)
+        os.environ['GIT_CONFIG_COUNT'] = '1'
+        os.environ['GIT_CONFIG_KEY_0'] = 'safe.directory'
+        os.environ['GIT_CONFIG_VALUE_0'] = '*'
+        os.environ['GIT_TERMINAL_PROMPT'] = '0'
 
     def _git_cmd(self, root: pathlib.Path, *args: str, timeout: int = 120) -> subprocess.CompletedProcess:
         self._ensure_git_runtime_env()

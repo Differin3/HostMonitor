@@ -9,11 +9,10 @@ StartLimitIntervalSec=300
 Type=simple
 WorkingDirectory=/opt/monitoring/agent
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/monitoring/.venv/bin"
-Environment=GIT_CONFIG_COUNT=2
+Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=/opt/monitoring
-Environment=GIT_CONFIG_KEY_1=GIT_TERMINAL_PROMPT
-Environment=GIT_CONFIG_VALUE_1=0
+Environment=GIT_TERMINAL_PROMPT=0
 ExecStart=/opt/monitoring/.venv/bin/python3 /opt/monitoring/agent/main.py
 # Пассивный LLDP (scapy) без полного root
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN

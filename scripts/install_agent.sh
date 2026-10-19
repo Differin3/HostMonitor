@@ -506,11 +506,10 @@ SVCEOF
     sudo mkdir -p "${GIT_DROPIN_DIR}"
     sudo tee "${GIT_DROPIN_DIR}/git-safe.conf" >/dev/null <<EOF
 [Service]
-Environment=GIT_CONFIG_COUNT=2
+Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=${INSTALL_DIR}
-Environment=GIT_CONFIG_KEY_1=GIT_TERMINAL_PROMPT
-Environment=GIT_CONFIG_VALUE_1=0
+Environment=GIT_TERMINAL_PROMPT=0
 EOF
 
   # Разрешённые команды. Флаги разные и намеренно:
