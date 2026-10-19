@@ -5,6 +5,7 @@ const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'с
 
 let selectedNodeId = null;
 let metricsRange = '1h';
+let metricsCustom = null;
 let resChart = null;
 let netChart = null;
 let loadChart = null;
@@ -137,11 +138,73 @@ function showMetricsData() {
     });
 }
 
+function formatRangeMoment(unixSec) {
+    return new Date(unixSec * 1000).toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+}
+
+function rangeLabel() {
+    if (!metricsCustom) return RANGE_LABEL[metricsRange] || metricsRange;
+    return `${formatRangeMoment(metricsCustom.from)} — ${formatRangeMoment(metricsCustom.to)}`;
+}
+
+function toInputValue(unixSec) {
+    const d = new Date(unixSec * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function syncCustomInputs() {
+    const fromEl = document.getElementById('metrics-from');
+    const toEl = document.getElementById('metrics-to');
+    if (!fromEl || !toEl) return;
+    if (metricsCustom) {
+        fromEl.value = toInputValue(metricsCustom.from);
+        toEl.value = toInputValue(metricsCustom.to);
+        return;
+    }
+    if (fromEl.value && toEl.value) return;
+    const now = Math.floor(Date.now() / 1000);
+    fromEl.value = toInputValue(now - (RANGE_SECONDS[metricsRange] || 3600));
+    toEl.value = toInputValue(now);
+}
+
+function applyCustomRange() {
+    const fromVal = document.getElementById('metrics-from')?.value || '';
+    const toVal = document.getElementById('metrics-to')?.value || '';
+    const from = Math.floor(new Date(fromVal).getTime() / 1000);
+    const to = Math.floor(new Date(toVal).getTime() / 1000);
+    if (!fromVal || !toVal || !Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+        if (window.showToast) window.showToast('Укажите период: начало раньше конца', 'error');
+        return;
+    }
+    metricsCustom = { from, to: Math.min(to, Math.floor(Date.now() / 1000)) };
+    if (metricsCustom.to <= metricsCustom.from) {
+        metricsCustom = null;
+        if (window.showToast) window.showToast('Период вне допустимого диапазона', 'error');
+        return;
+    }
+    syncCustomInputs();
+    paintRangeButtons();
+    if (selectedNodeId) loadChartHistory(selectedNodeId);
+}
+
+function resetCustomRange() {
+    metricsCustom = null;
+    const fromEl = document.getElementById('metrics-from');
+    const toEl = document.getElementById('metrics-to');
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+    paintRangeButtons();
+    if (selectedNodeId) loadChartHistory(selectedNodeId);
+}
+
 function paintRangeButtons() {
     document.querySelectorAll('#metrics-ranges [data-range]').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.range === metricsRange);
+        btn.classList.toggle('active', !metricsCustom && btn.dataset.range === metricsRange);
     });
-    const label = RANGE_LABEL[metricsRange] || metricsRange;
+    const label = rangeLabel();
     ['range-res', 'range-net', 'range-load'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -311,11 +374,22 @@ async function loadChartHistory(nodeId) {
     if (!nodeId) return;
     initCharts();
     paintRangeButtons();
-    const seconds = RANGE_SECONDS[metricsRange] || 3600;
-    const from = Math.floor(Date.now() / 1000) - seconds;
-    const limit = metricsRange === '7d' ? 280 : (metricsRange === '24h' ? 180 : (metricsRange === '6h' ? 120 : 80));
+    const now = Math.floor(Date.now() / 1000);
+    let from;
+    let to;
+    let limit;
+    if (metricsCustom) {
+        from = metricsCustom.from;
+        to = metricsCustom.to;
+        limit = Math.max(60, Math.min(800, Math.round(Math.max(1, (to - from) / 3600) * 2)));
+    } else {
+        const seconds = RANGE_SECONDS[metricsRange] || 3600;
+        from = now - seconds;
+        to = now;
+        limit = metricsRange === '7d' ? 280 : (metricsRange === '24h' ? 180 : (metricsRange === '6h' ? 120 : 80));
+    }
     try {
-        const res = await fetch(`${METRICS_API}?node_id=${encodeURIComponent(nodeId)}&from=${from}&limit=${limit}`, {
+        const res = await fetch(`${METRICS_API}?node_id=${encodeURIComponent(nodeId)}&from=${from}&to=${to}&limit=${limit}`, {
             credentials: 'include',
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -424,9 +498,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = e.target.closest('[data-range]');
         if (!btn) return;
         metricsRange = btn.dataset.range;
+        metricsCustom = null;
+        const fromEl = document.getElementById('metrics-from');
+        const toEl = document.getElementById('metrics-to');
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
         paintRangeButtons();
         if (selectedNodeId) loadChartHistory(selectedNodeId);
     });
+    document.getElementById('metrics-apply')?.addEventListener('click', applyCustomRange);
+    document.getElementById('metrics-reset')?.addEventListener('click', resetCustomRange);
+    syncCustomInputs();
     setInterval(() => {
         if (selectedNodeId) loadMetrics(selectedNodeId);
     }, 15000);

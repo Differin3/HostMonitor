@@ -151,6 +151,21 @@ render_layout_start('Мониторинг', 'monitoring');
             <button type="button" data-range="24h">сутки</button>
             <button type="button" data-range="7d">7 дней</button>
         </div>
+        <div class="metrics-daterange" id="metrics-daterange">
+            <label class="metrics-daterange-field">
+                <span>От</span>
+                <input type="datetime-local" id="metrics-from" aria-label="Начало периода">
+            </label>
+            <span class="metrics-daterange-sep">—</span>
+            <label class="metrics-daterange-field">
+                <span>До</span>
+                <input type="datetime-local" id="metrics-to" aria-label="Конец периода">
+            </label>
+            <button type="button" class="btn-outline" id="metrics-apply">Применить</button>
+            <button type="button" class="icon-btn" id="metrics-reset" title="Сбросить период" aria-label="Сбросить период">
+                <i data-lucide="x"></i>
+            </button>
+        </div>
         <button class="icon-btn" id="refresh-metrics" type="button" title="Обновить">
             <i data-lucide="refresh-cw"></i>
         </button>

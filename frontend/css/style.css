@@ -2364,6 +2364,44 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
 }
 
+.metrics-daterange {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.metrics-daterange-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.metrics-daterange-field input[type="datetime-local"] {
+    font-size: 13px;
+    padding: 6px 10px;
+}
+
+.metrics-daterange-sep {
+    color: var(--text-secondary);
+}
+
+.metrics-daterange #metrics-apply {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.metrics-daterange #metrics-apply:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .billing-date-pill { /* бейдж даты платежа в биллинге */
     display: inline-flex;
     align-items: center;
