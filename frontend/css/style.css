@@ -2382,6 +2382,42 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 .metrics-daterange-field input[type="datetime-local"] {
     font-size: 13px;
     padding: 6px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color-scheme: dark;
+}
+
+.metrics-daterange-field input[type="datetime-local"]:hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-input-hover);
+}
+
+.metrics-daterange-field input[type="datetime-local"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    border-color: rgba(96, 165, 250, 0.5);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    background: var(--bg-input-focus);
+}
+
+.metrics-daterange-field input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.metrics-daterange-field input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+.metrics-daterange-field input[type="datetime-local"]::-webkit-calendar-picker-indicator:focus {
+    opacity: 1;
 }
 
 .metrics-daterange-sep {
@@ -2400,6 +2436,188 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 .metrics-daterange #metrics-apply:hover {
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.hm-dp-input {
+    cursor: pointer;
+}
+
+.hm-dp-input::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+.hm-dp {
+    position: fixed;
+    z-index: 1400;
+    display: none;
+    width: 268px;
+    padding: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+    color: var(--text-primary);
+    font-size: 13px;
+    backdrop-filter: blur(12px);
+}
+
+.hm-dp.is-open {
+    display: block;
+}
+
+.hm-dp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.hm-dp-title {
+    font-weight: 600;
+}
+
+.hm-dp-nav {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.hm-dp-nav:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.hm-dp-week,
+.hm-dp-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.hm-dp-week {
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-align: center;
+}
+
+.hm-dp-day {
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.hm-dp-day:hover {
+    background: var(--bg-card-hover);
+}
+
+.hm-dp-day.is-out {
+    color: var(--text-secondary);
+    opacity: 0.45;
+}
+
+.hm-dp-day.is-today {
+    border-color: var(--accent);
+}
+
+.hm-dp-day.is-sel,
+.hm-dp-day.is-sel:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+
+.hm-dp-time {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.hm-dp-time select {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.hm-dp-time select:hover,
+.hm-dp-time select:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.hm-dp-lbl {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.hm-dp-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.hm-dp-foot > div {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.hm-dp-link {
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.hm-dp-link:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.hm-dp-clear:hover {
+    color: var(--danger);
+}
+
+.hm-dp-done {
+    padding: 6px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.hm-dp-done:hover {
+    filter: brightness(1.08);
 }
 
 .billing-date-pill { /* бейдж даты платежа в биллинге */
