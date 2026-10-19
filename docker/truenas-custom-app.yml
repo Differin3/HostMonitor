@@ -1,0 +1,28 @@
+# TrueNAS SCALE → Apps -> Custom App: вставить этот YAML в поле «Custom Config».
+# Образ сначала соберите на машине с docker и запушьте в реестр, доступный TrueNAS:
+#   docker build -f docker/Dockerfile.agent -t <registry>/hostmonitor-agent:latest .
+#   docker push <registry>/hostmonitor-agent:latest
+# Затем впишите этот образ в image:, а ENROLL_TOKEN возьмите в панели («Подключить ноду»).
+#
+# Если TrueNAS отклоняет pid/network_mode — уберите их и оставьте privileged + volumes:
+# агент всё равно поднимется, но сеть/процессы будут видны хуже.
+services:
+  hostmonitor-agent:
+    image: <registry>/hostmonitor-agent:latest
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    network_mode: host
+    environment:
+      MASTER_URL: https://hostmonitor-access-02.duckdns.org
+      ENROLL_TOKEN: ""
+      NODE_NAME: truenas
+    volumes:
+      - hostmonitor_agent_conf:/data
+      - /dev:/dev
+      - /etc/os-release:/etc/os-release:ro
+      - /run/docker.sock:/var/run/docker.sock
+      - /mnt:/mnt:ro
+
+volumes:
+  hostmonitor_agent_conf:

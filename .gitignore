@@ -30,6 +30,7 @@ monitoring/data/.schema_*_ok
 monitoring/frontend
 .db-credentials
 docker/.env
+docker/.env.agent
 /NA
 logs/
 database/monitoring_bekap.sql

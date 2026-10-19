@@ -1,0 +1,43 @@
+# Агент HostMonitor в контейнере — для хостов, где установка «в систему» невозможна
+# (TrueNAS SCALE: корневая ФС read-only, apt отключён). Метрики снимаются с ХОСТА,
+# поэтому контейнеру нужны privileged, host PID и сеть хоста (см. docker-compose.agent.yml).
+FROM python:3.12-slim
+
+# Внешние утилиты, которые вызывает агент: ip/ss (iproute2), netstat (net-tools),
+# smartctl (smartmontools), zpool (zfsutils-linux), ps/lsblk (procps/util-linux).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        iproute2 \
+        net-tools \
+        procps \
+        util-linux \
+        smartmontools \
+        zfsutils-linux; \
+    rm -rf /var/lib/apt/lists/*
+
+# Только CLI (демон не нужен): агент ходит в docker-сокет хоста за списком контейнеров.
+ARG DOCKER_CLI_VERSION=28.5.1
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) darch=x86_64 ;; \
+        arm64) darch=aarch64 ;; \
+        *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${darch}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz; \
+    tar -xzf /tmp/docker.tgz -C /tmp; \
+    install -m 0755 /tmp/docker/docker /usr/local/bin/docker; \
+    rm -rf /tmp/docker /tmp/docker.tgz
+
+# Тот же layout, что и при установке в /opt/monitoring: пути поиска node.conf совпадают.
+COPY agent/ /opt/monitoring/agent/
+RUN python3 -m pip install --no-cache-dir -r /opt/monitoring/agent/requirements.txt
+
+COPY docker/agent-entrypoint.sh /usr/local/bin/hm-agent-entrypoint.sh
+RUN chmod +x /usr/local/bin/hm-agent-entrypoint.sh
+
+WORKDIR /opt/monitoring/agent
+ENTRYPOINT ["hm-agent-entrypoint.sh"]

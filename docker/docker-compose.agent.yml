@@ -1,0 +1,35 @@
+# Агент HostMonitor в контейнере — для хостов, где установка «в систему» невозможна
+# (TrueNAS SCALE: корневая ФС read-only, apt отключён). Метрики снимаются с ХОСТА,
+# поэтому контейнеру нужны privileged, host PID и сеть хоста.
+#
+# Старт:
+#   cp docker/agent.env.example docker/.env.agent   # заполните MASTER_URL
+#   docker compose --env-file docker/.env.agent -f docker/docker-compose.agent.yml up -d --build
+name: hostmonitor-agent
+
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    image: hostmonitor-agent:latest
+    restart: unless-stopped
+    # Без этого агент увидит изолированный контейнер, а не хост.
+    privileged: true
+    pid: host
+    network_mode: host
+    environment:
+      MASTER_URL: ${MASTER_URL:?укажите MASTER_URL (см. docker/agent.env.example)}
+      ENROLL_TOKEN: ${ENROLL_TOKEN:-}
+      NODE_NAME: ${NODE_NAME:-}
+      SNMP_ENABLED: ${SNMP_ENABLED:-true}
+      LLDP_PASSIVE: ${LLDP_PASSIVE:-true}
+    volumes:
+      - agent_conf:/data                       # node.conf: переживает перезапуск
+      - /dev:/dev                              # диски и /dev/zfs (вместе с privileged)
+      - /etc/os-release:/etc/os-release:ro     # определение дистрибутива
+      - /run/docker.sock:/var/run/docker.sock  # список контейнеров хоста
+      - /mnt:/mnt:ro                           # ZFS-датасеты TrueNAS (занятое место)
+
+volumes:
+  agent_conf:
