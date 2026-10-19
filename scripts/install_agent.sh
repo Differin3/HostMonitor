@@ -187,6 +187,30 @@ detect_distro() {
 detect_specialized_system
 detect_distro
 
+if $IS_TRUENAS && ! $IS_FREEBSD; then
+    ROOT_READONLY=false
+    if ! command -v apt-get &>/dev/null; then
+        ROOT_READONLY=true
+    elif awk '$2 == "/" { print $4 }' /proc/mounts 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+        ROOT_READONLY=true
+    fi
+    if $ROOT_READONLY; then
+        echo ""
+        echo "[install_agent] TrueNAS SCALE: корневая ФС только для чтения, apt отключён."
+        echo "[install_agent] Установка агента «в систему» на TrueNAS официально не поддерживается"
+        echo "[install_agent] и будет стёрта при первом обновлении TrueNAS."
+        echo ""
+        echo "Вариант A (быстрый, не поддерживается, слетит после обновления TrueNAS):"
+        echo "  sudo install-dev-tools"
+        echo "  # затем повторите команду установки агента"
+        echo ""
+        echo "Вариант B (рекомендуется): запустить агент в Sandbox/контейнере TrueNAS"
+        echo "  (нужны host network/PID и доступ к /proc, /sys, пулам ZFS)."
+        echo ""
+        exit 1
+    fi
+fi
+
 # ─── TrueNAS: проверка установочного пути ─────────────────────────────────────
 if $IS_TRUENAS && [[ "$DISTRO_FAMILY" == "freebsd" ]]; then
     # TrueNAS Core: /opt может быть read-only, используем /mnt/pool/monitoring

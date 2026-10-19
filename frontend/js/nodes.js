@@ -1220,7 +1220,8 @@ function openEnrollWizard(boundNodeId = null) {
             // Одна команда: скачать установщик с панели → поставить агент
             // (git clone, зависимости, venv, systemd) → подключить по коду.
             const installerUrl = `${master}/api/install.php`;
-            cmdBox.textContent = `curl -fsSL "${installerUrl}" | sudo bash -s -- --enroll "${j.token}" --master "${master}"`;
+            // Отдельная загрузка: pipe-вариант при сбое молча ничего не ставит.
+            cmdBox.textContent = `curl -fSL "${installerUrl}" -o /tmp/hostmonitor-install.sh && sudo bash /tmp/hostmonitor-install.sh --enroll "${j.token}" --master "${master}"`;
             step2.style.display = 'block';
             if (window.lucide) lucide.createIcons();
         } catch(e) {
