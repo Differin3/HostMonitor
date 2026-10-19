@@ -15,6 +15,11 @@
 #   --fix-url        обновить только MASTER_URL в существующем node.conf;
 #   -h|--help        показать справку.
 set -euo pipefail
+install_agent_on_error() {
+    local rc=$?
+    echo "[install_agent] ОШИБКА: код ${rc}, строка ${1}. Смотрите сообщение выше." >&2
+}
+trap 'install_agent_on_error ${LINENO}' ERR
 
 # ─── Разбор опций ─────────────────────────────────────────────────────────────
 POS_ARGS=()
@@ -38,13 +43,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+echo "[install_agent] Старт установки агента HostMonitor"
+
 REPO_URL="${POS_ARGS[0]:-https://github.com/Differin3/HostMonitor}"
 BRANCH="${POS_ARGS[1]:-main}"
 INSTALL_DIR="${POS_ARGS[2]:-/opt/monitoring}"
 
 # Случайный SNMP community вместо "public": соседние устройства в сети не
 # должны опрашиваться по стандартному community чужими.
-SNMP_COMMUNITY_VALUE="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 16)"
+# Источник ограничен head -c: `tr </dev/urandom | head -c` даёт SIGPIPE и под
+# set -o pipefail молча завершает установку ещё до первого вывода.
+SNMP_COMMUNITY_VALUE="$(head -c 24 /dev/urandom | od -An -v -tx1 | tr -d ' \n' | cut -c1-16)"
 SNMP_COMMUNITY_VALUE="${SNMP_COMMUNITY_VALUE:-hostmonitor$(date +%s | tail -c 5)}"
 
 # ─── Детекция платформы (ОС + специализированная система) ─────────────────────
@@ -524,7 +533,7 @@ if [[ -n "${ENROLL_TOKEN:-}" ]]; then
     else
         ENROLL_MASTER="${MASTER_URL:-}"
         if [[ -z "${ENROLL_MASTER}" && -f "${NODE_CONF}" ]]; then
-            ENROLL_MASTER="$(grep '^MASTER_URL=' "${NODE_CONF}" | head -1 | cut -d= -f2- | tr -d '"')"
+            ENROLL_MASTER="$(grep '^MASTER_URL=' "${NODE_CONF}" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
         fi
         if [[ -z "${ENROLL_MASTER}" ]]; then
             echo "[install_agent] ERROR: для enroll нужен URL панели: --master https://panel/ (или MASTER_URL=...)" >&2
