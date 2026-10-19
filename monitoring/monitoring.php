@@ -351,24 +351,35 @@ render_layout_start('Мониторинг', 'monitoring');
         </div>
     </div>
 
-    <div class="card" style="margin-top:16px;">
+    <div class="card iface-card" style="margin-top:16px;">
         <div class="card-header">
             <div class="card-title">
                 <i data-lucide="cable"></i>
                 <span>Интерфейсы</span>
+                <span class="iface-count" id="traffic-ifaces-count">0</span>
             </div>
-            <span class="pill pill-info" id="traffic-ifaces-updated">—</span>
+            <div class="iface-tools">
+                <div class="sort-control">
+                    <select id="traffic-ifaces-sort" aria-label="Сортировка интерфейсов по нодам">
+                        <option value="node-asc">Нода · А → Я</option>
+                        <option value="node-desc">Нода · Я → А</option>
+                        <option value="rate-desc">По нагрузке</option>
+                        <option value="status">Онлайн сверху</option>
+                    </select>
+                </div>
+                <span class="pill pill-info" id="traffic-ifaces-updated">—</span>
+            </div>
         </div>
         <div class="table-container">
-            <table class="stats-table">
+            <table class="stats-table ifaces-table">
                 <thead>
                     <tr>
-                        <th>Нода</th>
                         <th>Интерфейс</th>
-                        <th>Вход</th>
-                        <th>Выход</th>
-                        <th>Ошибки</th>
-                        <th>Дропы</th>
+                        <th class="num">Вход</th>
+                        <th class="num">Выход</th>
+                        <th class="col-share">Доля</th>
+                        <th class="num">Ошибки</th>
+                        <th class="num">Дропы</th>
                     </tr>
                 </thead>
                 <tbody id="traffic-ifaces-tbody">
