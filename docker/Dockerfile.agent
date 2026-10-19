@@ -5,7 +5,14 @@ FROM python:3.12-slim
 
 # Внешние утилиты, которые вызывает агент: ip/ss (iproute2), netstat (net-tools),
 # smartctl (smartmontools), zpool (zfsutils-linux), ps/lsblk (procps/util-linux).
+# zpool лежит в contrib (лицензия CDDL), поэтому компонент включаем отдельно,
+# а сам пакет ставим best-effort: без него агент просто не собирает метрики ZFS.
 RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/^Components: main$/Components: main contrib/' /etc/apt/sources.list.d/debian.sources; \
+    else \
+        sed -i 's/ main$/ main contrib/' /etc/apt/sources.list; \
+    fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -14,8 +21,9 @@ RUN set -eux; \
         net-tools \
         procps \
         util-linux \
-        smartmontools \
-        zfsutils-linux; \
+        smartmontools; \
+    apt-get install -y --no-install-recommends zfsutils-linux \
+        || echo "WARN: zfsutils-linux недоступен — метрики ZFS будут отключены"; \
     rm -rf /var/lib/apt/lists/*
 
 # Только CLI (демон не нужен): агент ходит в docker-сокет хоста за списком контейнеров.

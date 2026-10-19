@@ -1,0 +1,14 @@
+# Контекст сборки — корень репозитория (см. docker/docker-compose*.yml).
+# Агентному образу нужны только agent/ и docker/, панельному — только docker/,
+# поэтому тяжёлые и не относящиеся к сборке каталоги исключаем.
+.git
+.omo
+.opencode
+.github
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+node_modules
+logs
