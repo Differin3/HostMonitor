@@ -182,13 +182,13 @@ graph TB
 **<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Одна команда для установки:**
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh)
+curl -fSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh -o /tmp/install_panel.sh && bash /tmp/install_panel.sh
 ```
 
 Или с указанием репозитория:
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh) https://github.com/Differin3/HostMonitor
+curl -fSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh -o /tmp/install_panel.sh && bash /tmp/install_panel.sh https://github.com/Differin3/HostMonitor
 ```
 
 **<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Что делает скрипт:**
@@ -228,8 +228,10 @@ sudo scripts/install_web_debian.sh
 **<img src="frontend/icons/lucide/play.svg" width="16" height="16" alt="Play"> Одна команда:**
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh) https://github.com/Differin3/HostMonitor
+curl -fSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh -o /tmp/install_agent.sh && bash /tmp/install_agent.sh https://github.com/Differin3/HostMonitor
 ```
+
+> <img src="frontend/icons/lucide/info.svg" width="16" height="16" alt="Info"> **TrueNAS SCALE**: нативная установка не поддерживается — корневая ФС только для чтения, `apt` отключён. Ставьте агент в контейнере (Custom App) или включайте Developer Mode (`sudo install-dev-tools`), помня, что при обновлении TrueNAS он слетит.
 
 **<img src="frontend/icons/lucide/check-circle.svg" width="16" height="16" alt="Check"> Что делает скрипт:**
 - <img src="frontend/icons/lucide/download.svg" width="16" height="16" alt="Download"> Устанавливает зависимости (Python, git)
@@ -378,7 +380,7 @@ scripts/configure_ssl_letsencrypt.sh example.com admin@example.com www.example.c
 <ol>
 <li>
 <strong><img src="frontend/icons/lucide/server.svg" width="16" height="16" alt="Server"> Установите панель управления:</strong>
-<pre><code>bash &lt;(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh)</code></pre>
+<pre><code>curl -fSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_panel.sh -o /tmp/install_panel.sh &amp;&amp; bash /tmp/install_panel.sh</code></pre>
 </li>
 
 <li>
@@ -392,7 +394,7 @@ scripts/configure_ssl_letsencrypt.sh example.com admin@example.com www.example.c
 
 <li>
 <strong><img src="frontend/icons/lucide/settings.svg" width="16" height="16" alt="Settings"> Установите агент на ноде:</strong>
-<pre><code>bash &lt;(curl -sSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh) https://github.com/Differin3/HostMonitor</code></pre>
+<pre><code>curl -fSL https://raw.githubusercontent.com/Differin3/HostMonitor/main/scripts/install_agent.sh -o /tmp/install_agent.sh &amp;&amp; bash /tmp/install_agent.sh https://github.com/Differin3/HostMonitor</code></pre>
 </li>
 
 <li>
