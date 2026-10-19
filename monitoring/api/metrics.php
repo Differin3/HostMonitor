@@ -347,15 +347,17 @@ function handleGet($pdo) {
     if ($nodeId) {
         $sql = "SELECT {$select}
                 FROM metrics
+                LEFT JOIN gpu_metrics gm ON gm.node_id = ? AND gm.timestamp = metrics.timestamp
                 WHERE node_id = ?
                   AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
                 GROUP BY 1
                 ORDER BY ts ASC";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$nodeId, $from, $to]);
+        $stmt->execute([$nodeId, $nodeId, $from, $to]);
     } else {
         $sql = "SELECT {$select}
                 FROM metrics
+                LEFT JOIN gpu_metrics gm ON gm.timestamp = metrics.timestamp
                 WHERE timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
                 GROUP BY 1
                 ORDER BY ts ASC";
@@ -381,6 +383,7 @@ function handleGet($pdo) {
             'load_avg' => (float)($m['load_avg'] ?? 0),
             'network_in_total' => (float)($m['network_in_total'] ?? 0),
             'network_out_total' => (float)($m['network_out_total'] ?? 0),
+            'gpu_temperature' => (float)($m['temperature'] ?? 0),
         ];
     }, $metrics);
 

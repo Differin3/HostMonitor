@@ -9,6 +9,7 @@ let metricsCustom = null;
 let resChart = null;
 let netChart = null;
 let loadChart = null;
+let gpuChart = null;
 let chartsInited = false;
 
 const formatUptime = (sec) => {
@@ -135,6 +136,7 @@ function showMetricsData() {
         resChart?.resize();
         netChart?.resize();
         loadChart?.resize();
+        gpuChart?.resize();
     });
 }
 
@@ -237,6 +239,7 @@ function initCharts() {
     const resCtx = document.getElementById('metrics-res-chart');
     const netCtx = document.getElementById('metrics-net-chart');
     const loadCtx = document.getElementById('metrics-load-chart');
+    const gpuCtx = document.getElementById('metrics-gpu-chart');
 
     if (resCtx) {
         resChart = new Chart(resCtx, {
@@ -311,6 +314,28 @@ function initCharts() {
             },
         });
     }
+    if (gpuCtx) {
+        gpuChart = new Chart(gpuCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Температура', borderColor: '#f472b6', backgroundColor: colorFill('#f472b6'), fill: true, data: [] },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { display: true, position: 'bottom' } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 7 } },
+                    y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${v}°C` } },
+                },
+            },
+        });
+    }
 }
 
 function setChartEmpty(id, empty) {
@@ -367,6 +392,11 @@ function updateCharts(payload) {
         loadChart.data.datasets[0].data = points.map((p) => p.load_avg ?? 0);
         loadChart.data.datasets[1].data = points.map((p) => p.swap_percent ?? 0);
         loadChart.update('none');
+    }
+    if (gpuChart) {
+        gpuChart.data.labels = labels;
+        gpuChart.data.datasets[0].data = points.map((p) => p.gpu_temperature ?? 0);
+        gpuChart.update('none');
     }
 }
 
