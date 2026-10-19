@@ -281,10 +281,10 @@ fi
 
 # ─── Python venv ──────────────────────────────────────────────────────────────
 echo "[install_agent] Проверка Python venv..."
-if python3 -c "import venv" &>/dev/null; then
+if python3 -c "import venv, ensurepip" &>/dev/null; then
     echo "[install_agent] Модуль venv доступен."
 else
-    echo "[install_agent] Модуль venv не найден. Пытаемся установить..."
+    echo "[install_agent] Модуль venv/ensurepip не найден. Пытаемся установить..."
     case "$DISTRO_FAMILY" in
         debian)
             if sudo apt-get install -y python3-venv 2>/dev/null; then
@@ -306,9 +306,11 @@ fi
 # ─── Клонирование репозитория ────────────────────────────────────────────────
 echo "[install_agent] Репозиторий → ${INSTALL_DIR}"
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    sudo git -C "${INSTALL_DIR}" fetch --all --prune
-    sudo git -C "${INSTALL_DIR}" checkout "${BRANCH}"
-    sudo git -C "${INSTALL_DIR}" pull --ff-only origin "${BRANCH}"
+    # Повторный запуск: репозиторий принадлежит другому пользователю, а git под
+    # sudo идёт от root → "detected dubious ownership". Разрешаем этот путь явно.
+    sudo git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" fetch --all --prune
+    sudo git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" checkout "${BRANCH}"
+    sudo git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" pull --ff-only origin "${BRANCH}"
 else
     sudo mkdir -p "${INSTALL_DIR}"
     sudo chown "$(whoami)":"$(whoami)" "${INSTALL_DIR}"
@@ -333,7 +335,7 @@ create_venv() {
                     if [[ "$DOWNLOADED_HASH" == "$GET_PIP_HASH" ]]; then
                         .venv/bin/python3 "$TMP_GET_PIP"
                     else
-                        echo "[install_agent] ОШИБКА: хеш get-pip.py не совпадает!"
+                        echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: get-pip.py изменился, хеш устарел. Используем virtualenv/pipx."
                         echo "[install_agent] Ожидалось: $GET_PIP_HASH"
                         echo "[install_agent] Получено:  $DOWNLOADED_HASH"
                         rm -f "$TMP_GET_PIP"
@@ -397,14 +399,17 @@ if id "monitoring" &>/dev/null; then
     getent group adm >/dev/null && sudo usermod -aG adm monitoring || true
     getent group systemd-journal >/dev/null && sudo usermod -aG systemd-journal monitoring || true
     SUDOERS_FILE="/etc/sudoers.d/monitoring-agent"
-    if [[ ! -f "${SUDOERS_FILE}" ]]; then
-        printf 'monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/bin/chown -R monitoring:monitoring %s/.git\n' "${INSTALL_DIR}" | sudo tee "${SUDOERS_FILE}" >/dev/null
-        sudo chmod 0440 "${SUDOERS_FILE}"
+    # Двоеточие в monitoring:monitoring для sudoers нужно экранировать — иначе
+    # syntax error, который ломает КАЖДЫЙ вызов sudo в системе. Файл пишем через
+    # временный и проверяем visudo -c, чтобы не оставить битый sudoers.
+    SUDOERS_LINE="monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/bin/chown -R monitoring\\:monitoring ${INSTALL_DIR}/.git"
+    printf '%s\n' "${SUDOERS_LINE}" | sudo tee "${SUDOERS_FILE}.tmp" >/dev/null
+    if ! command -v visudo >/dev/null 2>&1 || sudo visudo -cf "${SUDOERS_FILE}.tmp" >/dev/null 2>&1; then
+        sudo chmod 0440 "${SUDOERS_FILE}.tmp"
+        sudo mv "${SUDOERS_FILE}.tmp" "${SUDOERS_FILE}"
     else
-        if ! grep -qF 'chown' "${SUDOERS_FILE}" 2>/dev/null; then
-            printf 'monitoring ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/bin/chown -R monitoring:monitoring %s/.git\n' "${INSTALL_DIR}" | sudo tee -a "${SUDOERS_FILE}" >/dev/null
-            sudo chmod 0440 "${SUDOERS_FILE}"
-        fi
+        echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: sudoers не прошёл visudo -c, файл не обновлён."
+        sudo rm -f "${SUDOERS_FILE}.tmp"
     fi
     SERVICE_USER="monitoring"
 else
@@ -515,10 +520,10 @@ EOF
   DANGEROUS="${ALLOW_DANGEROUS_COMMANDS:-false}"
   AGENT_UPDATES="${ALLOW_AGENT_UPDATES:-true}"
   sudo tee "${GIT_DROPIN_DIR}/dangerous-commands.conf" >/dev/null <<EOF
-  [Service]
-  Environment=ALLOW_DANGEROUS_COMMANDS=${DANGEROUS}
-  Environment=ALLOW_AGENT_UPDATES=${AGENT_UPDATES}
-  EOF
+[Service]
+Environment=ALLOW_DANGEROUS_COMMANDS=${DANGEROUS}
+Environment=ALLOW_AGENT_UPDATES=${AGENT_UPDATES}
+EOF
   sudo systemctl daemon-reload
 fi
 
