@@ -181,20 +181,14 @@
             time.append(hours, el('span', 'hm-dp-lbl', 'ч'), minutes, el('span', 'hm-dp-lbl', 'мин'));
 
             const todayBtn = el('button', 'hm-dp-link', 'Сегодня');
-            const nowBtn = el('button', 'hm-dp-link', 'Сейчас');
             const clearBtn = el('button', 'hm-dp-link hm-dp-clear', 'Сбросить');
             const doneBtn = el('button', 'hm-dp-done', 'Готово');
-            [todayBtn, nowBtn, clearBtn, doneBtn].forEach((b) => { b.type = 'button'; });
+            [todayBtn, clearBtn, doneBtn].forEach((b) => { b.type = 'button'; });
 
             todayBtn.addEventListener('click', () => {
                 const now = new Date();
                 const base = pending || now;
                 pending = new Date(now.getFullYear(), now.getMonth(), now.getDate(), base.getHours(), base.getMinutes());
-                commit();
-                renderDays();
-            });
-            nowBtn.addEventListener('click', () => {
-                pending = new Date();
                 commit();
                 renderDays();
             });
@@ -211,7 +205,7 @@
             });
 
             const footLeft = el('div', 'hm-dp-foot-left');
-            footLeft.append(todayBtn, nowBtn);
+            footLeft.append(todayBtn);
             const footRight = el('div', 'hm-dp-foot-right');
             footRight.append(clearBtn, doneBtn);
             const foot = el('div', 'hm-dp-foot');
