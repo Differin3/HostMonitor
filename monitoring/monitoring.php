@@ -154,12 +154,14 @@ render_layout_start('Мониторинг', 'monitoring');
         <div class="metrics-daterange" id="metrics-daterange">
             <label class="metrics-daterange-field">
                 <span>От</span>
-                <input type="datetime-local" id="metrics-from" aria-label="Начало периода">
+                <input type="text" class="hm-dp-input" id="metrics-from-text" aria-label="Начало периода" readonly>
+                <input type="datetime-local" id="metrics-from" aria-label="Начало периода" style="position:absolute;left:-9999px;">
             </label>
             <span class="metrics-daterange-sep">—</span>
             <label class="metrics-daterange-field">
                 <span>До</span>
-                <input type="datetime-local" id="metrics-to" aria-label="Конец периода">
+                <input type="text" class="hm-dp-input" id="metrics-to-text" aria-label="Конец периода" readonly>
+                <input type="datetime-local" id="metrics-to" aria-label="Конец периода" style="position:absolute;left:-9999px;">
             </label>
             <button type="button" class="btn-outline" id="metrics-apply">Применить</button>
             <button type="button" class="icon-btn" id="metrics-reset" title="Сбросить период" aria-label="Сбросить период">
@@ -405,4 +407,7 @@ render_layout_start('Мониторинг', 'monitoring');
     </div>
 <?php endif; ?>
 <?php
-render_layout_end([$hmTabs[$hmTab]["js"]]);
+render_layout_end(array_merge(
+    [$hmTabs[$hmTab]['js']],
+    $hmTab === 'node' ? ['/frontend/js/hm_datepicker.js'] : []
+));

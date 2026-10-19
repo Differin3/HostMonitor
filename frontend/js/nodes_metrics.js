@@ -508,6 +508,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('metrics-apply')?.addEventListener('click', applyCustomRange);
     document.getElementById('metrics-reset')?.addEventListener('click', resetCustomRange);
+    if (window.HmDatePicker) {
+        ['metrics-from', 'metrics-to'].forEach((id) => {
+            const field = document.getElementById(id);
+            if (field) window.HmDatePicker.attach(field);
+        });
+    }
     syncCustomInputs();
     setInterval(() => {
         if (selectedNodeId) loadMetrics(selectedNodeId);
