@@ -174,17 +174,22 @@ function widgetBarHtml() {
 
 function getMetricValue(metric, summary) {
     if (!summary) return 0;
-    const m = METRIC_OPTIONS[metric];
-    if (!m) return 0;
-    return Number(summary[m.summaryKey]) || 0;
+    const m = METRIC_OPTIONS[metric] || {};
+    const key = m.summaryKey || metric;
+    if (summary[key] != null) return summary[key];
+    if (metric === 'traffic') return summary.traffic_total ?? 0;
+    if (metric === 'net_in') return summary.network_in_avg ?? 0;
+    if (metric === 'net_out') return summary.network_out_avg ?? 0;
+    return 0;
 }
 
 function formatMetricValue(metric, value) {
-    const m = METRIC_OPTIONS[metric];
-    if (!m) return String(value);
-    if (m.format === 'bytes') return formatBytes(value);
-    if (m.max === null) return String(Math.round(Number(value) || 0));
-    return `${Number(value).toFixed(1)}${m.unit}`;
+    const m = METRIC_OPTIONS[metric] || {};
+    const num = Number(value) || 0;
+    if (m.format === 'bytes') return formatBytes(num);
+    if (m.unit === '%') return `${Math.round(num)}%`;
+    if (m.max === null) return String(Math.round(num));
+    return `${num.toFixed(1)}${m.unit || ''}`;
 }
 
 function widgets() {
@@ -262,16 +267,18 @@ const lineCharts = {};
 function renderGenericStat(el, config, summary) {
     const m = METRIC_OPTIONS[config.metric] || {};
     const value = getMetricValue(config.metric, summary);
-    const pct = m.max ? Math.min(100, (value / m.max) * 100) : 0;
-    const tone = m.max ? toneForPct(pct) : (value > 0 ? 'ok' : 'warn');
+    const num = Number(value) || 0;
+    const pct = m.max ? Math.min(100, (num / m.max) * 100) : 0;
+    const tone = m.max ? toneForPct(pct) : (num > 0 ? 'ok' : 'warn');
     el.innerHTML = widgetBarHtml() + `
-        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${config.color}cc, ${config.color}88);">
-            <i data-lucide="${m.icon || 'activity'}"></i>
+        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(config.color)}cc, ${esc(config.color)}88);">
+            <i data-lucide="${esc(m.icon || 'activity')}"></i>
         </div>
         <div class="stat-card-content">
             <h3>${esc(config.title || m.label || config.metric)}</h3>
-            <div class="stat-value">${formatMetricValue(config.metric, value)}</div>
-            ${m.max ? `<div class="hm-meter" data-tone="${tone}"><span style="width:${pct}%"></span></div>` : ''}
+            <div class="stat-value">${formatMetricValue(config.metric, num)}</div>
+            ${m.max ? `<div class="hm-meter" data-tone="${tone}"><span style="width:${Math.max(0, Math.min(100, pct))}%"></span></div>` : ''}
+            ${m.max ? `<p class="stat-subtitle">${Math.round(pct)}%</p>` : ''}
         </div>`;
     el.dataset.tone = tone;
     if (window.lucide) lucide.createIcons();
@@ -907,7 +914,7 @@ const initCharts = () => {
                 ...common,
                 scales: {
                     ...common.scales,
-                    y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${v}%` } },
+                    y: { beginAtZero: true, max: 100, ticks: { callback: (v) => `${Math.round(v)}%` } },
                 },
             },
         });
