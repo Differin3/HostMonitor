@@ -7,6 +7,8 @@ StartLimitIntervalSec=300
 
 [Service]
 Type=simple
+User=root
+Group=root
 WorkingDirectory=/opt/monitoring/agent
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/monitoring/.venv/bin"
 Environment=GIT_CONFIG_COUNT=1

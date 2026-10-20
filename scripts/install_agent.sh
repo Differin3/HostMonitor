@@ -207,10 +207,7 @@ if $IS_TRUENAS && ! $IS_FREEBSD; then
     if $ROOT_READONLY; then
         echo ""
         echo "[install_agent] TrueNAS SCALE: корневая ФС только для чтения, apt отключён."
-        echo "[install_agent] Установка агента «в систему» на TrueNAS официально не поддерживается"
-        echo "[install_agent] и будет стёрта при первом обновлении TrueNAS."
-        echo ""
-        echo "Вариант A (быстрый, не поддерживается, слетит после обновления TrueNAS):"
+        echo "[install_agent] Включите Developer Mode для нативной установки:"
         echo "  sudo install-dev-tools"
         echo "  # затем повторите команду установки агента"
         echo ""
@@ -220,7 +217,7 @@ if $IS_TRUENAS && ! $IS_FREEBSD; then
         exit 1
     fi
     echo "[install_agent] TrueNAS SCALE: developer mode включён (/usr, /opt — rw), продолжаю."
-    echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: после обновления TrueNAS шаги надо повторить."
+    echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: после обновления TrueNAS Developer Mode может быть сброшен."
 fi
 
 # ─── TrueNAS: проверка установочного пути ─────────────────────────────────────
@@ -417,7 +414,11 @@ if id "monitoring" &>/dev/null; then
         echo "[install_agent] ПРЕДУПРЕЖДЕНИЕ: sudoers не прошёл visudo -c, файл не обновлён."
         sudo rm -f "${SUDOERS_FILE}.tmp"
     fi
-    SERVICE_USER="monitoring"
+    if [[ -f /etc/truenas || -f /data/truenas-version || -f /etc/platform ]]; then
+        SERVICE_USER="root"
+    else
+        SERVICE_USER="monitoring"
+    fi
 else
     sudo chown -R "$(whoami)":"$(whoami)" "${INSTALL_DIR}" || true
     SERVICE_USER="root"
@@ -482,7 +483,8 @@ StartLimitIntervalSec=300
 
 [Service]
 Type=simple
-User=${SERVICE_USER}
+${SERVICE_USER:+User=${SERVICE_USER}}
+${SERVICE_USER:+Group=${SERVICE_USER}}
 WorkingDirectory=${INSTALL_DIR}/agent
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${INSTALL_DIR}/.venv/bin"
 ExecStart=${VENV_PYTHON} ${AGENT_MAIN}
