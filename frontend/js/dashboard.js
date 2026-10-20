@@ -215,6 +215,7 @@ function applyLayout() {
     renderCatalog();
     paintRange();
     resizeCharts();
+    if (window.lucide) lucide.createIcons();
 }
 
 function renderCatalog() {
@@ -228,6 +229,7 @@ function renderCatalog() {
         const title = el.dataset.title || id;
         return `<button type="button" class="dash-catalog-item" data-restore="${esc(id)}">${esc(title)}</button>`;
     }).join('');
+    if (window.lucide) lucide.createIcons();
 }
 
 function paintRange() {
@@ -1139,6 +1141,7 @@ function bindBoard() {
             layout.hidden = layout.hidden.filter((id) => id !== restore.dataset.restore);
             saveLayout();
             applyLayout();
+            if (window.lucide) lucide.createIcons();
             return;
         }
         const hideBtn = e.target.closest('[data-hide]');
@@ -1147,10 +1150,11 @@ function bindBoard() {
             e.stopPropagation();
             const widget = hideBtn.closest('[data-widget]');
             if (!widget) return;
-            if (!layout.hidden.includes(widget.dataset.widget)) layout.hidden.push(widget.dataset.widget);
-            saveLayout();
-            applyLayout();
-            return;
+        if (!layout.hidden.includes(widget.dataset.widget)) layout.hidden.push(widget.dataset.widget);
+        saveLayout();
+        applyLayout();
+        if (window.lucide) lucide.createIcons();
+        return;
         }
         const configBtn = e.target.closest('[data-config]');
         if (configBtn) {
@@ -1166,10 +1170,11 @@ function bindBoard() {
             e.stopPropagation();
             const widget = spanBtn.closest('[data-widget]');
             if (!widget) return;
-            layout.spans[widget.dataset.widget] = Number(spanBtn.dataset.span);
-            saveLayout();
-            applyLayout();
-            return;
+        layout.spans[widget.dataset.widget] = Number(spanBtn.dataset.span);
+        saveLayout();
+        applyLayout();
+        if (window.lucide) lucide.createIcons();
+        return;
         }
         if (editing) return;
         if (e.target.closest('a')) return;
@@ -1396,10 +1401,11 @@ function bindToolbar() {
         Object.keys(originalWidgetHtml).forEach((k) => delete originalWidgetHtml[k]);
         saveWidgetConfigs();
         layout = structuredClone(DEFAULT_LAYOUT);
-        saveLayout();
-        applyLayout();
-        refreshCharts();
-        window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
+            saveLayout();
+            applyLayout();
+            refreshCharts();
+            if (window.lucide) lucide.createIcons();
+            window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
     });
     document.getElementById('dash-refresh')?.addEventListener('click', async () => {
         await refreshAll();
