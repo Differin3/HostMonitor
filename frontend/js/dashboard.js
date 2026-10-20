@@ -644,17 +644,17 @@ const updateStats = (summary) => {
     setText(elements.nodesCount, online);
     setText(elements.nodesTotal, total);
     setText(elements.alertsCount, alerts);
-    setText(elements.cpuAvg, `${cpu}%`);
-    setText(elements.ramAvg, `${ram}%`);
-    setText(elements.diskAvg, `${disk}%`);
-    setText(elements.procCount, proc);
-    setText(elements.ctCount, ct);
-    setText(elements.dbCount, dbOnline);
-    setText(elements.dbTotal, dbTotal);
-    setText(elements.loadAvg, loadAvg.toFixed(2));
-    setText(elements.swapAvg, `${swapAvg}%`);
-    setText(elements.gpuAvg, gpuCount > 0 ? `${gpuAvg}%` : '—');
-    if (elements.netTotal) elements.netTotal.textContent = `${formatBytes(netIn)}/s ↓ ${formatBytes(netOut)}/s ↑`;
+    setText(elements.cpuAvg, `${Math.round(Number(cpu) || 0)}%`);
+    setText(elements.ramAvg, `${Math.round(Number(ram) || 0)}%`);
+    setText(elements.diskAvg, `${Math.round(Number(disk) || 0)}%`);
+    setText(elements.procCount, Number(proc) || 0);
+    setText(elements.ctCount, Number(ct) || 0);
+    setText(elements.dbCount, Number(dbOnline) || 0);
+    setText(elements.dbTotal, Number(dbTotal) || 0);
+    setText(elements.loadAvg, (Number(loadAvg) || 0).toFixed(2));
+    setText(elements.swapAvg, `${Math.round(Number(swapAvg) || 0)}%`);
+    setText(elements.gpuAvg, gpuCount > 0 ? `${Math.round(Number(gpuAvg) || 0)}%` : '—');
+    if (elements.netTotal) elements.netTotal.textContent = `${formatBytes(netIn)}/с ↓ ${formatBytes(netOut)}/с ↑`;
     if (elements.trafficTotal) elements.trafficTotal.textContent = formatBytes(trafficTotal);
     setMeter(elements.cpuMeter, cpu);
     setMeter(elements.ramMeter, ram);
@@ -679,7 +679,7 @@ const updateStats = (summary) => {
     if (nodesSub) {
         nodesSub.innerHTML = offline > 0
             ? `из ${esc(total)} · офлайн ${esc(offline)}`
-            : `из <span id="nodes-total">${esc(total)}</span> · все онлайн`;
+            : `из ${esc(total)} · все онлайн`;
     }
     if (alertsSub) {
         alertsSub.textContent = alerts === 0
@@ -688,27 +688,27 @@ const updateStats = (summary) => {
     }
     if (cpuSub) {
         const hot = hotLabel(summary.cpu_hot);
-        cpuSub.textContent = hot ? `макс ${cpuMax}% · ${hot}` : `среднее ${cpu}% · макс ${cpuMax}%`;
+        cpuSub.textContent = hot ? `макс ${Math.round(Number(cpuMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(cpuMax) || 0)}%`;
     }
     if (ramSub) {
         const hot = hotLabel(summary.ram_hot);
-        ramSub.textContent = hot ? `макс ${ramMax}% · ${hot}` : `среднее ${ram}% · макс ${ramMax}%`;
+        ramSub.textContent = hot ? `макс ${Math.round(Number(ramMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(ramMax) || 0)}%`;
     }
     if (diskSub) {
         const hot = hotLabel(summary.disk_hot);
-        diskSub.textContent = hot ? `макс ${diskMax}% · ${hot}` : `среднее ${disk}% · макс ${diskMax}%`;
+        diskSub.textContent = hot ? `макс ${Math.round(Number(diskMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(diskMax) || 0)}%`;
     }
     if (procSub) procSub.textContent = proc > 0 ? 'по всем нодам' : 'нет данных';
     if (ctSub) ctSub.textContent = ct > 0 ? 'running' : 'нет running';
     if (dbSub) {
-        dbSub.innerHTML = dbTotal === 0
+        dbSub.textContent = dbTotal === 0
             ? 'не настроены'
-            : `онлайн из <span id="db-total">${esc(dbTotal)}</span>`;
+            : `онлайн из ${esc(dbTotal)}`;
     }
-    if (loadSub) loadSub.textContent = `макс ${(summary.cpu_max_load ?? loadAvg).toFixed(2)}`;
-    if (swapSub) swapSub.textContent = swapMax > 0 ? `макс ${swapMax}%` : 'не используется';
-    if (gpuSub) gpuSub.textContent = gpuCount > 0 ? `${gpuCount} GPU · макс ${gpuMax}%` : 'не обнаружены';
-    if (netSub) netSub.textContent = `↓${formatBytes(netIn)}/s ↑${formatBytes(netOut)}/s`;
+    if (loadSub) loadSub.textContent = `макс ${(Number(summary.cpu_max_load ?? loadAvg) || 0).toFixed(2)}`;
+    if (swapSub) swapSub.textContent = (Number(swapMax) || 0) > 0 ? `макс ${Math.round(Number(swapMax) || 0)}%` : 'не используется';
+    if (gpuSub) gpuSub.textContent = gpuCount > 0 ? `${gpuCount} GPU · макс ${Math.round(Number(gpuMax) || 0)}%` : 'не обнаружены';
+    if (netSub) netSub.textContent = `↓${formatBytes(netIn)}/с ↑${formatBytes(netOut)}/с`;
     if (trafficSub) trafficSub.textContent = `↓ ${formatBytes(trafficIn)} · ↑ ${formatBytes(trafficOut)}`;
 
     setTone('stat-nodes', online === 0 && total > 0 ? 'bad' : (online < total ? 'warn' : 'ok'));
