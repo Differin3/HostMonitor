@@ -33,6 +33,9 @@ HTML;
                 <button type="button" data-range="24h">сутки</button>
             </div>
             <p class="dash-hint" id="dash-edit-hint">Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.</p>
+            <div class="dash-edit-actions" id="dash-edit-actions" hidden>
+                <button class="btn-outline" type="button" id="dash-add-widget"><i data-lucide="plus"></i> Добавить виджет</button>
+            </div>
         </div>
 
         <div class="dash-board" id="dash-board">

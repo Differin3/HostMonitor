@@ -575,15 +575,17 @@ function setEditing(on) {
     const editBtn = document.getElementById('dash-edit');
     const resetBtn = document.getElementById('dash-reset');
     const hint = document.getElementById('dash-edit-hint');
+    const actions = document.getElementById('dash-edit-actions');
     if (editBtn) {
         editBtn.innerHTML = on
             ? '<i data-lucide="check"></i> Готово'
             : '<i data-lucide="sliders-horizontal"></i> Настроить';
     }
     if (resetBtn) resetBtn.hidden = !on;
+    if (actions) actions.hidden = !on;
     if (hint) {
         hint.textContent = on
-            ? 'Перетаскивайте карточки, меняйте ширину S/M/L или скрывайте лишние.'
+            ? 'Перетаскивайте карточки, меняйте ширину S/M/L, скрывайте или добавляйте виджеты.'
             : 'Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.';
     }
     widgets().forEach((el) => el.setAttribute('draggable', 'false'));
@@ -1407,9 +1409,25 @@ function bindToolbar() {
             if (window.lucide) lucide.createIcons();
             window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
     });
-    document.getElementById('dash-refresh')?.addEventListener('click', async () => {
-        await refreshAll();
-        window.showToast?.('Дашборд обновлён', 'success');
+    document.getElementById('dash-add-widget')?.addEventListener('click', () => {
+        const id = 'custom-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+        widgetConfigs[id] = { type: 'stat', metric: 'cpu', color: '#60a5fa', title: '' };
+        saveWidgetConfigs();
+        const board = document.getElementById('dash-board');
+        if (!board) return;
+        const art = document.createElement('article');
+        art.className = 'dash-widget stat-card';
+        art.id = id;
+        art.dataset.widget = id;
+        art.dataset.span = '3';
+        const chrome = widgetBarHtml();
+        art.innerHTML = chrome + `<div class="stat-card-icon" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div><div class="stat-card-content"><h3>CPU</h3><div class="stat-value">0%</div><div class="hm-meter" id="${id}-meter"><span></span></div><p class="stat-subtitle">—</p></div>`;
+        board.appendChild(art);
+        layout.order.push(id);
+        layout.spans[id] = 3;
+        saveLayout();
+        applyLayout();
+        setTimeout(() => openConfigPanel(id), 0);
     });
 }
 
