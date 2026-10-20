@@ -411,7 +411,7 @@ function renderGenericLine(el, config, summary) {
 
 function renderGenericTable(el, config, summary) {
     const m = METRIC_OPTIONS[config.metric] || {};
-    const nodes = lastAllNodes.length ? lastAllNodes : lastNodes;
+    const nodes = Array.isArray(lastAllNodes) && lastAllNodes.length ? lastAllNodes : (Array.isArray(lastNodes) ? lastNodes : []);
     const valKey = config.metric === 'cpu' ? 'cpu_usage'
         : config.metric === 'ram' ? 'memory_usage'
         : config.metric === 'disk' ? 'disk_usage'
@@ -420,17 +420,18 @@ function renderGenericTable(el, config, summary) {
         : config.metric === 'swap' ? 'swap_percent'
         : config.metric === 'load' ? 'load_avg'
         : config.metric === 'gpu' ? 'gpu_usage'
-        : 'cpu_usage';
+        : (m.summaryKey === 'cpu_avg' ? 'cpu_usage' : 'cpu_usage');
     const sorted = nodes.slice().sort((a, b) => (Number(b[valKey]) || 0) - (Number(a[valKey]) || 0));
     el.innerHTML = widgetBarHtml() + `
         <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
         <div class="table-container"><table><thead><tr><th>Нода</th><th>${esc(m.label || config.metric)}</th><th>Статус</th></tr></thead><tbody>${
         sorted.length ? sorted.slice(0, 8).map((n) => {
             const val = Number(n[valKey]) || 0;
-            const isPercent = m.max === 100;
-            return `<tr><td>${esc(n.name || n.host || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${val}%"></span></span> ` : ''}${isPercent ? val.toFixed(1) + '%' : formatMetricValue(config.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
+            const isPercent = m.unit === '%' || m.max === 100;
+            return `<tr><td>${esc(n.name || n.host || n.ip || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${Math.max(0, Math.min(100, val))}%"></span></span> ` : ''}${isPercent ? Math.round(val) + '%' : formatMetricValue(config.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
         }).join('') : '<tr><td colspan="3" class="text-center">Нет данных</td></tr>'
     }</tbody></table></div>`;
+    if (window.lucide) lucide.createIcons();
 }
 
 const GENERIC_RENDERERS = {
@@ -457,8 +458,10 @@ function updateGenericWidgets(summary) {
     if (!summary) return;
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
         const el = document.querySelector(`[data-widget="${widgetId}"]`);
-        if (!el || el.classList.contains('is-hidden')) return;
-        renderGenericWidget(el, config, summary);
+        if (!el) return;
+        if (el.classList.contains('is-hidden')) return;
+        if (summary) renderGenericWidget(el, config, summary);
+        else if (lastSummary) renderGenericWidget(el, config, lastSummary);
     });
 }
 
@@ -1428,12 +1431,15 @@ function bindToolbar() {
         art.dataset.widget = id;
         art.dataset.span = '3';
         const chrome = widgetBarHtml();
-        art.innerHTML = chrome + `<div class="stat-card-icon" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div><div class="stat-card-content"><h3>CPU</h3><div class="stat-value">0%</div><div class="hm-meter" id="${id}-meter"><span></span></div><p class="stat-subtitle">—</p></div>`;
+        art.innerHTML = chrome + `<div class="stat-card-icon" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div><div class="stat-card-content"><h3>CPU</h3><div class="stat-value">0%</div><div class="hm-meter"><span style="width:0%"></span></div><p class="stat-subtitle">—</p></div>`;
         board.appendChild(art);
-        layout.order.push(id);
-        layout.spans[id] = 3;
+        layout.order = Array.isArray(layout.order) ? layout.order : [];
+        if (!layout.order.includes(id)) layout.order.push(id);
+        layout.spans = layout.spans || {};
+        layout.spans[id] = layout.spans[id] || 3;
         saveLayout();
         applyLayout();
+        if (window.lucide) lucide.createIcons();
         setTimeout(() => openConfigPanel(id), 0);
     });
 }
