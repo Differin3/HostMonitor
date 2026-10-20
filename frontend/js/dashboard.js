@@ -143,8 +143,30 @@ function saveLayout() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
 }
 
-let widgetConfigs = loadWidgetConfigs();
-let openConfigWidget = null;
+function normalizeWidgetConfig(cfg) {
+    if (!cfg) return { type: 'stat', series: [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }] };
+    const next = { ...cfg };
+    if (!Array.isArray(next.series) || next.series.length === 0) {
+        const metric = next.metric || 'cpu';
+        const m = METRIC_OPTIONS[metric] || {};
+        next.series = [{ metric, label: next.title || m.label || metric, color: next.color || '#60a5fa', axis: 'left' }];
+    } else {
+        next.series = next.series.map((s, i) => {
+            const metric = s.metric || 'cpu';
+            const m = METRIC_OPTIONS[metric] || {};
+            return { metric, label: s.label || m.label || metric, color: s.color || WIDGET_COLORS[i % WIDGET_COLORS.length], axis: s.axis === 'right' ? 'right' : 'left' };
+        });
+    }
+    if (!next.type) next.type = 'stat';
+    delete next.metric;
+    delete next.color;
+    return next;
+}
+
+function getSeriesFor(config, summary) {
+    const c = normalizeWidgetConfig(config);
+    return c.series;
+}
 
 function loadWidgetConfigs() {
     try {
@@ -265,18 +287,20 @@ const barCharts = {};
 const lineCharts = {};
 
 function renderGenericStat(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
-    const value = getMetricValue(config.metric, summary);
+    const c = normalizeWidgetConfig(config);
+    const s = Array.isArray(c.series) && c.series[0] ? c.series[0] : { metric: 'cpu', label: '', color: '#60a5fa', axis: 'left' };
+    const m = METRIC_OPTIONS[s.metric] || {};
+    const value = typeof getMetricValue === 'function' ? getMetricValue(s.metric, summary) : (summary?.[s.metric] ?? summary?.[m.summaryKey] ?? 0);
     const num = Number(value) || 0;
     const pct = m.max ? Math.min(100, (num / m.max) * 100) : 0;
     const tone = m.max ? toneForPct(pct) : (num > 0 ? 'ok' : 'warn');
     el.innerHTML = widgetBarHtml() + `
-        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(config.color)}cc, ${esc(config.color)}88);">
+        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(s.color || '#60a5fa')}cc, ${esc(shadeColor ? shadeColor(s.color || '#60a5fa', -20) : (s.color || '#60a5fa'))}88);">
             <i data-lucide="${esc(m.icon || 'activity')}"></i>
         </div>
         <div class="stat-card-content">
-            <h3>${esc(config.title || m.label || config.metric)}</h3>
-            <div class="stat-value">${formatMetricValue(config.metric, num)}</div>
+            <h3>${esc(c.title || s.label || m.label || s.metric)}</h3>
+            <div class="stat-value">${typeof formatMetricValue === 'function' ? formatMetricValue(s.metric, num) : (num + (m.unit || ''))}</div>
             ${m.max ? `<div class="hm-meter" data-tone="${tone}"><span style="width:${Math.max(0, Math.min(100, pct))}%"></span></div>` : ''}
             ${m.max ? `<p class="stat-subtitle">${Math.round(pct)}%</p>` : ''}
         </div>`;
@@ -353,22 +377,30 @@ function renderGenericPie(el, config, summary) {
 }
 
 function renderGenericBar(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
-    const value = getMetricValue(config.metric, summary);
+    const c = normalizeWidgetConfig(config);
+    const series = Array.isArray(c.series) ? c.series : [];
+    if (series.length === 0) return;
+    const title = c.title || series.map(s => s.label).join(' / ');
     el.innerHTML = widgetBarHtml() + `
-        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="chart-header"><h3>${esc(title)}</h3></div>
         <div class="bar-body"><canvas id="bar-${esc(el.dataset.widget)}"></canvas></div>`;
     const canvas = document.getElementById(`bar-${el.dataset.widget}`);
     if (!canvas || !window.Chart) return;
     if (barCharts[el.dataset.widget]) barCharts[el.dataset.widget].destroy();
+    const labels = series.map(s => s.label);
+    const values = series.map((s, idx) => {
+        const m = METRIC_OPTIONS[s.metric] || {};
+        const v = getMetricValue ? getMetricValue(s.metric, summary) : (summary?.[s.metric] ?? summary?.[m.summaryKey] ?? 0);
+        return Number(v) || 0;
+    });
     barCharts[el.dataset.widget] = new Chart(canvas, {
         type: 'bar',
         data: {
-            labels: [config.title || m.label || config.metric],
+            labels,
             datasets: [{
-                data: [value],
-                backgroundColor: colorFill(config.color, 0.7),
-                borderColor: config.color,
+                data: values,
+                backgroundColor: series.map((s, idx) => colorFill(s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length], 0.7)),
+                borderColor: series.map((s, idx) => s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length]),
                 borderWidth: 1,
                 borderRadius: 6,
             }],
@@ -379,7 +411,7 @@ function renderGenericBar(el, config, summary) {
             animation: false,
             plugins: { legend: { display: false } },
             scales: {
-                y: { beginAtZero: true, max: m.max || undefined, grid: { color: 'rgba(255,255,255,0.05)' } },
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
                 x: { grid: { display: false } },
             },
         },
@@ -387,24 +419,44 @@ function renderGenericBar(el, config, summary) {
 }
 
 function renderGenericLine(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
+    const c = normalizeWidgetConfig(config);
+    const series = Array.isArray(c.series) ? c.series : [];
+    if (series.length === 0) return;
+    const title = c.title || series.map(s => s.label).join(' / ');
     el.innerHTML = widgetBarHtml() + `
-        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="chart-header"><h3>${esc(title)}</h3></div>
         <div class="chart-body"><canvas id="line-${esc(el.dataset.widget)}"></canvas></div>`;
     const canvas = document.getElementById(`line-${el.dataset.widget}`);
     if (!canvas || !window.Chart) return;
     if (lineCharts[el.dataset.widget]) lineCharts[el.dataset.widget].destroy();
+    const datasets = series.map((s, idx) => {
+        const m = METRIC_OPTIONS[s.metric] || {};
+        return {
+            label: s.label || m.label || s.metric,
+            borderColor: s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length],
+            backgroundColor: colorFill(s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length], 0.15),
+            fill: series.length === 1,
+            data: [],
+            tension: 0.25,
+            yAxisID: s.axis === 'right' ? 'y1' : 'y',
+        };
+    });
+    const scales = {
+        x: { ticks: { maxTicksLimit: 6 } },
+        y: { beginAtZero: true, ticks: {}, grid: { color: 'rgba(255,255,255,0.05)' } },
+    };
+    const hasRight = series.some(s => s.axis === 'right');
+    if (hasRight) {
+        scales.y1 = { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: {} };
+    }
     lineCharts[el.dataset.widget] = new Chart(canvas, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: config.title || m.label, borderColor: config.color, backgroundColor: colorFill(config.color), fill: true, data: [], tension: 0.25 }] },
+        data: { labels: [], datasets },
         options: {
             responsive: true, maintainAspectRatio: false, animation: false,
             interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { ticks: { maxTicksLimit: 6 } },
-                y: { beginAtZero: true, max: m.max || undefined, ticks: { callback: m.format === 'bytes' ? (v) => formatBytes(v) : undefined } },
-            },
+            plugins: { legend: { display: true, position: 'bottom', labels: { color: 'var(--text-secondary)', boxWidth: 10 } } },
+            scales,
         },
     });
 }
@@ -471,22 +523,53 @@ function updateGenericLineCharts(metrics) {
     const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
     const labels = dates.map((d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
-        if (config.type !== 'line-chart' || !lineCharts[widgetId]) return;
-        const m = METRIC_OPTIONS[config.metric] || {};
-        const data = points.map((p) => {
-            if (config.metric === 'cpu') return p.cpu ?? 0;
-            if (config.metric === 'ram') return p.ram ?? p.memory ?? 0;
-            if (config.metric === 'disk') return p.disk ?? 0;
-            if (config.metric === 'net_in') return p.network_in ?? 0;
-            if (config.metric === 'net_out') return p.network_out ?? 0;
-            if (config.metric === 'load') return p.load_avg ?? p.load ?? 0;
-            if (config.metric === 'swap') return p.swap ?? 0;
-            if (config.metric === 'gpu') return p.gpu ?? 0;
-            return p[config.metric] ?? p[METRIC_OPTIONS[config.metric]?.summaryKey] ?? 0;
+        const chart = lineCharts[widgetId];
+        if (!chart) return;
+        const c = normalizeWidgetConfig(config);
+        if (c.type !== 'line-chart') return;
+        const series = Array.isArray(c.series) ? c.series : [];
+        if (series.length === 0) return;
+        if (!Array.isArray(chart.data.datasets) || chart.data.datasets.length !== series.length) {
+            // rebuild datasets if mismatch
+            chart.data.datasets = series.map((s, idx) => {
+                const m = METRIC_OPTIONS[s.metric] || {};
+                return {
+                    label: s.label || m.label || s.metric,
+                    borderColor: s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length],
+                    backgroundColor: colorFill(s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length], 0.15),
+                    fill: series.length === 1,
+                    data: [],
+                    tension: 0.25,
+                    yAxisID: s.axis === 'right' ? 'y1' : 'y',
+                };
+            });
+        }
+        chart.data.labels = labels;
+        chart.data.datasets.forEach((ds, idx) => {
+            const s = series[idx] || {};
+            const m = METRIC_OPTIONS[s.metric] || {};
+            ds.label = s.label || m.label || s.metric;
+            ds.borderColor = s.color || WIDGET_COLORS[idx % WIDGET_COLORS.length];
+            ds.backgroundColor = colorFill(ds.borderColor, 0.15);
+            ds.yAxisID = s.axis === 'right' ? 'y1' : 'y';
+            ds.data = points.map((p) => {
+                const metric = s.metric || 'cpu';
+                if (metric === 'cpu') return p.cpu ?? 0;
+                if (metric === 'ram') return p.ram ?? p.memory ?? 0;
+                if (metric === 'disk') return p.disk ?? 0;
+                if (metric === 'net_in') return p.network_in ?? 0;
+                if (metric === 'net_out') return p.network_out ?? 0;
+                if (metric === 'load') return p.load_avg ?? p.load ?? 0;
+                if (metric === 'swap') return p.swap ?? 0;
+                if (metric === 'gpu') return p.gpu ?? 0;
+                return p[metric] ?? p[m.summaryKey] ?? 0;
+            });
         });
-        lineCharts[widgetId].data.labels = labels;
-        lineCharts[widgetId].data.datasets[0].data = data;
-        lineCharts[widgetId].update('none');
+        const hasRight = series.some(s => s.axis === 'right');
+        if (hasRight && !chart.options.scales.y1) {
+            chart.options.scales.y1 = { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: {} };
+        }
+        chart.update('none');
     });
 }
 
@@ -496,10 +579,31 @@ function openConfigPanel(widgetId) {
     if (!el) return;
     openConfigWidget = widgetId;
     const existing = widgetConfigs[widgetId] || {};
-    const config = { type: existing.type || 'stat', metric: existing.metric || 'cpu', color: existing.color || '#60a5fa', title: existing.title || '' };
+    const config = normalizeWidgetConfig(existing);
+    const isChartMulti = config.type === 'line-chart' || config.type === 'bar-chart';
     const panel = document.createElement('div');
     panel.className = 'dash-config-panel';
     panel.id = 'dash-config-panel';
+    const seriesHtml = isChartMulti ? `
+        <div class="dash-config-section">
+            <label class="dash-config-label">Серии</label>
+            <div id="dash-config-series" class="dash-config-series"></div>
+            <button type="button" class="btn-outline" id="dash-config-add-series" style="margin-top:8px">Добавить серию</button>
+        </div>
+    ` : `
+        <div class="dash-config-section">
+            <label class="dash-config-label">Метрика</label>
+            <select class="dash-config-select" id="dash-config-metric">${Object.entries(METRIC_OPTIONS).map(([k, v]) =>
+                `<option value="${esc(k)}"${(config.series[0]||{}).metric === k ? ' selected' : ''}>${esc(v.label)}</option>`
+            ).join('')}</select>
+        </div>
+        <div class="dash-config-section">
+            <label class="dash-config-label">Цвет</label>
+            <div class="dash-config-colors">${WIDGET_COLORS.map((c, idx) =>
+                `<button type="button" class="dash-config-color-btn${((config.series[0]||{}).color === c) ? ' active' : ''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`
+            ).join('')}</div>
+        </div>
+    `;
     panel.innerHTML = `
         <div class="dash-config-section">
             <label class="dash-config-label">Тип</label>
@@ -507,29 +611,78 @@ function openConfigPanel(widgetId) {
                 `<button type="button" class="dash-config-type-btn${config.type === k ? ' active' : ''}" data-type="${esc(k)}" title="${esc(v.label)}"><i data-lucide="${esc(v.icon)}"></i></button>`
             ).join('')}</div>
         </div>
-        <div class="dash-config-section">
-            <label class="dash-config-label">Метрика</label>
-            <select class="dash-config-select" id="dash-config-metric">${Object.entries(METRIC_OPTIONS).map(([k, v]) =>
-                `<option value="${esc(k)}"${config.metric === k ? ' selected' : ''}>${esc(v.label)}</option>`
-            ).join('')}</select>
-        </div>
-        <div class="dash-config-section">
-            <label class="dash-config-label">Цвет</label>
-            <div class="dash-config-colors">${WIDGET_COLORS.map((c) =>
-                `<button type="button" class="dash-config-color-btn${config.color === c ? ' active' : ''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`
-            ).join('')}</div>
-        </div>
+        ${seriesHtml}
         <div class="dash-config-section">
             <label class="dash-config-label">Заголовок</label>
-            <input type="text" class="dash-config-input" id="dash-config-title" value="${esc(config.title)}" placeholder="${esc((METRIC_OPTIONS[config.metric] || {}).label || config.metric)}">
+            <input type="text" class="dash-config-input" id="dash-config-title" value="${esc(config.title || '')}" placeholder="${esc((config.series[0]&&METRIC_OPTIONS[config.series[0].metric]) ? METRIC_OPTIONS[config.series[0].metric].label : 'Заголовок')}">
         </div>
         <div class="dash-config-actions">
             <button type="button" class="dash-config-apply primary" id="dash-config-apply">Применить</button>
             <button type="button" class="btn-outline" id="dash-config-cancel">Отмена</button>
-            ${existing.type ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">Сбросить</button>' : ''}
+            ${existing.type || existing.metric || (existing.series&&existing.series.length) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">Сбросить</button>' : ''}
         </div>`;
     el.appendChild(panel);
     if (window.lucide) lucide.createIcons();
+    function renderSeries() {
+        const cont = panel.querySelector('#dash-config-series');
+        if (!cont) return;
+        const sList = Array.isArray(config.series) ? config.series : [];
+        cont.innerHTML = sList.map((s, idx) => `
+            <div class="dash-config-series-item" data-idx="${idx}" style="border:1px solid var(--border-color);border-radius:8px;padding:8px;margin-bottom:8px">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <select class="dash-config-select dash-series-metric" style="flex:1;min-width:120px">
+                        ${Object.entries(METRIC_OPTIONS).map(([k,v])=>`<option value="${esc(k)}"${s.metric===k?' selected':''}>${esc(v.label)}</option>`).join('')}
+                    </select>
+                    <input class="dash-config-input dash-series-label" style="flex:1;min-width:100px" value="${esc(s.label||'')}" placeholder="Метка">
+                    <select class="dash-config-select dash-series-axis" style="width:90px">
+                        <option value="left"${s.axis!=='right'?' selected':''}>Левая</option>
+                        <option value="right"${s.axis==='right'?' selected':''}>Правая</option>
+                    </select>
+                    <button type="button" class="btn-outline dash-series-remove" style="padding:4px 8px">×</button>
+                </div>
+                <div class="dash-config-colors" style="margin-top:6px">${WIDGET_COLORS.map((c)=>`<button type="button" class="dash-config-color-btn dash-series-color${s.color===c?' active':''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`).join('')}</div>
+            </div>
+        `).join('');
+        if (window.lucide) lucide.createIcons();
+    }
+    if (isChartMulti) {
+        renderSeries();
+        panel.querySelector('#dash-config-add-series')?.addEventListener('click', () => {
+            if (!Array.isArray(config.series)) config.series = [];
+            config.series.push({ metric: 'cpu', label: 'CPU %', color: WIDGET_COLORS[config.series.length % WIDGET_COLORS.length], axis: 'left' });
+            renderSeries();
+        });
+        panel.addEventListener('click', (e) => {
+            const rm = e.target.closest('.dash-series-remove');
+            if (rm) {
+                const idx = Number(rm.closest('.dash-config-series-item')?.dataset.idx);
+                if (!isNaN(idx) && Array.isArray(config.series)) {
+                    config.series.splice(idx, 1);
+                    if (config.series.length === 0) config.series.push({ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' });
+                    renderSeries();
+                }
+                return;
+            }
+            const sc = e.target.closest('.dash-series-color');
+            if (sc) {
+                const item = sc.closest('.dash-config-series-item');
+                const idx = Number(item?.dataset.idx);
+                item?.querySelectorAll('.dash-series-color').forEach(b=>b.classList.remove('active'));
+                sc.classList.add('active');
+                if (!isNaN(idx) && Array.isArray(config.series)) config.series[idx].color = sc.dataset.color;
+                return;
+            }
+        });
+        panel.addEventListener('change', (e) => {
+            const item = e.target.closest('.dash-config-series-item');
+            if (!item) return;
+            const idx = Number(item.dataset.idx);
+            if (isNaN(idx) || !Array.isArray(config.series)) return;
+            if (e.target.classList.contains('dash-series-metric')) config.series[idx].metric = e.target.value;
+            if (e.target.classList.contains('dash-series-axis')) config.series[idx].axis = e.target.value;
+            if (e.target.classList.contains('dash-series-label')) config.series[idx].label = e.target.value;
+        });
+    }
     panel.addEventListener('click', (e) => {
         const typeBtn = e.target.closest('.dash-config-type-btn');
         if (typeBtn) {
@@ -537,38 +690,55 @@ function openConfigPanel(widgetId) {
             typeBtn.classList.add('active');
             return;
         }
-        const colorBtn = e.target.closest('.dash-config-color-btn');
+        const colorBtn = e.target.closest('.dash-config-color-btn:not(.dash-series-color)');
         if (colorBtn) {
-            panel.querySelectorAll('.dash-config-color-btn').forEach((b) => b.classList.remove('active'));
+            panel.querySelectorAll('.dash-config-color-btn:not(.dash-series-color)').forEach((b) => b.classList.remove('active'));
             colorBtn.classList.add('active');
             return;
         }
     });
     document.getElementById('dash-config-apply')?.addEventListener('click', () => {
-        const type = panel.querySelector('.dash-config-type-btn.active')?.dataset.type || 'stat';
-        const metric = document.getElementById('dash-config-metric')?.value || 'cpu';
-        const color = panel.querySelector('.dash-config-color-btn.active')?.dataset.color || '#60a5fa';
+        const type = panel.querySelector('.dash-config-type-btn.active')?.dataset.type || config.type || 'stat';
         const title = document.getElementById('dash-config-title')?.value || '';
-        widgetConfigs[widgetId] = { type, metric, color, title };
+        let newConfig = { type, title };
+        if (type === 'line-chart' || type === 'bar-chart') {
+            if (!Array.isArray(config.series) || config.series.length === 0) config.series = [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }];
+            newConfig.series = config.series.map(s => ({ metric: s.metric, label: s.label, color: s.color, axis: s.axis === 'right' ? 'right' : 'left' }));
+        } else {
+            const metric = document.getElementById('dash-config-metric')?.value || (config.series[0]||{}).metric || 'cpu';
+            const color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || (config.series[0]||{}).color || '#60a5fa';
+            const m = METRIC_OPTIONS[metric] || {};
+            newConfig.series = [{ metric, label: title || m.label || metric, color, axis: 'left' }];
+        }
+        widgetConfigs[widgetId] = newConfig;
         saveWidgetConfigs();
         closeConfigPanel();
         const summary = lastSummary;
         const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
-        if (el2 && summary) renderGenericWidget(el2, widgetConfigs[widgetId], summary);
+        if (el2) {
+            if (summary) renderGenericWidget(el2, widgetConfigs[widgetId], summary);
+            else if (lastSummary) renderGenericWidget(el2, widgetConfigs[widgetId], lastSummary);
+        }
         if (window.lucide) lucide.createIcons();
     });
     document.getElementById('dash-config-cancel')?.addEventListener('click', closeConfigPanel);
     document.getElementById('dash-config-reset')?.addEventListener('click', () => {
-        const el = document.querySelector(`[data-widget="${widgetId}"]`);
-        if (el && originalWidgetHtml[widgetId]) {
-            el.innerHTML = originalWidgetHtml[widgetId];
-            el.classList.remove('has-generic-config');
-            delete originalWidgetHtml[widgetId];
-            if (window.lucide) lucide.createIcons();
-        }
         delete widgetConfigs[widgetId];
         saveWidgetConfigs();
         closeConfigPanel();
+        const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
+        if (el2 && originalWidgetHtml[widgetId]) {
+            el2.innerHTML = originalWidgetHtml[widgetId] + (el2.querySelector('.dash-widget-bar') ? '' : widgetBarHtml());
+            el2.classList.remove('has-generic-config');
+            el2.className = 'dash-widget';
+            if (lineCharts[widgetId]) { lineCharts[widgetId].destroy(); delete lineCharts[widgetId]; }
+            if (barCharts[widgetId]) { barCharts[widgetId].destroy(); delete barCharts[widgetId]; }
+            if (gaugeCharts[widgetId]) { gaugeCharts[widgetId].destroy(); delete gaugeCharts[widgetId]; }
+            if (pieCharts[widgetId]) { pieCharts[widgetId].destroy(); delete pieCharts[widgetId]; }
+        }
+        applyLayout();
+        if (window.lucide) lucide.createIcons();
+        if (typeof refreshCharts === 'function') refreshCharts();
     });
 }
 
