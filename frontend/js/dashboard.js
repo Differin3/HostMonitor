@@ -144,22 +144,23 @@ function saveLayout() {
 }
 
 function normalizeWidgetConfig(cfg) {
-    if (!cfg) return { type: 'stat', series: [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }] };
-    const next = { ...cfg };
+    if (!cfg) return { type: 'stat', title: '', series: [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }] };
+    const next = JSON.parse(JSON.stringify(cfg));
     if (!Array.isArray(next.series) || next.series.length === 0) {
         const metric = next.metric || 'cpu';
         const m = METRIC_OPTIONS[metric] || {};
         next.series = [{ metric, label: next.title || m.label || metric, color: next.color || '#60a5fa', axis: 'left' }];
     } else {
         next.series = next.series.map((s, i) => {
-            const metric = s.metric || 'cpu';
+            const metric = (s && s.metric) || 'cpu';
             const m = METRIC_OPTIONS[metric] || {};
-            return { metric, label: s.label || m.label || metric, color: s.color || WIDGET_COLORS[i % WIDGET_COLORS.length], axis: s.axis === 'right' ? 'right' : 'left' };
+            return { metric, label: (s && s.label) || m.label || metric, color: (s && s.color) || WIDGET_COLORS[i % WIDGET_COLORS.length], axis: (s && s.axis) === 'right' ? 'right' : 'left' };
         });
     }
     if (!next.type) next.type = 'stat';
-    delete next.metric;
-    delete next.color;
+    if (next.metric) delete next.metric;
+    if (next.color) delete next.color;
+    if (!next.title) next.title = '';
     return next;
 }
 
@@ -496,24 +497,25 @@ const GENERIC_RENDERERS = {
 };
 
 function renderGenericWidget(el, config, summary) {
-    const renderer = GENERIC_RENDERERS[config.type];
+    const c = normalizeWidgetConfig(config);
+    const renderer = GENERIC_RENDERERS[c.type] || GENERIC_RENDERERS[config.type];
     if (!renderer) return;
     const id = el.dataset.widget;
     if (!originalWidgetHtml[id] && !el.classList.contains('has-generic-config')) {
         originalWidgetHtml[id] = el.innerHTML;
     }
     el.classList.add('has-generic-config');
-    renderer(el, config, summary);
+    renderer(el, c, summary);
 }
 
 function updateGenericWidgets(summary) {
-    if (!summary) return;
+    const s = summary || lastSummary;
+    if (!s) return;
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
         const el = document.querySelector(`[data-widget="${widgetId}"]`);
         if (!el) return;
         if (el.classList.contains('is-hidden')) return;
-        if (summary) renderGenericWidget(el, config, summary);
-        else if (lastSummary) renderGenericWidget(el, config, lastSummary);
+        renderGenericWidget(el, config, s);
     });
 }
 
