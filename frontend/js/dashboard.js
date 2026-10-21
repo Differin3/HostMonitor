@@ -1158,7 +1158,8 @@ const updateCharts = (payload) => {
 const applyOverviewPayload = (payload) => {
     if (!payload) return;
     const summary = payload.summary ?? payload;
-    if (summary && (summary.cpu_avg != null || summary.nodes_total != null)) {
+    if (summary && (summary.cpu_avg != null || summary.nodes_total != null || summary.ram_avg != null)) {
+        lastSummary = summary;
         updateStats(summary);
     }
 
@@ -1178,7 +1179,7 @@ const applyOverviewPayload = (payload) => {
     const alertsData = payload.alerts ?? payload.alerts_list ?? [];
     lastAlerts = Array.isArray(alertsData) ? alertsData : [];
     renderList(elements.alertsList, lastAlerts.slice(0, 6), renderAlertItem, 'Алертов нет');
-    updateGenericWidgets(summary);
+    if (lastSummary) updateGenericWidgets(lastSummary);
 };
 
 const refreshOverview = async () => {
