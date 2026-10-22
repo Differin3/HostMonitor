@@ -524,7 +524,9 @@ function updateGenericWidgets(summary) {
         const el = document.querySelector(`[data-widget="${widgetId}"]`);
         if (!el) return;
         if (el.classList.contains('is-hidden')) return;
-        renderGenericWidget(el, config, s);
+        const c = normalizeWidgetConfig(config);
+        if (c.type === 'line-chart') return;
+        renderGenericWidget(el, c, s);
     });
 }
 
@@ -587,6 +589,7 @@ function updateGenericLineCharts(metrics, onlyId) {
 
 function openConfigPanel(widgetId, opts = {}) {
     const wasNew = openConfigWidget === widgetId && document.getElementById('dash-config-panel')?.dataset.newWidget === '1';
+    const isNewWidget = !!opts.isNew || wasNew;
     closeConfigPanel();
     const el = document.querySelector(`[data-widget="${widgetId}"]`);
     if (!el) return;
@@ -598,7 +601,13 @@ function openConfigPanel(widgetId, opts = {}) {
     const panel = document.createElement('div');
     panel.className = 'dash-config-panel';
     panel.id = 'dash-config-panel';
-    if (opts.isNew || wasNew) panel.dataset.newWidget = '1';
+    if (isNewWidget) panel.dataset.newWidget = '1';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dash-editor-backdrop';
+    backdrop.id = 'dash-config-backdrop';
+    document.body.appendChild(backdrop);
+    document.body.classList.add('dash-editor-open');
+    backdrop.addEventListener('click', () => closeConfigPanel(true));
     const seriesSection = () => `
         <div class="dash-config-section">
             <label class="dash-config-label">Серии</label>
@@ -638,8 +647,13 @@ function openConfigPanel(widgetId, opts = {}) {
             <button type="button" class="dash-config-apply primary" id="dash-config-apply">Применить</button>
             <button type="button" class="btn-outline" id="dash-config-cancel">Отмена</button>
             ${existing.type || existing.metric || (existing.series&&existing.series.length) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">' + (isCustomWidget ? 'Удалить' : 'Сбросить') + '</button>' : ''}
-        </div>`;
-    el.appendChild(panel);
+        </div>
+        ${isNewWidget ? '' : `<div class="dash-config-actions secondary">
+            <button type="button" class="btn-outline" id="dash-config-up">Выше</button>
+            <button type="button" class="btn-outline" id="dash-config-down">Ниже</button>
+            <button type="button" class="btn-outline" id="dash-config-duplicate">Дублировать</button>
+        </div>`}`;
+    document.body.appendChild(panel);
     if (window.lucide) lucide.createIcons();
     function renderSeries() {
         const cont = panel.querySelector('#dash-config-series');
@@ -785,6 +799,14 @@ function openConfigPanel(widgetId, opts = {}) {
         if (window.lucide) lucide.createIcons();
         if (typeof refreshCharts === 'function') refreshCharts();
     });
+    document.getElementById('dash-config-up')?.addEventListener('click', () => moveWidget(widgetId, -1));
+    document.getElementById('dash-config-down')?.addEventListener('click', () => moveWidget(widgetId, 1));
+    document.getElementById('dash-config-duplicate')?.addEventListener('click', () => {
+        const copyId = duplicateWidget(widgetId);
+        if (!copyId) return;
+        closeConfigPanel();
+        setTimeout(() => openConfigPanel(copyId), 0);
+    });
 }
 
 function closeConfigPanel(discardNew = false) {
@@ -792,6 +814,8 @@ function closeConfigPanel(discardNew = false) {
     const widgetId = openConfigWidget;
     const isNew = !!panel && panel.dataset.newWidget === '1';
     if (panel) panel.remove();
+    document.getElementById('dash-config-backdrop')?.remove();
+    document.body.classList.remove('dash-editor-open');
     openConfigWidget = null;
     if (discardNew && isNew && widgetId) removeWidget(widgetId);
 }
@@ -819,9 +843,165 @@ function removeWidget(widgetId) {
     if (window.lucide) lucide.createIcons();
 }
 
+function moveWidget(widgetId, delta) {
+    const idx = layout.order.indexOf(widgetId);
+    if (idx < 0) return;
+    const step = delta < 0 ? -1 : 1;
+    let next = idx + step;
+    while (next >= 0 && next < layout.order.length && layout.hidden.includes(layout.order[next])) {
+        next += step;
+    }
+    if (next < 0 || next >= layout.order.length) return;
+    [layout.order[idx], layout.order[next]] = [layout.order[next], layout.order[idx]];
+    saveLayout();
+    applyLayout();
+}
+
+const WIDGET_METRIC_BY_ID = {
+    'stat-cpu': 'cpu', 'stat-ram': 'ram', 'stat-disk': 'disk', 'stat-load': 'load',
+    'stat-swap': 'swap', 'stat-gpu': 'gpu', 'stat-net': 'net_in', 'stat-traffic': 'traffic',
+    'stat-nodes': 'nodes', 'stat-alerts': 'alerts', 'stat-proc': 'processes',
+    'stat-ct': 'containers', 'stat-db': 'databases',
+    'chart-res': 'cpu', 'chart-net': 'net_in', 'chart-net-nodes': 'net_in',
+    'top-nodes': 'cpu', 'list-nodes': 'nodes', 'list-alerts': 'alerts',
+};
+
+function inferWidgetType(el) {
+    const widgetId = el.dataset.widget || '';
+    if (widgetId === 'list-alerts') return 'stat';
+    if (widgetId === 'list-nodes' || widgetId === 'top-nodes') return 'table';
+    if (widgetId.startsWith('chart-')) return 'line-chart';
+    if (el.querySelector('canvas[id^="gauge-"]')) return 'gauge';
+    if (el.querySelector('canvas[id^="pie-"]')) return 'pie-chart';
+    if (el.querySelector('canvas[id^="bar-"]')) return 'bar-chart';
+    if (el.querySelector('canvas[id^="line-"]')) return 'line-chart';
+    return 'stat';
+}
+
+function inferWidgetMetric(widgetId) {
+    return WIDGET_METRIC_BY_ID[widgetId] || 'cpu';
+}
+
+function duplicateWidget(widgetId) {
+    const src = document.querySelector(`[data-widget="${widgetId}"]`);
+    if (!src) return null;
+    const clone = src.cloneNode(true);
+    const id = 'custom-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    clone.id = id;
+    clone.dataset.widget = id;
+    clone.classList.remove('is-hidden', 'is-dragging');
+    clone.removeAttribute('data-href');
+    clone.removeAttribute('data-detail');
+    clone.dataset.title = `${src.dataset.title || 'Виджет'} (копия)`;
+    clone.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+    const sourceConfig = widgetConfigs[widgetId];
+    let cfg;
+    if (sourceConfig) {
+        cfg = normalizeWidgetConfig(sourceConfig);
+        cfg.title = sourceConfig.title || clone.dataset.title;
+    } else {
+        const metric = inferWidgetMetric(widgetId);
+        const m = METRIC_OPTIONS[metric] || {};
+        cfg = normalizeWidgetConfig({
+            type: inferWidgetType(src),
+            title: clone.dataset.title || '',
+            series: [{ metric, label: m.label || metric, color: m.color || '#60a5fa', axis: 'left' }],
+        });
+    }
+    widgetConfigs[id] = cfg;
+    saveWidgetConfigs();
+    const srcIdx = layout.order.indexOf(widgetId);
+    layout.order.splice(srcIdx >= 0 ? srcIdx + 1 : layout.order.length, 0, id);
+    layout.spans[id] = layout.spans[widgetId] || Number(src.dataset.span) || 3;
+    clone.dataset.span = String(layout.spans[id]);
+    saveLayout();
+    src.parentNode.insertBefore(clone, src.nextSibling);
+    applyLayout();
+    if (lastSummary) renderGenericWidget(clone, cfg, lastSummary);
+    if (window.lucide) lucide.createIcons();
+    window.showToast?.('Виджет дублирован', 'success');
+    return id;
+}
+
+function createWidget(type = 'stat', metric = 'cpu') {
+    const id = 'custom-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    const m = METRIC_OPTIONS[metric] || METRIC_OPTIONS.cpu;
+    const className = type === 'stat' ? 'stat-card' : (type === 'table' ? 'card' : 'chart-card');
+    const span = type === 'stat' ? 3 : 6;
+    widgetConfigs[id] = normalizeWidgetConfig({
+        type,
+        title: '',
+        series: [{ metric, label: m.label || metric, color: m.color || '#60a5fa', axis: 'left' }],
+    });
+    saveWidgetConfigs();
+    const board = document.getElementById('dash-board');
+    if (!board) return null;
+    const art = document.createElement('article');
+    art.className = `dash-widget ${className}`;
+    art.id = id;
+    art.dataset.widget = id;
+    art.dataset.span = String(span);
+    art.dataset.title = m.label || 'Новый виджет';
+    art.innerHTML = widgetBarHtml() + `<div class="stat-card-content"><h3>${esc(m.label || 'Новый виджет')}</h3><div class="stat-value">—</div></div>`;
+    board.appendChild(art);
+    layout.order = Array.isArray(layout.order) ? layout.order : [];
+    if (!layout.order.includes(id)) layout.order.push(id);
+    layout.spans = layout.spans || {};
+    layout.spans[id] = span;
+    saveLayout();
+    applyLayout();
+    if (lastSummary) renderGenericWidget(art, widgetConfigs[id], lastSummary);
+    if (window.lucide) lucide.createIcons();
+    return id;
+}
+
+function closeAddPanel() {
+    document.getElementById('dash-add-panel')?.remove();
+    document.getElementById('dash-add-backdrop')?.remove();
+    if (!document.getElementById('dash-config-panel')) document.body.classList.remove('dash-editor-open');
+}
+
+function openAddPanel() {
+    closeConfigPanel(true);
+    closeAddPanel();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dash-editor-backdrop';
+    backdrop.id = 'dash-add-backdrop';
+    const panel = document.createElement('div');
+    panel.className = 'dash-config-panel dash-add-panel';
+    panel.id = 'dash-add-panel';
+    panel.innerHTML = `
+        <div class="dash-config-section">
+            <label class="dash-config-label">Новый виджет</label>
+            <div class="dash-add-grid">${Object.entries(WIDGET_TYPES).map(([k, v]) =>
+                `<button type="button" class="dash-add-type" data-add-type="${esc(k)}"><i data-lucide="${esc(v.icon)}"></i><span>${esc(v.label)}</span></button>`
+            ).join('')}</div>
+        </div>
+        <div class="dash-config-actions">
+            <button type="button" class="btn-outline" id="dash-add-cancel">Отмена</button>
+        </div>`;
+    document.body.appendChild(backdrop);
+    document.body.appendChild(panel);
+    document.body.classList.add('dash-editor-open');
+    backdrop.addEventListener('click', closeAddPanel);
+    panel.querySelector('#dash-add-cancel')?.addEventListener('click', closeAddPanel);
+    panel.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-add-type]');
+        if (!btn) return;
+        const type = btn.dataset.addType || 'stat';
+        closeAddPanel();
+        const id = createWidget(type, 'cpu');
+        if (id) setTimeout(() => openConfigPanel(id, { isNew: true }), 0);
+    });
+    if (window.lucide) lucide.createIcons();
+}
+
 function setEditing(on) {
     editing = on;
-    if (!on) closeConfigPanel(true);
+    if (!on) {
+        closeConfigPanel(true);
+        closeAddPanel();
+    }
     elements.dashboard?.classList.toggle('is-editing', on);
     const editBtn = document.getElementById('dash-edit');
     const resetBtn = document.getElementById('dash-reset');
@@ -836,7 +1016,7 @@ function setEditing(on) {
     if (actions) actions.hidden = !on;
     if (hint) {
         hint.textContent = on
-            ? 'Перетаскивайте карточки, меняйте ширину S/M/L, скрывайте или добавляйте виджеты.'
+            ? 'Тяните за ручку, меняйте ширину S/M/L, настраивайте, дублируйте и скрывайте виджеты.'
             : 'Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.';
     }
     widgets().forEach((el) => el.setAttribute('draggable', 'false'));
@@ -1375,7 +1555,7 @@ function bindBoard() {
     elements.board.addEventListener('mousedown', (e) => {
         const widget = e.target.closest('[data-widget]');
         if (!widget) return;
-        widget.draggable = editing && !!e.target.closest('.dash-grip, .dash-widget-bar');
+        widget.draggable = editing && !!e.target.closest('.dash-grip');
     });
     elements.board.addEventListener('dragstart', (e) => {
         if (!editing) {
@@ -1401,6 +1581,7 @@ function bindBoard() {
     elements.board.addEventListener('dragover', (e) => {
         if (!editing || !dragged) return;
         e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
         const over = e.target.closest('[data-widget]');
         if (!over || over === dragged) return;
         const rect = over.getBoundingClientRect();
@@ -1665,6 +1846,11 @@ function bindDetailModal() {
 }
 
 function bindToolbar() {
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (openConfigWidget) closeConfigPanel(true);
+        closeAddPanel();
+    });
     document.getElementById('dash-ranges')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-range]');
         if (!btn) return;
@@ -1682,6 +1868,8 @@ function bindToolbar() {
         if (!editing) window.showToast?.('Раскладка сохранена', 'success');
     });
     document.getElementById('dash-reset')?.addEventListener('click', () => {
+        closeConfigPanel(true);
+        closeAddPanel();
         Object.keys(widgetConfigs).forEach((widgetId) => {
             destroyWidgetCharts(widgetId);
             const el = document.querySelector(`[data-widget="${widgetId}"]`);
@@ -1702,30 +1890,7 @@ function bindToolbar() {
         if (window.lucide) lucide.createIcons();
         window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
     });
-    document.getElementById('dash-add-widget')?.addEventListener('click', () => {
-        const id = 'custom-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-        widgetConfigs[id] = { type: 'stat', metric: 'cpu', color: '#60a5fa', title: '' };
-        saveWidgetConfigs();
-        const board = document.getElementById('dash-board');
-        if (!board) return;
-        const art = document.createElement('article');
-        art.className = 'dash-widget stat-card';
-        art.id = id;
-        art.dataset.widget = id;
-        art.dataset.span = '3';
-        art.dataset.title = 'Новый виджет';
-        const chrome = widgetBarHtml();
-        art.innerHTML = chrome + `<div class="stat-card-icon" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div><div class="stat-card-content"><h3>CPU</h3><div class="stat-value">0%</div><div class="hm-meter"><span style="width:0%"></span></div><p class="stat-subtitle">—</p></div>`;
-        board.appendChild(art);
-        layout.order = Array.isArray(layout.order) ? layout.order : [];
-        if (!layout.order.includes(id)) layout.order.push(id);
-        layout.spans = layout.spans || {};
-        layout.spans[id] = layout.spans[id] || 3;
-        saveLayout();
-        applyLayout();
-        if (window.lucide) lucide.createIcons();
-        setTimeout(() => openConfigPanel(id, { isNew: true }), 0);
-    });
+    document.getElementById('dash-add-widget')?.addEventListener('click', openAddPanel);
 }
 
 function applyExistingWidgetConfigs() {

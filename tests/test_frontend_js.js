@@ -133,6 +133,12 @@ check(/\b(?:let|const|var)\s+widgetConfigs\b/.test(dashSrc),
     'dashboard.js объявляет widgetConfigs');
 check(/\b(?:let|const|var)\s+openConfigWidget\b/.test(dashSrc),
     'dashboard.js объявляет openConfigWidget');
+['createWidget', 'openAddPanel', 'duplicateWidget', 'moveWidget', 'inferWidgetType'].forEach((name) => {
+    check(new RegExp(`function ${name}\\b`).test(dashSrc), `dashboard.js объявляет ${name}`);
+});
+check(/dash-editor-backdrop/.test(dashSrc), 'редактор использует backdrop');
+check(/if \(c\.type === 'line-chart'\) return;/.test(dashSrc),
+    'line-графики не перерисовываются на каждом overview');
 check(/\b(?:const|let|var|function)\s+shadeColor\b/.test(dashSrc),
     'dashboard.js объявляет shadeColor');
 check(!/shadeColor\s*\?/.test(dashSrc),
@@ -177,6 +183,7 @@ function runDashboard(src) {
             return { ok: true, status: 200, text: async () => '{}' };
         },
         document: {
+            body: makeEl(),
             getElementById: (id) => (byId[id] = byId[id] || makeEl()),
             querySelector: () => null,
             querySelectorAll: () => [],
