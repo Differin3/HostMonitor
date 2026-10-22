@@ -75,7 +75,14 @@ while (!connection_aborted()) {
     try {
         sse_emit('overview', dashboard_overview($pdo));
         if ($tick === 0 || ($tick % $chartEvery) === 0) {
-            sse_emit('charts', dashboard_charts($pdo, $range));
+            $charts = dashboard_charts($pdo, $range);
+            try {
+                $charts['net_nodes'] = dashboard_network_per_node($pdo, $range);
+            } catch (Throwable $e) {
+                // График по нодам не должен ломать общий поток графиков.
+                app_log_warning('[sse] net_nodes: ' . $e->getMessage());
+            }
+            sse_emit('charts', $charts);
         }
     } catch (Throwable $e) {
         app_log_warning('[sse] ' . $e->getMessage());
