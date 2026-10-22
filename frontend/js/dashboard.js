@@ -89,6 +89,20 @@ let lastChartsPayload = null;
 let widgetConfigs = loadWidgetConfigs();
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
+// MySQL отдаёт datetime как «YYYY-MM-DD HH:MM:SS». Safari не парсит такой
+// формат через new Date(), поэтому приводим его к ISO-подобному виду.
+const parseApiDate = (value) => {
+    if (value instanceof Date) return value;
+    if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) {
+        const n = Number(value);
+        return new Date(n < 1e12 ? n * 1000 : n);
+    }
+    let s = String(value ?? '').trim();
+    if (!s) return new Date(NaN);
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) s = s.replace(' ', 'T');
+    return new Date(s);
+};
+
 const setText = (el, value) => {
     if (el) el.textContent = value;
 };
@@ -533,8 +547,8 @@ function updateGenericWidgets(summary) {
 function updateGenericLineCharts(metrics, onlyId) {
     const points = asPoints(metrics);
     if (!points.length) return;
-    const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
-    const labels = dates.map((d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+    const dates = points.map((p) => parseApiDate(p.ts || p.timestamp || Date.now()));
+    const labels = dates.map((d) => Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
         if (onlyId && widgetId !== onlyId) return;
         const chart = lineCharts[widgetId];
@@ -1026,7 +1040,7 @@ function setEditing(on) {
 
 const fetchJson = async (path) => {
     let apiPath = path;
-    if (path.startsWith('/summary')) apiPath = `${API_BASE}/summary.php`;
+    if (path.startsWith('/summary')) apiPath = `${API_BASE}/summary.php${path.slice('/summary'.length)}`;
     else if (path.startsWith('/metrics')) apiPath = `${API_BASE}/metrics.php${path.slice('/metrics'.length)}`;
     else if (path.startsWith('/alerts')) {
         apiPath = path.startsWith('/alerts/active')
@@ -1123,15 +1137,15 @@ const updateStats = (summary) => {
     }
     if (cpuSub) {
         const hot = hotLabel(summary.cpu_hot);
-        cpuSub.textContent = hot ? `макс ${Math.round(Number(cpuMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(cpuMax) || 0)}%`;
+        cpuSub.textContent = hot ? `сейчас ${hot}` : `макс ${Math.round(Number(cpuMax) || 0)}%`;
     }
     if (ramSub) {
         const hot = hotLabel(summary.ram_hot);
-        ramSub.textContent = hot ? `макс ${Math.round(Number(ramMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(ramMax) || 0)}%`;
+        ramSub.textContent = hot ? `сейчас ${hot}` : `макс ${Math.round(Number(ramMax) || 0)}%`;
     }
     if (diskSub) {
         const hot = hotLabel(summary.disk_hot);
-        diskSub.textContent = hot ? `макс ${Math.round(Number(diskMax) || 0)}% · ${hot}` : `макс ${Math.round(Number(diskMax) || 0)}%`;
+        diskSub.textContent = hot ? `сейчас ${hot}` : `макс ${Math.round(Number(diskMax) || 0)}%`;
     }
     if (procSub) procSub.textContent = proc > 0 ? 'по всем нодам' : 'нет данных';
     if (ctSub) ctSub.textContent = ct > 0 ? 'running' : 'нет running';
@@ -1140,7 +1154,7 @@ const updateStats = (summary) => {
             ? 'не настроены'
             : `онлайн из ${esc(dbTotal)}`;
     }
-    if (loadSub) loadSub.textContent = `макс ${(Number(summary.cpu_max_load ?? loadAvg) || 0).toFixed(2)}`;
+    if (loadSub) loadSub.textContent = `макс ${(Number(summary.max_load ?? summary.cpu_max_load ?? loadAvg) || 0).toFixed(2)}`;
     if (swapSub) swapSub.textContent = (Number(swapMax) || 0) > 0 ? `макс ${Math.round(Number(swapMax) || 0)}%` : 'не используется';
     if (gpuSub) gpuSub.textContent = gpuCount > 0 ? `${gpuCount} GPU · макс ${Math.round(Number(gpuMax) || 0)}%` : 'не обнаружены';
     if (netSub) netSub.textContent = `↓${formatBytes(netIn)}/с ↑${formatBytes(netOut)}/с`;
@@ -1192,7 +1206,10 @@ const renderAlertItem = (alert) => {
     li.className = 'list-item';
     li.dataset.href = 'logs.php';
     const level = (alert.level || 'info').toLowerCase();
-    const when = alert.timestamp ? new Date(alert.timestamp).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+    const whenDate = alert.timestamp ? parseApiDate(alert.timestamp) : null;
+    const when = whenDate && !Number.isNaN(whenDate.getTime())
+        ? whenDate.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+        : '';
     li.innerHTML = `
         <div class="details">
             <span class="title">${esc(alert.title || 'Алерт')}</span>
@@ -1267,24 +1284,18 @@ const initNetNodesChart = () => {
     });
 };
 
-const refreshNetNodesChart = async () => {
-    if (!netNodesChart) return;
-    const seconds = RANGE_SECONDS[layout.range] || 3600;
-    const from = Math.floor(Date.now() / 1000) - seconds;
-    const limit = layout.range === '24h' ? 160 : (layout.range === '6h' ? 120 : 80);
-    const data = await fetchJson(`/summary.php?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
-    if (!data || !data.labels || !data.nodes) return;
-
+const applyNetNodesPayload = (data) => {
+    if (!netNodesChart || !data || !Array.isArray(data.labels) || !data.nodes || typeof data.nodes !== 'object') return;
     const nodeIds = Object.keys(data.nodes);
     const nodeColors = ['#38bdf8', '#818cf8', '#f472b6', '#34d399', '#fbbf24', '#fb923c', '#a78bfa', '#38bdf8'];
     const labels = data.labels.map((ts) => {
-        const d = new Date(ts);
-        if (!d || Number.isNaN(d.getTime())) return '';
+        const d = parseApiDate(ts);
+        if (Number.isNaN(d.getTime())) return '';
         return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     });
     const datasets = nodeIds.map((nid, i) => {
         const name = data.nodes[nid] || `Node ${nid}`;
-        const series = data.series[nid] || {};
+        const series = data.series?.[nid] || {};
         return {
             label: name,
             borderColor: nodeColors[i % nodeColors.length],
@@ -1296,6 +1307,12 @@ const refreshNetNodesChart = async () => {
     netNodesChart.data.labels = labels;
     netNodesChart.data.datasets = datasets;
     netNodesChart.update('none');
+};
+
+const refreshNetNodesChart = async () => {
+    if (!netNodesChart) return;
+    const data = await fetchJson(`/summary?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
+    if (data) applyNetNodesPayload(data);
 };
 
 const colorFill = (hex, a = 0.14) => {
@@ -1395,7 +1412,7 @@ const updateCharts = (payload) => {
     lastChartsPayload = payload;
     if (!resChart && !netChart) return;
 
-    const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
+    const dates = points.map((p) => parseApiDate(p.ts || p.timestamp || Date.now()));
     const spanHours = dates.length > 1 ? (dates[dates.length - 1] - dates[0]) / 36e5 : 0;
     const labels = dates.map((d) => {
         if (!d || Number.isNaN(d.getTime())) return '';
@@ -1426,7 +1443,7 @@ const applyOverviewPayload = (payload) => {
     list.sort((a, b) => {
         const aOff = a.status === 'online' ? 1 : 0;
         const bOff = b.status === 'online' ? 1 : 0;
-        if (aOff !== bOff) return aOff - bOff;
+        if (aOff !== bOff) return bOff - aOff;
         return (Number(b.cpu_usage) || 0) - (Number(a.cpu_usage) || 0);
     });
     if ((!summary || typeof summary !== 'object' || (summary.cpu_avg == null && summary.nodes_total == null && summary.ram_avg == null)) && list.length) {
@@ -1499,6 +1516,7 @@ function startPollingFallback() {
     if (timers.length) return;
     timers.push(setInterval(refreshOverview, 8000));
     timers.push(setInterval(refreshCharts, 20000));
+    timers.push(setInterval(refreshNetNodesChart, 20000));
 }
 
 function disconnectSse() {
@@ -1530,6 +1548,7 @@ function connectSse() {
             if (payload?.range && payload.range !== layout.range) return;
             updateCharts(payload);
             updateGenericLineCharts(payload);
+            if (payload?.net_nodes) applyNetNodesPayload(payload.net_nodes);
         } catch (err) {
             console.warn('SSE charts parse error', err);
         }
@@ -1695,11 +1714,11 @@ function renderDetailKpis(kind, summary) {
     const s = summary || {};
     const items = [];
     if (kind === 'cpu') {
-        items.push(['Среднее', `${s.cpu_avg ?? 0}%`], ['Макс', `${s.cpu_max ?? 0}%`], ['Пик нода', hotLabel(s.cpu_hot) || '—']);
+        items.push(['Среднее', `${s.cpu_avg ?? 0}%`], ['Макс', `${s.cpu_max ?? 0}%`], ['Лидер сейчас', hotLabel(s.cpu_hot) || '—']);
     } else if (kind === 'ram') {
-        items.push(['Среднее', `${s.ram_avg ?? 0}%`], ['Макс', `${s.ram_max ?? 0}%`], ['Пик нода', hotLabel(s.ram_hot) || '—']);
+        items.push(['Среднее', `${s.ram_avg ?? 0}%`], ['Макс', `${s.ram_max ?? 0}%`], ['Лидер сейчас', hotLabel(s.ram_hot) || '—']);
     } else if (kind === 'disk') {
-        items.push(['Среднее', `${s.disk_avg ?? 0}%`], ['Макс', `${s.disk_max ?? 0}%`], ['Пик нода', hotLabel(s.disk_hot) || '—']);
+        items.push(['Среднее', `${s.disk_avg ?? 0}%`], ['Макс', `${s.disk_max ?? 0}%`], ['Лидер сейчас', hotLabel(s.disk_hot) || '—']);
     } else if (kind === 'nodes') {
         items.push(['Онлайн', s.nodes_online ?? 0], ['Всего', s.nodes_total ?? 0], ['Офлайн', s.nodes_offline ?? 0]);
     } else if (kind === 'alerts') {
@@ -1777,8 +1796,8 @@ async function updateDetailChart(kind) {
     const metrics = await fetchJson(`/metrics?from=${from}&limit=80`).catch(() => null);
     const points = asPoints(metrics);
     const labels = points.map((p) => {
-        const d = new Date(p.ts || p.timestamp || Date.now());
-        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const d = parseApiDate(p.ts || p.timestamp || Date.now());
+        return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     });
     const key = meta.metric === 'ram' ? 'ram' : meta.metric;
     const data = points.map((p) => {
@@ -1846,6 +1865,17 @@ function bindDetailModal() {
 }
 
 function bindToolbar() {
+    document.getElementById('dash-refresh')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+            await refreshAll();
+            window.showToast?.('Данные дашборда обновлены', 'success');
+        } finally {
+            btn.disabled = false;
+        }
+    });
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         if (openConfigWidget) closeConfigPanel(true);
@@ -1859,9 +1889,9 @@ function bindToolbar() {
         paintRange();
         if (sseConnected) {
             connectSse();
-        } else {
-            refreshCharts();
         }
+        refreshCharts();
+        refreshNetNodesChart();
     });
     document.getElementById('dash-edit')?.addEventListener('click', () => {
         setEditing(!editing);

@@ -144,6 +144,25 @@ check(/\b(?:const|let|var|function)\s+shadeColor\b/.test(dashSrc),
 check(!/shadeColor\s*\?/.test(dashSrc),
     'renderGenericStat не проверяет shadeColor через тернарник');
 
+console.log('dashboard.js: live-обновления и защита от регрессий');
+
+check(/path\.slice\('\/summary'\.length\)/.test(dashSrc),
+    'fetchJson сохраняет query string для /summary');
+check(dashSrc.includes('fetchJson(`/summary?action=network_per_node'),
+    'сетевой график запрашивает /summary с action');
+check(/getElementById\('dash-refresh'\)\?\.addEventListener\('click'/.test(dashSrc),
+    'кнопка dash-refresh привязана к обработчику');
+check(/return bOff - aOff;/.test(dashSrc),
+    'ноды сортируются online-first');
+check(/const parseApiDate =/.test(dashSrc),
+    'есть безопасный parseApiDate для MySQL datetime');
+check(/payload\?\.net_nodes/.test(dashSrc),
+    'SSE charts применяет net_nodes');
+check(/refreshCharts\(\);\s*refreshNetNodesChart\(\);/.test(dashSrc),
+    'смена диапазона обновляет и сетевой график');
+check(/setInterval\(refreshNetNodesChart, 20000\)/.test(dashSrc),
+    'fallback-поллинг обновляет сетевой график');
+
 function makeEl() {
     return {
         dataset: {}, style: {}, hidden: false, draggable: false,
