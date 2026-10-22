@@ -1157,12 +1157,7 @@ const updateCharts = (payload) => {
 
 const applyOverviewPayload = (payload) => {
     if (!payload) return;
-    const summary = payload.summary ?? payload;
-    if (summary && (summary.cpu_avg != null || summary.nodes_total != null || summary.ram_avg != null)) {
-        lastSummary = summary;
-        updateStats(summary);
-    }
-
+    let summary = payload.summary ?? payload;
     const nodesData = payload.nodes ?? payload.data ?? payload.nodes_list ?? [];
     const list = Array.isArray(nodesData) ? nodesData.slice() : [];
     list.sort((a, b) => {
@@ -1171,6 +1166,30 @@ const applyOverviewPayload = (payload) => {
         if (aOff !== bOff) return aOff - bOff;
         return (Number(b.cpu_usage) || 0) - (Number(a.cpu_usage) || 0);
     });
+    if ((!summary || typeof summary !== 'object' || (summary.cpu_avg == null && summary.nodes_total == null && summary.ram_avg == null)) && list.length) {
+        const online = list.filter((n) => n.status === 'online').length;
+        const total = list.length;
+        const cpuAvg = list.reduce((acc, n) => acc + (Number(n.cpu_usage) || 0), 0) / total;
+        const ramAvg = list.reduce((acc, n) => acc + (Number(n.memory_usage) || Number(n.ram_usage) || 0), 0) / total;
+        const diskAvg = list.reduce((acc, n) => acc + (Number(n.disk_usage) || 0), 0) / total;
+        summary = {
+            nodes_online: online,
+            nodes_total: total,
+            nodes_offline: Math.max(0, total - online),
+            cpu_avg: cpuAvg,
+            ram_avg: ramAvg,
+            disk_avg: diskAvg,
+            alerts_count: summary?.alerts_count ?? (Array.isArray(payload.alerts) ? payload.alerts.length : 0),
+            alerts_critical: summary?.alerts_critical ?? 0,
+        };
+    }
+    if (summary && typeof summary === 'object') {
+        if (summary.cpu_avg != null || summary.nodes_total != null || summary.ram_avg != null) {
+            lastSummary = summary;
+            updateStats(summary);
+        }
+    }
+
     lastNodes = list;
     renderList(elements.nodesList, list.slice(0, 6), renderNodeItem, 'Нет данных о нодах');
     renderTopNodes(list);
