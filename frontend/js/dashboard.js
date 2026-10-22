@@ -84,6 +84,7 @@ let sseConnected = false;
 let lastSummary = null;
 let lastNodes = [];
 let lastAlerts = [];
+let widgetConfigs = loadWidgetConfigs();
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
 const setText = (el, value) => {
@@ -296,7 +297,7 @@ function renderGenericStat(el, config, summary) {
     const pct = m.max ? Math.min(100, (num / m.max) * 100) : 0;
     const tone = m.max ? toneForPct(pct) : (num > 0 ? 'ok' : 'warn');
     el.innerHTML = widgetBarHtml() + `
-        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(s.color || '#60a5fa')}cc, ${esc(shadeColor ? shadeColor(s.color || '#60a5fa', -20) : (s.color || '#60a5fa'))}88);">
+        <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(s.color || '#60a5fa')}cc, ${esc(shadeColor(s.color || '#60a5fa', -20))}88);">
             <i data-lucide="${esc(m.icon || 'activity')}"></i>
         </div>
         <div class="stat-card-content">
@@ -310,14 +311,15 @@ function renderGenericStat(el, config, summary) {
 }
 
 function renderGenericGauge(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
-    const value = getMetricValue(config.metric, summary);
+    const s = (Array.isArray(config.series) && config.series[0]) || { metric: 'cpu', label: '', color: '#60a5fa' };
+    const m = METRIC_OPTIONS[s.metric] || {};
+    const value = getMetricValue(s.metric, summary);
     const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
     const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
     el.innerHTML = widgetBarHtml() + `
-        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="chart-header"><h3>${esc(config.title || s.label || m.label || s.metric)}</h3></div>
         <div class="gauge-body"><canvas id="gauge-${esc(el.dataset.widget)}"></canvas>
-            <div class="gauge-value">${formatMetricValue(config.metric, value)}</div>
+            <div class="gauge-value">${formatMetricValue(s.metric, value)}</div>
         </div>`;
     const canvas = document.getElementById(`gauge-${el.dataset.widget}`);
     if (!canvas || !window.Chart) return;
@@ -328,7 +330,7 @@ function renderGenericGauge(el, config, summary) {
         data: {
             datasets: [{
                 data: [displayPct, remaining],
-                backgroundColor: [config.color, 'rgba(255,255,255,0.06)'],
+                backgroundColor: [s.color || '#60a5fa', 'rgba(255,255,255,0.06)'],
                 borderWidth: 0,
             }],
         },
@@ -345,14 +347,15 @@ function renderGenericGauge(el, config, summary) {
 }
 
 function renderGenericPie(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
-    const value = getMetricValue(config.metric, summary);
+    const s = (Array.isArray(config.series) && config.series[0]) || { metric: 'cpu', label: '', color: '#60a5fa' };
+    const m = METRIC_OPTIONS[s.metric] || {};
+    const value = getMetricValue(s.metric, summary);
     const pct = m.max ? Math.min(100, (value / m.max) * 100) : Math.min(100, value);
     const displayPct = m.max ? Math.round(pct) : Math.min(99, Math.round(value));
     el.innerHTML = widgetBarHtml() + `
-        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
+        <div class="chart-header"><h3>${esc(config.title || s.label || m.label || s.metric)}</h3></div>
         <div class="pie-body"><canvas id="pie-${esc(el.dataset.widget)}"></canvas>
-            <div class="pie-center">${formatMetricValue(config.metric, value)}</div>
+            <div class="pie-center">${formatMetricValue(s.metric, value)}</div>
         </div>`;
     const canvas = document.getElementById(`pie-${el.dataset.widget}`);
     if (!canvas || !window.Chart) return;
@@ -363,7 +366,7 @@ function renderGenericPie(el, config, summary) {
         data: {
             datasets: [{
                 data: [displayPct, remaining],
-                backgroundColor: [config.color, 'rgba(255,255,255,0.06)'],
+                backgroundColor: [s.color || '#60a5fa', 'rgba(255,255,255,0.06)'],
                 borderWidth: 0,
             }],
         },
@@ -463,25 +466,26 @@ function renderGenericLine(el, config, summary) {
 }
 
 function renderGenericTable(el, config, summary) {
-    const m = METRIC_OPTIONS[config.metric] || {};
+    const s = (Array.isArray(config.series) && config.series[0]) || { metric: 'cpu', label: '', color: '#60a5fa' };
+    const m = METRIC_OPTIONS[s.metric] || {};
     const nodes = Array.isArray(lastAllNodes) && lastAllNodes.length ? lastAllNodes : (Array.isArray(lastNodes) ? lastNodes : []);
-    const valKey = config.metric === 'cpu' ? 'cpu_usage'
-        : config.metric === 'ram' ? 'memory_usage'
-        : config.metric === 'disk' ? 'disk_usage'
-        : config.metric === 'net_in' ? 'network_in'
-        : config.metric === 'net_out' ? 'network_out'
-        : config.metric === 'swap' ? 'swap_percent'
-        : config.metric === 'load' ? 'load_avg'
-        : config.metric === 'gpu' ? 'gpu_usage'
-        : (m.summaryKey === 'cpu_avg' ? 'cpu_usage' : 'cpu_usage');
+    const valKey = s.metric === 'cpu' ? 'cpu_usage'
+        : s.metric === 'ram' ? 'memory_usage'
+        : s.metric === 'disk' ? 'disk_usage'
+        : s.metric === 'net_in' ? 'network_in'
+        : s.metric === 'net_out' ? 'network_out'
+        : s.metric === 'swap' ? 'swap_percent'
+        : s.metric === 'load' ? 'load_avg'
+        : s.metric === 'gpu' ? 'gpu_usage'
+        : 'cpu_usage';
     const sorted = nodes.slice().sort((a, b) => (Number(b[valKey]) || 0) - (Number(a[valKey]) || 0));
     el.innerHTML = widgetBarHtml() + `
-        <div class="chart-header"><h3>${esc(config.title || m.label || config.metric)}</h3></div>
-        <div class="table-container"><table><thead><tr><th>Нода</th><th>${esc(m.label || config.metric)}</th><th>Статус</th></tr></thead><tbody>${
+        <div class="chart-header"><h3>${esc(config.title || s.label || m.label || s.metric)}</h3></div>
+        <div class="table-container"><table><thead><tr><th>Нода</th><th>${esc(m.label || s.metric)}</th><th>Статус</th></tr></thead><tbody>${
         sorted.length ? sorted.slice(0, 8).map((n) => {
             const val = Number(n[valKey]) || 0;
             const isPercent = m.unit === '%' || m.max === 100;
-            return `<tr><td>${esc(n.name || n.host || n.ip || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(config.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${Math.max(0, Math.min(100, val))}%"></span></span> ` : ''}${isPercent ? Math.round(val) + '%' : formatMetricValue(config.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
+            return `<tr><td>${esc(n.name || n.host || n.ip || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(s.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${Math.max(0, Math.min(100, val))}%"></span></span> ` : ''}${isPercent ? Math.round(val) + '%' : formatMetricValue(s.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
         }).join('') : '<tr><td colspan="3" class="text-center">Нет данных</td></tr>'
     }</tbody></table></div>`;
     if (window.lucide) lucide.createIcons();
@@ -1023,7 +1027,7 @@ const refreshNetNodesChart = async () => {
     const seconds = RANGE_SECONDS[layout.range] || 3600;
     const from = Math.floor(Date.now() / 1000) - seconds;
     const limit = layout.range === '24h' ? 160 : (layout.range === '6h' ? 120 : 80);
-    const data = await fetchJson(`/api/summary.php?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
+    const data = await fetchJson(`/summary.php?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
     if (!data || !data.labels || !data.nodes) return;
 
     const nodeIds = Object.keys(data.nodes);
@@ -1055,6 +1059,19 @@ const colorFill = (hex, a = 0.14) => {
     const g = parseInt(n.slice(2, 4), 16);
     const b = parseInt(n.slice(4, 6), 16);
     return `rgba(${r},${g},${b},${a})`;
+};
+
+const shadeColor = (hex, percent = -20) => {
+    const n = String(hex || '#60a5fa').replace('#', '');
+    if (n.length !== 6) return hex || '#60a5fa';
+    const num = parseInt(n, 16);
+    if (Number.isNaN(num)) return hex || '#60a5fa';
+    const amt = Math.round(255 * (percent / 100));
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    const r = clamp((num >> 16) + amt);
+    const g = clamp(((num >> 8) & 0xff) + amt);
+    const b = clamp((num & 0xff) + amt);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
 const initCharts = () => {

@@ -124,5 +124,89 @@ for (const f of files) {
 }
 check(domImpl.length === 0, 'DOM-реализация escapeHtml убрана', domImpl.join(', '));
 
+console.log('dashboard.js: инициализация доходит до API-запросов');
+
+const DASHBOARD = path.join(JS_DIR, 'dashboard.js');
+const dashSrc = fs.readFileSync(DASHBOARD, 'utf8');
+
+check(/\b(?:let|const|var)\s+widgetConfigs\b/.test(dashSrc),
+    'dashboard.js объявляет widgetConfigs');
+check(/\b(?:const|let|var|function)\s+shadeColor\b/.test(dashSrc),
+    'dashboard.js объявляет shadeColor');
+check(!/shadeColor\s*\?/.test(dashSrc),
+    'renderGenericStat не проверяет shadeColor через тернарник');
+
+function makeEl() {
+    return {
+        dataset: {}, style: {}, hidden: false, draggable: false,
+        innerHTML: '', textContent: '',
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+        addEventListener() {}, removeEventListener() {}, appendChild() {}, setAttribute() {},
+        getAttribute() { return null; }, querySelector() { return null; },
+        querySelectorAll() { return []; }, closest() { return null; },
+        getBoundingClientRect() { return { left: 0, top: 0, width: 0, height: 0 }; },
+        getContext() { return {}; },
+    };
+}
+
+function runDashboard(src) {
+    const fetchCalls = [];
+    const listeners = {};
+    const sandbox = {
+        console,
+        structuredClone: (value) => JSON.parse(JSON.stringify(value)),
+        requestAnimationFrame: (cb) => cb(),
+        setTimeout: () => 0,
+        setInterval: () => 0,
+        clearInterval: () => {},
+        localStorage: {
+            _data: {},
+            getItem(key) {
+                return Object.prototype.hasOwnProperty.call(this._data, key) ? this._data[key] : null;
+            },
+            setItem(key, value) { this._data[key] = String(value); },
+        },
+        fetch: async (url) => {
+            fetchCalls.push(String(url));
+            return { ok: true, status: 200, text: async () => '{}' };
+        },
+        document: {
+            getElementById: () => makeEl(),
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            createElement: () => makeEl(),
+            addEventListener: (name, cb) => { (listeners[name] = listeners[name] || []).push(cb); },
+        },
+        EventSource: undefined,
+        Chart: undefined,
+        lucide: undefined,
+    };
+    sandbox.window = sandbox;
+    sandbox.window.addEventListener = () => {};
+    let thrown = null;
+    vm.createContext(sandbox);
+    try {
+        vm.runInContext(fs.readFileSync(COMMON, 'utf8'), sandbox, { filename: 'common.js' });
+        vm.runInContext(src, sandbox, { filename: 'dashboard.js' });
+        (listeners.DOMContentLoaded || []).forEach((cb) => cb());
+    } catch (err) {
+        thrown = err;
+    }
+    return { thrown, fetchCalls };
+}
+
+const initRun = runDashboard(dashSrc);
+check(!initRun.thrown, 'DOMContentLoaded проходит без исключения',
+    initRun.thrown && initRun.thrown.message);
+check(initRun.fetchCalls.length >= 2, 'после init уходят запросы summary/metrics',
+    JSON.stringify(initRun.fetchCalls));
+eq(initRun.fetchCalls[0], '/api/summary.php', 'первый запрос — /api/summary.php');
+
+const brokenSrc = dashSrc.replace(/\nlet widgetConfigs = loadWidgetConfigs\(\);/, '\n');
+const brokenRun = runDashboard(brokenSrc);
+check(!!brokenRun.thrown || brokenRun.fetchCalls.length === 0,
+    'без объявления widgetConfigs init не доходит до API (ловит регрессию 97978ff)',
+    `thrown=${brokenRun.thrown && brokenRun.thrown.message}, fetch=${JSON.stringify(brokenRun.fetchCalls)}`);
+
 console.log(`\nИтог: passed=${passed} failed=${failed}`);
 process.exit(failed > 0 ? 1 : 0);
