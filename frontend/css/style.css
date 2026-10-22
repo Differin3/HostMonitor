@@ -1058,6 +1058,8 @@ input[type="checkbox"]:disabled {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.22s ease;
@@ -1072,7 +1074,8 @@ input[type="checkbox"]:disabled {
 .modal-dialog {
     width: 100%;
     max-width: 700px;
-    max-height: 90vh;
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px);
     background: var(--bg-card);
     border-radius: 20px;
     border: 1px solid rgba(148, 163, 184, 0.16);
@@ -1093,7 +1096,8 @@ input[type="checkbox"]:disabled {
 .modal-content {
     width: 100%;
     max-width: 90vw;
-    max-height: 90vh;
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px);
     background: var(--bg-card);
     border-radius: 20px;
     border: 1px solid rgba(148, 163, 184, 0.16);
@@ -1114,6 +1118,8 @@ input[type="checkbox"]:disabled {
     padding: 20px 28px 16px;
     color: var(--text-primary);
     gap: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 
@@ -1122,6 +1128,7 @@ input[type="checkbox"]:disabled {
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0;
     margin-bottom: 18px;
     padding-bottom: 14px;
     border-bottom: 1px solid rgba(148, 163, 184, 0.12);
@@ -1278,6 +1285,7 @@ input[type="number"]::-webkit-outer-spin-button {
     justify-content: flex-end;
     gap: 10px;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .modal-footer {

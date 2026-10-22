@@ -25,22 +25,34 @@
     const placeMenu = (state) => {
         const rect = state.btn.getBoundingClientRect();
         const menu = state.menu;
+        const viewportWidth = window.visualViewport?.width || window.innerWidth;
+        const viewportHeight = window.visualViewport?.height || window.innerHeight;
+        const edge = 8;
+        const gap = 6;
+        const maxMenuHeight = Math.min(360, Math.max(120, viewportHeight - edge * 2));
+
         menu.style.minWidth = `${Math.max(rect.width, 168)}px`;
-        menu.style.maxWidth = `${Math.min(window.innerWidth - 16, 420)}px`;
-        menu.style.left = `${Math.min(rect.left, window.innerWidth - 16 - 180)}px`;
+        menu.style.maxWidth = `${Math.min(viewportWidth - edge * 2, 420)}px`;
+        menu.style.maxHeight = `${maxMenuHeight}px`;
         menu.classList.remove('hidden');
         menu.hidden = false;
+
+        const wantedHeight = menu.offsetHeight;
+        const below = viewportHeight - rect.bottom - gap - edge;
+        const above = rect.top - gap - edge;
+        const openUp = below < wantedHeight && above > below;
+        const available = Math.max(48, openUp ? above : below);
+        menu.style.maxHeight = `${Math.min(maxMenuHeight, available)}px`;
+
         const height = menu.offsetHeight;
-        const below = window.innerHeight - rect.bottom - 10;
-        const above = rect.top - 10;
-        if (below < height && above > below) {
-            menu.style.top = `${Math.max(8, rect.top - height - 6)}px`;
-        } else {
-            menu.style.top = `${rect.bottom + 6}px`;
-        }
-        if (rect.left + menu.offsetWidth > window.innerWidth - 8) {
-            menu.style.left = `${Math.max(8, window.innerWidth - menu.offsetWidth - 8)}px`;
-        }
+        const top = openUp ? rect.top - height - gap : rect.bottom + gap;
+        const maxTop = Math.max(edge, viewportHeight - height - edge);
+        const left = Math.min(
+            Math.max(edge, rect.left),
+            Math.max(edge, viewportWidth - menu.offsetWidth - edge)
+        );
+        menu.style.top = `${Math.round(Math.min(Math.max(edge, top), maxTop))}px`;
+        menu.style.left = `${Math.round(left)}px`;
     };
 
     const paintOptions = (state) => {
