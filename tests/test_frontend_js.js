@@ -131,6 +131,8 @@ const dashSrc = fs.readFileSync(DASHBOARD, 'utf8');
 
 check(/\b(?:let|const|var)\s+widgetConfigs\b/.test(dashSrc),
     'dashboard.js объявляет widgetConfigs');
+check(/\b(?:let|const|var)\s+openConfigWidget\b/.test(dashSrc),
+    'dashboard.js объявляет openConfigWidget');
 check(/\b(?:const|let|var|function)\s+shadeColor\b/.test(dashSrc),
     'dashboard.js объявляет shadeColor');
 check(!/shadeColor\s*\?/.test(dashSrc),
@@ -140,18 +142,22 @@ function makeEl() {
     return {
         dataset: {}, style: {}, hidden: false, draggable: false,
         innerHTML: '', textContent: '',
+        _listeners: {},
         classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-        addEventListener() {}, removeEventListener() {}, appendChild() {}, setAttribute() {},
+        addEventListener(name, cb) { (this._listeners[name] = this._listeners[name] || []).push(cb); },
+        removeEventListener() {}, appendChild() {}, setAttribute() {},
         getAttribute() { return null; }, querySelector() { return null; },
         querySelectorAll() { return []; }, closest() { return null; },
         getBoundingClientRect() { return { left: 0, top: 0, width: 0, height: 0 }; },
         getContext() { return {}; },
+        remove() {},
     };
 }
 
 function runDashboard(src) {
     const fetchCalls = [];
     const listeners = {};
+    const byId = {};
     const sandbox = {
         console,
         structuredClone: (value) => JSON.parse(JSON.stringify(value)),
@@ -171,7 +177,7 @@ function runDashboard(src) {
             return { ok: true, status: 200, text: async () => '{}' };
         },
         document: {
-            getElementById: () => makeEl(),
+            getElementById: (id) => (byId[id] = byId[id] || makeEl()),
             querySelector: () => null,
             querySelectorAll: () => [],
             createElement: () => makeEl(),
@@ -192,7 +198,7 @@ function runDashboard(src) {
     } catch (err) {
         thrown = err;
     }
-    return { thrown, fetchCalls };
+    return { thrown, fetchCalls, byId };
 }
 
 const initRun = runDashboard(dashSrc);
@@ -207,6 +213,33 @@ const brokenRun = runDashboard(brokenSrc);
 check(!!brokenRun.thrown || brokenRun.fetchCalls.length === 0,
     'без объявления widgetConfigs init не доходит до API (ловит регрессию 97978ff)',
     `thrown=${brokenRun.thrown && brokenRun.thrown.message}, fetch=${JSON.stringify(brokenRun.fetchCalls)}`);
+
+console.log('dashboard.js: клик по дашборду не падает');
+
+function clickDashboard(run) {
+    const el = run.byId && run.byId.dashboard;
+    const handlers = (el && el._listeners.click) || [];
+    let error = null;
+    handlers.forEach((cb) => {
+        try {
+            cb({ target: { closest: () => null }, preventDefault() {}, stopPropagation() {} });
+        } catch (err) {
+            error = error || err;
+        }
+    });
+    return { error, count: handlers.length };
+}
+
+const clickRun = runDashboard(dashSrc);
+const clickResult = clickDashboard(clickRun);
+check(clickResult.count > 0, 'на #dashboard навешен обработчик click');
+check(!clickResult.error, 'клик по дашборду не падает (openConfigWidget объявлен)',
+    clickResult.error && clickResult.error.message);
+
+const brokenClickSrc = dashSrc.replace(/\nlet openConfigWidget = null;/, '');
+const brokenClick = clickDashboard(runDashboard(brokenClickSrc));
+check(!!brokenClick.error, 'без объявления openConfigWidget клик падает (ловит регрессию)',
+    'click не бросил исключение');
 
 console.log(`\nИтог: passed=${passed} failed=${failed}`);
 process.exit(failed > 0 ? 1 : 0);

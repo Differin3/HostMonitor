@@ -84,6 +84,8 @@ let sseConnected = false;
 let lastSummary = null;
 let lastNodes = [];
 let lastAlerts = [];
+let openConfigWidget = null;
+let lastChartsPayload = null;
 let widgetConfigs = loadWidgetConfigs();
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
@@ -463,6 +465,9 @@ function renderGenericLine(el, config, summary) {
             scales,
         },
     });
+    if (lastChartsPayload && (!lastChartsPayload.range || lastChartsPayload.range === layout.range)) {
+        updateGenericLineCharts(lastChartsPayload, el.dataset.widget);
+    }
 }
 
 function renderGenericTable(el, config, summary) {
@@ -523,12 +528,13 @@ function updateGenericWidgets(summary) {
     });
 }
 
-function updateGenericLineCharts(metrics) {
+function updateGenericLineCharts(metrics, onlyId) {
     const points = asPoints(metrics);
     if (!points.length) return;
     const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
     const labels = dates.map((d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
+        if (onlyId && widgetId !== onlyId) return;
         const chart = lineCharts[widgetId];
         if (!chart) return;
         const c = normalizeWidgetConfig(config);
@@ -579,24 +585,28 @@ function updateGenericLineCharts(metrics) {
     });
 }
 
-function openConfigPanel(widgetId) {
+function openConfigPanel(widgetId, opts = {}) {
+    const wasNew = openConfigWidget === widgetId && document.getElementById('dash-config-panel')?.dataset.newWidget === '1';
     closeConfigPanel();
     const el = document.querySelector(`[data-widget="${widgetId}"]`);
     if (!el) return;
     openConfigWidget = widgetId;
     const existing = widgetConfigs[widgetId] || {};
     const config = normalizeWidgetConfig(existing);
-    const isChartMulti = config.type === 'line-chart' || config.type === 'bar-chart';
+    const isCustomWidget = widgetId.startsWith('custom-');
+    const isChartType = (type) => type === 'line-chart' || type === 'bar-chart';
     const panel = document.createElement('div');
     panel.className = 'dash-config-panel';
     panel.id = 'dash-config-panel';
-    const seriesHtml = isChartMulti ? `
+    if (opts.isNew || wasNew) panel.dataset.newWidget = '1';
+    const seriesSection = () => `
         <div class="dash-config-section">
             <label class="dash-config-label">Серии</label>
             <div id="dash-config-series" class="dash-config-series"></div>
             <button type="button" class="btn-outline" id="dash-config-add-series" style="margin-top:8px">Добавить серию</button>
         </div>
-    ` : `
+    `;
+    const singleSection = () => `
         <div class="dash-config-section">
             <label class="dash-config-label">Метрика</label>
             <select class="dash-config-select" id="dash-config-metric">${Object.entries(METRIC_OPTIONS).map(([k, v]) =>
@@ -605,11 +615,13 @@ function openConfigPanel(widgetId) {
         </div>
         <div class="dash-config-section">
             <label class="dash-config-label">Цвет</label>
-            <div class="dash-config-colors">${WIDGET_COLORS.map((c, idx) =>
+            <div class="dash-config-colors">${WIDGET_COLORS.map((c) =>
                 `<button type="button" class="dash-config-color-btn${((config.series[0]||{}).color === c) ? ' active' : ''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`
             ).join('')}</div>
         </div>
     `;
+    const dynamicHtml = (type) => isChartType(type) ? seriesSection() : singleSection();
+    const seriesHtml = dynamicHtml(config.type);
     panel.innerHTML = `
         <div class="dash-config-section">
             <label class="dash-config-label">Тип</label>
@@ -617,7 +629,7 @@ function openConfigPanel(widgetId) {
                 `<button type="button" class="dash-config-type-btn${config.type === k ? ' active' : ''}" data-type="${esc(k)}" title="${esc(v.label)}"><i data-lucide="${esc(v.icon)}"></i></button>`
             ).join('')}</div>
         </div>
-        ${seriesHtml}
+        <div id="dash-config-dynamic">${seriesHtml}</div>
         <div class="dash-config-section">
             <label class="dash-config-label">Заголовок</label>
             <input type="text" class="dash-config-input" id="dash-config-title" value="${esc(config.title || '')}" placeholder="${esc((config.series[0]&&METRIC_OPTIONS[config.series[0].metric]) ? METRIC_OPTIONS[config.series[0].metric].label : 'Заголовок')}">
@@ -625,7 +637,7 @@ function openConfigPanel(widgetId) {
         <div class="dash-config-actions">
             <button type="button" class="dash-config-apply primary" id="dash-config-apply">Применить</button>
             <button type="button" class="btn-outline" id="dash-config-cancel">Отмена</button>
-            ${existing.type || existing.metric || (existing.series&&existing.series.length) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">Сбросить</button>' : ''}
+            ${existing.type || existing.metric || (existing.series&&existing.series.length) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">' + (isCustomWidget ? 'Удалить' : 'Сбросить') + '</button>' : ''}
         </div>`;
     el.appendChild(panel);
     if (window.lucide) lucide.createIcons();
@@ -651,96 +663,123 @@ function openConfigPanel(widgetId) {
         `).join('');
         if (window.lucide) lucide.createIcons();
     }
-    if (isChartMulti) {
-        renderSeries();
-        panel.querySelector('#dash-config-add-series')?.addEventListener('click', () => {
-            if (!Array.isArray(config.series)) config.series = [];
-            config.series.push({ metric: 'cpu', label: 'CPU %', color: WIDGET_COLORS[config.series.length % WIDGET_COLORS.length], axis: 'left' });
-            renderSeries();
-        });
-        panel.addEventListener('click', (e) => {
-            const rm = e.target.closest('.dash-series-remove');
-            if (rm) {
-                const idx = Number(rm.closest('.dash-config-series-item')?.dataset.idx);
-                if (!isNaN(idx) && Array.isArray(config.series)) {
-                    config.series.splice(idx, 1);
-                    if (config.series.length === 0) config.series.push({ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' });
-                    renderSeries();
-                }
-                return;
-            }
-            const sc = e.target.closest('.dash-series-color');
-            if (sc) {
-                const item = sc.closest('.dash-config-series-item');
-                const idx = Number(item?.dataset.idx);
-                item?.querySelectorAll('.dash-series-color').forEach(b=>b.classList.remove('active'));
-                sc.classList.add('active');
-                if (!isNaN(idx) && Array.isArray(config.series)) config.series[idx].color = sc.dataset.color;
-                return;
-            }
-        });
-        panel.addEventListener('change', (e) => {
-            const item = e.target.closest('.dash-config-series-item');
-            if (!item) return;
-            const idx = Number(item.dataset.idx);
-            if (isNaN(idx) || !Array.isArray(config.series)) return;
-            if (e.target.classList.contains('dash-series-metric')) config.series[idx].metric = e.target.value;
-            if (e.target.classList.contains('dash-series-axis')) config.series[idx].axis = e.target.value;
-            if (e.target.classList.contains('dash-series-label')) config.series[idx].label = e.target.value;
-        });
-    }
+    const renderDynamic = (type) => {
+        const cont = panel.querySelector('#dash-config-dynamic');
+        if (!cont) return;
+        cont.innerHTML = dynamicHtml(type);
+        if (isChartType(type)) renderSeries();
+        if (window.lucide) lucide.createIcons();
+    };
+    renderDynamic(config.type);
     panel.addEventListener('click', (e) => {
         const typeBtn = e.target.closest('.dash-config-type-btn');
         if (typeBtn) {
+            const nextType = typeBtn.dataset.type || 'stat';
+            if (!isChartType(config.type) && isChartType(nextType)) {
+                const metric = panel.querySelector('#dash-config-metric')?.value || config.series[0].metric;
+                const color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || config.series[0].color;
+                const m = METRIC_OPTIONS[metric] || {};
+                config.series = [{ metric, label: m.label || metric, color, axis: 'left' }];
+            }
+            config.type = nextType;
             panel.querySelectorAll('.dash-config-type-btn').forEach((b) => b.classList.remove('active'));
             typeBtn.classList.add('active');
+            renderDynamic(nextType);
+            return;
+        }
+        if (e.target.closest('#dash-config-add-series')) {
+            if (!Array.isArray(config.series)) config.series = [];
+            config.series.push({ metric: 'cpu', label: 'CPU %', color: WIDGET_COLORS[config.series.length % WIDGET_COLORS.length], axis: 'left' });
+            renderSeries();
+            return;
+        }
+        const rm = e.target.closest('.dash-series-remove');
+        if (rm) {
+            const idx = Number(rm.closest('.dash-config-series-item')?.dataset.idx);
+            if (!isNaN(idx) && Array.isArray(config.series)) {
+                config.series.splice(idx, 1);
+                if (config.series.length === 0) config.series.push({ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' });
+                renderSeries();
+            }
+            return;
+        }
+        const seriesColor = e.target.closest('.dash-series-color');
+        if (seriesColor) {
+            const item = seriesColor.closest('.dash-config-series-item');
+            const idx = Number(item?.dataset.idx);
+            item?.querySelectorAll('.dash-series-color').forEach((b) => b.classList.remove('active'));
+            seriesColor.classList.add('active');
+            if (!isNaN(idx) && Array.isArray(config.series)) config.series[idx].color = seriesColor.dataset.color;
             return;
         }
         const colorBtn = e.target.closest('.dash-config-color-btn:not(.dash-series-color)');
         if (colorBtn) {
             panel.querySelectorAll('.dash-config-color-btn:not(.dash-series-color)').forEach((b) => b.classList.remove('active'));
             colorBtn.classList.add('active');
-            return;
         }
+    });
+    panel.addEventListener('change', (e) => {
+        const item = e.target.closest('.dash-config-series-item');
+        if (!item) return;
+        const idx = Number(item.dataset.idx);
+        if (isNaN(idx) || !Array.isArray(config.series)) return;
+        if (e.target.classList.contains('dash-series-metric')) {
+            const prevLabel = (METRIC_OPTIONS[config.series[idx].metric] || {}).label;
+            const labelInput = item.querySelector('.dash-series-label');
+            if (labelInput && (!labelInput.value || labelInput.value === prevLabel)) {
+                labelInput.value = (METRIC_OPTIONS[e.target.value] || {}).label || e.target.value;
+            }
+            config.series[idx].metric = e.target.value;
+            config.series[idx].label = labelInput?.value || '';
+        }
+        if (e.target.classList.contains('dash-series-axis')) config.series[idx].axis = e.target.value;
+        if (e.target.classList.contains('dash-series-label')) config.series[idx].label = e.target.value;
     });
     document.getElementById('dash-config-apply')?.addEventListener('click', () => {
         const type = panel.querySelector('.dash-config-type-btn.active')?.dataset.type || config.type || 'stat';
         const title = document.getElementById('dash-config-title')?.value || '';
         let newConfig = { type, title };
-        if (type === 'line-chart' || type === 'bar-chart') {
-            if (!Array.isArray(config.series) || config.series.length === 0) config.series = [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }];
-            newConfig.series = config.series.map(s => ({ metric: s.metric, label: s.label, color: s.color, axis: s.axis === 'right' ? 'right' : 'left' }));
+        if (isChartType(type)) {
+            const items = [...panel.querySelectorAll('.dash-config-series-item')];
+            const series = items.map((item, idx) => ({
+                metric: item.querySelector('.dash-series-metric')?.value || 'cpu',
+                label: item.querySelector('.dash-series-label')?.value || '',
+                color: item.querySelector('.dash-series-color.active')?.dataset.color || WIDGET_COLORS[idx % WIDGET_COLORS.length],
+                axis: item.querySelector('.dash-series-axis')?.value === 'right' ? 'right' : 'left',
+            }));
+            newConfig.series = series.length ? series : [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }];
         } else {
-            const metric = document.getElementById('dash-config-metric')?.value || (config.series[0]||{}).metric || 'cpu';
-            const color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || (config.series[0]||{}).color || '#60a5fa';
+            const metric = document.getElementById('dash-config-metric')?.value || config.series[0].metric || 'cpu';
+            const color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || config.series[0].color || '#60a5fa';
             const m = METRIC_OPTIONS[metric] || {};
             newConfig.series = [{ metric, label: title || m.label || metric, color, axis: 'left' }];
         }
         widgetConfigs[widgetId] = newConfig;
         saveWidgetConfigs();
         closeConfigPanel();
-        const summary = lastSummary;
+        destroyWidgetCharts(widgetId, type);
         const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
         if (el2) {
-            if (summary) renderGenericWidget(el2, widgetConfigs[widgetId], summary);
-            else if (lastSummary) renderGenericWidget(el2, widgetConfigs[widgetId], lastSummary);
+            el2.dataset.title = title || newConfig.series[0].label || newConfig.series[0].metric;
+            if (lastSummary) renderGenericWidget(el2, widgetConfigs[widgetId], lastSummary);
         }
         if (window.lucide) lucide.createIcons();
     });
-    document.getElementById('dash-config-cancel')?.addEventListener('click', closeConfigPanel);
+    document.getElementById('dash-config-cancel')?.addEventListener('click', () => closeConfigPanel(true));
     document.getElementById('dash-config-reset')?.addEventListener('click', () => {
+        if (isCustomWidget) {
+            removeWidget(widgetId);
+            return;
+        }
         delete widgetConfigs[widgetId];
         saveWidgetConfigs();
         closeConfigPanel();
+        destroyWidgetCharts(widgetId);
         const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
         if (el2 && originalWidgetHtml[widgetId]) {
-            el2.innerHTML = originalWidgetHtml[widgetId] + (el2.querySelector('.dash-widget-bar') ? '' : widgetBarHtml());
+            el2.innerHTML = originalWidgetHtml[widgetId];
+            if (!el2.querySelector('.dash-widget-bar')) el2.insertAdjacentHTML('afterbegin', widgetBarHtml());
             el2.classList.remove('has-generic-config');
-            el2.className = 'dash-widget';
-            if (lineCharts[widgetId]) { lineCharts[widgetId].destroy(); delete lineCharts[widgetId]; }
-            if (barCharts[widgetId]) { barCharts[widgetId].destroy(); delete barCharts[widgetId]; }
-            if (gaugeCharts[widgetId]) { gaugeCharts[widgetId].destroy(); delete gaugeCharts[widgetId]; }
-            if (pieCharts[widgetId]) { pieCharts[widgetId].destroy(); delete pieCharts[widgetId]; }
         }
         applyLayout();
         if (window.lucide) lucide.createIcons();
@@ -748,15 +787,41 @@ function openConfigPanel(widgetId) {
     });
 }
 
-function closeConfigPanel() {
+function closeConfigPanel(discardNew = false) {
     const panel = document.getElementById('dash-config-panel');
+    const widgetId = openConfigWidget;
+    const isNew = !!panel && panel.dataset.newWidget === '1';
     if (panel) panel.remove();
     openConfigWidget = null;
+    if (discardNew && isNew && widgetId) removeWidget(widgetId);
+}
+
+function destroyWidgetCharts(widgetId, keepType) {
+    if (keepType !== 'line-chart' && lineCharts[widgetId]) { lineCharts[widgetId].destroy(); delete lineCharts[widgetId]; }
+    if (keepType !== 'bar-chart' && barCharts[widgetId]) { barCharts[widgetId].destroy(); delete barCharts[widgetId]; }
+    if (keepType !== 'gauge' && gaugeCharts[widgetId]) { gaugeCharts[widgetId].destroy(); delete gaugeCharts[widgetId]; }
+    if (keepType !== 'pie-chart' && pieCharts[widgetId]) { pieCharts[widgetId].destroy(); delete pieCharts[widgetId]; }
+}
+
+function removeWidget(widgetId) {
+    const el = document.querySelector(`[data-widget="${widgetId}"]`);
+    if (el) el.remove();
+    closeConfigPanel();
+    destroyWidgetCharts(widgetId);
+    delete widgetConfigs[widgetId];
+    delete originalWidgetHtml[widgetId];
+    if (Array.isArray(layout.order)) layout.order = layout.order.filter((id) => id !== widgetId);
+    if (Array.isArray(layout.hidden)) layout.hidden = layout.hidden.filter((id) => id !== widgetId);
+    if (layout.spans) delete layout.spans[widgetId];
+    saveWidgetConfigs();
+    saveLayout();
+    applyLayout();
+    if (window.lucide) lucide.createIcons();
 }
 
 function setEditing(on) {
     editing = on;
-    if (!on) closeConfigPanel();
+    if (!on) closeConfigPanel(true);
     elements.dashboard?.classList.toggle('is-editing', on);
     const editBtn = document.getElementById('dash-edit');
     const resetBtn = document.getElementById('dash-reset');
@@ -1146,8 +1211,9 @@ const asPoints = (payload) => {
 
 const updateCharts = (payload) => {
     const points = asPoints(payload);
-    if (!resChart && !netChart) return;
     if (!points.length) return;
+    lastChartsPayload = payload;
+    if (!resChart && !netChart) return;
 
     const dates = points.map((p) => new Date(p.ts || p.timestamp || Date.now()));
     const spanHours = dates.length > 1 ? (dates[dates.length - 1] - dates[0]) / 36e5 : 0;
@@ -1343,9 +1409,11 @@ function bindBoard() {
     });
 
     elements.dashboard.addEventListener('click', (e) => {
+        const configBtn = e.target.closest('[data-config]');
         const configPanel = e.target.closest('.dash-config-panel');
         if (!configPanel && openConfigWidget && editing) {
-            closeConfigPanel();
+            const configWidgetId = configBtn?.closest('[data-widget]')?.dataset.widget;
+            if (configWidgetId !== openConfigWidget) closeConfigPanel(true);
         }
         const topTab = e.target.closest('.top-tab');
         if (topTab) {
@@ -1359,9 +1427,14 @@ function bindBoard() {
         const restore = e.target.closest('[data-restore]');
         if (restore) {
             e.preventDefault();
-            layout.hidden = layout.hidden.filter((id) => id !== restore.dataset.restore);
+            const restoredId = restore.dataset.restore;
+            layout.hidden = layout.hidden.filter((id) => id !== restoredId);
             saveLayout();
             applyLayout();
+            const restoredEl = document.querySelector(`[data-widget="${restoredId}"]`);
+            if (widgetConfigs[restoredId] && restoredEl && lastSummary) {
+                renderGenericWidget(restoredEl, widgetConfigs[restoredId], lastSummary);
+            }
             if (window.lucide) lucide.createIcons();
             return;
         }
@@ -1377,7 +1450,6 @@ function bindBoard() {
         if (window.lucide) lucide.createIcons();
         return;
         }
-        const configBtn = e.target.closest('[data-config]');
         if (configBtn) {
             e.preventDefault();
             e.stopPropagation();
@@ -1611,6 +1683,7 @@ function bindToolbar() {
     });
     document.getElementById('dash-reset')?.addEventListener('click', () => {
         Object.keys(widgetConfigs).forEach((widgetId) => {
+            destroyWidgetCharts(widgetId);
             const el = document.querySelector(`[data-widget="${widgetId}"]`);
             if (el && originalWidgetHtml[widgetId]) {
                 el.innerHTML = originalWidgetHtml[widgetId];
@@ -1618,15 +1691,16 @@ function bindToolbar() {
                 if (window.lucide) lucide.createIcons();
             }
         });
+        widgets().filter((el) => el.dataset.widget.startsWith('custom-')).forEach((el) => el.remove());
         widgetConfigs = {};
         Object.keys(originalWidgetHtml).forEach((k) => delete originalWidgetHtml[k]);
         saveWidgetConfigs();
         layout = structuredClone(DEFAULT_LAYOUT);
-            saveLayout();
-            applyLayout();
-            refreshCharts();
-            if (window.lucide) lucide.createIcons();
-            window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
+        saveLayout();
+        applyLayout();
+        refreshCharts();
+        if (window.lucide) lucide.createIcons();
+        window.showToast?.('Дашборд сброшен к виду по умолчанию', 'info');
     });
     document.getElementById('dash-add-widget')?.addEventListener('click', () => {
         const id = 'custom-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
@@ -1639,6 +1713,7 @@ function bindToolbar() {
         art.id = id;
         art.dataset.widget = id;
         art.dataset.span = '3';
+        art.dataset.title = 'Новый виджет';
         const chrome = widgetBarHtml();
         art.innerHTML = chrome + `<div class="stat-card-icon" style="background:linear-gradient(180deg,#60a5fa,#2563eb)"><i data-lucide="cpu"></i></div><div class="stat-card-content"><h3>CPU</h3><div class="stat-value">0%</div><div class="hm-meter"><span style="width:0%"></span></div><p class="stat-subtitle">—</p></div>`;
         board.appendChild(art);
@@ -1649,7 +1724,7 @@ function bindToolbar() {
         saveLayout();
         applyLayout();
         if (window.lucide) lucide.createIcons();
-        setTimeout(() => openConfigPanel(id), 0);
+        setTimeout(() => openConfigPanel(id, { isNew: true }), 0);
     });
 }
 
