@@ -31,6 +31,16 @@ const METRIC_OPTIONS = {
 
 const WIDGET_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#c084fc', '#38bdf8', '#818cf8', '#ef4444', '#22c55e'];
 
+const DEFAULT_METRIC_THRESHOLDS = {
+    cpu: { warn: 75, bad: 90, unit: '%' },
+    ram: { warn: 75, bad: 90, unit: '%' },
+    disk: { warn: 75, bad: 90, unit: '%' },
+    swap: { warn: 75, bad: 90, unit: '%' },
+    gpu: { warn: 75, bad: 90, unit: '%' },
+    load: { warn: 3, bad: 3.6, unit: '' },
+    alerts: { warn: 1, bad: 5, unit: 'шт.' },
+};
+
 const DEFAULT_LAYOUT = {
     order: ['stat-nodes', 'stat-alerts', 'stat-cpu', 'stat-ram', 'stat-disk', 'stat-load', 'stat-swap', 'stat-gpu', 'stat-net', 'stat-traffic', 'chart-res', 'chart-net', 'chart-net-nodes', 'top-nodes', 'list-nodes', 'list-alerts'],
     hidden: ['stat-proc', 'stat-ct', 'stat-db'],
@@ -41,6 +51,7 @@ const DEFAULT_LAYOUT = {
         'chart-res': 6, 'chart-net': 6, 'chart-net-nodes': 6, 'top-nodes': 6,
         'list-nodes': 6, 'list-alerts': 6,
     },
+    thresholds: {},
     range: '1h',
 };
 
@@ -107,10 +118,14 @@ const setText = (el, value) => {
     if (el) el.textContent = value;
 };
 
-const toneForPct = (value) => {
+const toneForPct = (value, thresholds) => {
     const n = Number(value) || 0;
-    if (n >= 90) return 'bad';
-    if (n >= 75) return 'warn';
+    const warn = Number(thresholds?.warn);
+    const bad = Number(thresholds?.bad);
+    const warnAt = Number.isFinite(warn) ? warn : 75;
+    const badAt = Number.isFinite(bad) ? bad : 90;
+    if (n >= badAt) return 'bad';
+    if (n >= warnAt) return 'warn';
     return 'ok';
 };
 
@@ -149,6 +164,7 @@ function loadLayout() {
             order: Array.isArray(parsed.order) ? parsed.order : DEFAULT_LAYOUT.order.slice(),
             hidden: Array.isArray(parsed.hidden) ? parsed.hidden : DEFAULT_LAYOUT.hidden.slice(),
             spans: { ...DEFAULT_LAYOUT.spans, ...(parsed.spans || {}) },
+            thresholds: (parsed.thresholds && typeof parsed.thresholds === 'object') ? parsed.thresholds : {},
             range: RANGE_SECONDS[parsed.range] ? parsed.range : '1h',
         };
     } catch (err) {
@@ -311,7 +327,7 @@ function renderGenericStat(el, config, summary) {
     const value = typeof getMetricValue === 'function' ? getMetricValue(s.metric, summary) : (summary?.[s.metric] ?? summary?.[m.summaryKey] ?? 0);
     const num = Number(value) || 0;
     const pct = m.max ? Math.min(100, (num / m.max) * 100) : 0;
-    const tone = m.max ? toneForPct(pct) : (num > 0 ? 'ok' : 'warn');
+    const tone = m.max ? toneForPct(pct, thresholdsFor(el.dataset.widget, s.metric)) : (num > 0 ? 'ok' : 'warn');
     el.innerHTML = widgetBarHtml() + `
         <div class="stat-card-icon" style="background: linear-gradient(180deg, ${esc(s.color || '#60a5fa')}cc, ${esc(shadeColor(s.color || '#60a5fa', -20))}88);">
             <i data-lucide="${esc(m.icon || 'activity')}"></i>
@@ -504,7 +520,7 @@ function renderGenericTable(el, config, summary) {
         sorted.length ? sorted.slice(0, 8).map((n) => {
             const val = Number(n[valKey]) || 0;
             const isPercent = m.unit === '%' || m.max === 100;
-            return `<tr><td>${esc(n.name || n.host || n.ip || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(s.metric)}" data-tone="${esc(toneForPct(val))}"><span style="width:${Math.max(0, Math.min(100, val))}%"></span></span> ` : ''}${isPercent ? Math.round(val) + '%' : formatMetricValue(s.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
+            return `<tr><td>${esc(n.name || n.host || n.ip || '—')}</td><td>${isPercent ? `<span class="hm-meter hm-meter-${esc(s.metric)}" data-tone="${esc(toneForPct(val, thresholdsFor(el.dataset.widget, s.metric)))}"><span style="width:${Math.max(0, Math.min(100, val))}%"></span></span> ` : ''}${isPercent ? Math.round(val) + '%' : formatMetricValue(s.metric, val)}</td><td><span class="pill status ${esc(n.status || '')}">${esc(n.status || '—')}</span></td></tr>`;
         }).join('') : '<tr><td colspan="3" class="text-center">Нет данных</td></tr>'
     }</tbody></table></div>`;
     if (window.lucide) lucide.createIcons();
@@ -608,8 +624,8 @@ function openConfigPanel(widgetId, opts = {}) {
     const el = document.querySelector(`[data-widget="${widgetId}"]`);
     if (!el) return;
     openConfigWidget = widgetId;
-    const existing = widgetConfigs[widgetId] || {};
-    const config = normalizeWidgetConfig(existing);
+    const existing = widgetConfigs[widgetId];
+    const config = existing ? normalizeWidgetConfig(existing) : defaultConfigForWidget(widgetId, el);
     const isCustomWidget = widgetId.startsWith('custom-');
     const isChartType = (type) => type === 'line-chart' || type === 'bar-chart';
     const panel = document.createElement('div');
@@ -629,7 +645,31 @@ function openConfigPanel(widgetId, opts = {}) {
             <button type="button" class="btn-outline" id="dash-config-add-series" style="margin-top:8px">Добавить серию</button>
         </div>
     `;
-    const singleSection = () => `
+    const thresholdSection = (metric) => {
+        const base = defaultThresholdsFor(widgetId, metric);
+        if (!base) return '';
+        const value = thresholdsFor(widgetId, metric) || base;
+        const unit = base.unit ? `, ${esc(base.unit)}` : '';
+        const step = base.unit === '%' || base.unit === 'шт.' ? '1' : '0.1';
+        return `
+        <div class="dash-config-section" id="dash-config-thresholds">
+            <label class="dash-config-label">Пороги</label>
+            <div class="dash-config-thresholds">
+                <label class="dash-config-threshold">
+                    <span>Предупреждение${unit}</span>
+                    <input type="number" class="dash-config-input" id="dash-config-warn" min="0" step="${step}" value="${esc(value.warn)}">
+                </label>
+                <label class="dash-config-threshold">
+                    <span>Критично${unit}</span>
+                    <input type="number" class="dash-config-input" id="dash-config-bad" min="0" step="${step}" value="${esc(value.bad)}">
+                </label>
+            </div>
+            <p class="dash-config-hint">Цвет плашки меняется при достижении порога.</p>
+        </div>`;
+    };
+    const singleSection = () => {
+        const metric = (config.series[0] || {}).metric || inferWidgetMetric(widgetId);
+        return `
         <div class="dash-config-section">
             <label class="dash-config-label">Метрика</label>
             <select class="dash-config-select" id="dash-config-metric">${Object.entries(METRIC_OPTIONS).map(([k, v]) =>
@@ -642,7 +682,9 @@ function openConfigPanel(widgetId, opts = {}) {
                 `<button type="button" class="dash-config-color-btn${((config.series[0]||{}).color === c) ? ' active' : ''}" data-color="${esc(c)}" style="background:${esc(c)}"></button>`
             ).join('')}</div>
         </div>
+        <div id="dash-config-thresholds-wrap">${thresholdSection(metric)}</div>
     `;
+    };
     const dynamicHtml = (type) => isChartType(type) ? seriesSection() : singleSection();
     const seriesHtml = dynamicHtml(config.type);
     panel.innerHTML = `
@@ -660,7 +702,7 @@ function openConfigPanel(widgetId, opts = {}) {
         <div class="dash-config-actions">
             <button type="button" class="dash-config-apply primary" id="dash-config-apply">Применить</button>
             <button type="button" class="btn-outline" id="dash-config-cancel">Отмена</button>
-            ${existing.type || existing.metric || (existing.series&&existing.series.length) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">' + (isCustomWidget ? 'Удалить' : 'Сбросить') + '</button>' : ''}
+            ${existing?.type || existing?.metric || (existing?.series && existing.series.length) || (layout.thresholds && layout.thresholds[widgetId]) ? '<button type="button" class="btn-outline dash-config-reset" id="dash-config-reset">' + (isCustomWidget ? 'Удалить' : 'Сбросить') + '</button>' : ''}
         </div>
         ${isNewWidget ? '' : `<div class="dash-config-actions secondary">
             <button type="button" class="btn-outline" id="dash-config-up">Выше</button>
@@ -747,6 +789,10 @@ function openConfigPanel(widgetId, opts = {}) {
         }
     });
     panel.addEventListener('change', (e) => {
+        if (e.target.id === 'dash-config-metric') {
+            const wrap = panel.querySelector('#dash-config-thresholds-wrap');
+            if (wrap) wrap.innerHTML = thresholdSection(e.target.value);
+        }
         const item = e.target.closest('.dash-config-series-item');
         if (!item) return;
         const idx = Number(item.dataset.idx);
@@ -767,6 +813,8 @@ function openConfigPanel(widgetId, opts = {}) {
         const type = panel.querySelector('.dash-config-type-btn.active')?.dataset.type || config.type || 'stat';
         const title = document.getElementById('dash-config-title')?.value || '';
         let newConfig = { type, title };
+        let metric = '';
+        let color = '';
         if (isChartType(type)) {
             const items = [...panel.querySelectorAll('.dash-config-series-item')];
             const series = items.map((item, idx) => ({
@@ -777,14 +825,39 @@ function openConfigPanel(widgetId, opts = {}) {
             }));
             newConfig.series = series.length ? series : [{ metric: 'cpu', label: 'CPU %', color: '#60a5fa', axis: 'left' }];
         } else {
-            const metric = document.getElementById('dash-config-metric')?.value || config.series[0].metric || 'cpu';
-            const color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || config.series[0].color || '#60a5fa';
+            metric = document.getElementById('dash-config-metric')?.value || config.series[0].metric || 'cpu';
+            color = panel.querySelector('.dash-config-color-btn:not(.dash-series-color).active')?.dataset.color || config.series[0].color || '#60a5fa';
             const m = METRIC_OPTIONS[metric] || {};
             newConfig.series = [{ metric, label: title || m.label || metric, color, axis: 'left' }];
         }
-        widgetConfigs[widgetId] = newConfig;
-        saveWidgetConfigs();
+        const thresholdDef = defaultThresholdsFor(widgetId, metric || newConfig.series[0]?.metric);
+        const warnInput = panel.querySelector('#dash-config-warn');
+        const badInput = panel.querySelector('#dash-config-bad');
+        if (thresholdDef && warnInput && badInput) {
+            const normalized = normalizeThresholds({ warn: warnInput.value, bad: badInput.value }, thresholdDef);
+            layout.thresholds = layout.thresholds || {};
+            layout.thresholds[widgetId] = { warn: normalized.warn, bad: normalized.bad };
+            saveLayout();
+        }
+        const defaultCfg = defaultConfigForWidget(widgetId, el);
+        const sameTitle = title.trim() === String(el.dataset.title || '').trim();
+        const keepStandard = !existing && !isCustomWidget
+            && type === defaultCfg.type
+            && sameTitle
+            && (isChartType(type)
+                ? newConfig.series.length === defaultCfg.series.length
+                    && newConfig.series.every((s, i) => s.metric === defaultCfg.series[i].metric && s.color === defaultCfg.series[i].color)
+                : metric === (defaultCfg.series[0] || {}).metric && color === (defaultCfg.series[0] || {}).color);
+        if (!keepStandard) {
+            widgetConfigs[widgetId] = newConfig;
+            saveWidgetConfigs();
+        }
         closeConfigPanel();
+        if (keepStandard) {
+            if (lastSummary) updateStats(lastSummary);
+            if (window.lucide) lucide.createIcons();
+            return;
+        }
         destroyWidgetCharts(widgetId, type);
         const el2 = document.querySelector(`[data-widget="${widgetId}"]`);
         if (el2) {
@@ -799,6 +872,8 @@ function openConfigPanel(widgetId, opts = {}) {
             removeWidget(widgetId);
             return;
         }
+        if (layout.thresholds) delete layout.thresholds[widgetId];
+        saveLayout();
         delete widgetConfigs[widgetId];
         saveWidgetConfigs();
         closeConfigPanel();
@@ -810,6 +885,7 @@ function openConfigPanel(widgetId, opts = {}) {
             el2.classList.remove('has-generic-config');
         }
         applyLayout();
+        if (lastSummary) updateStats(lastSummary);
         if (window.lucide) lucide.createIcons();
         if (typeof refreshCharts === 'function') refreshCharts();
     });
@@ -851,6 +927,7 @@ function removeWidget(widgetId) {
     if (Array.isArray(layout.order)) layout.order = layout.order.filter((id) => id !== widgetId);
     if (Array.isArray(layout.hidden)) layout.hidden = layout.hidden.filter((id) => id !== widgetId);
     if (layout.spans) delete layout.spans[widgetId];
+    if (layout.thresholds) delete layout.thresholds[widgetId];
     saveWidgetConfigs();
     saveLayout();
     applyLayout();
@@ -896,6 +973,60 @@ function inferWidgetMetric(widgetId) {
     return WIDGET_METRIC_BY_ID[widgetId] || 'cpu';
 }
 
+const DEFAULT_WIDGET_SERIES = {
+    'chart-res': ['cpu', 'ram', 'disk'],
+    'chart-net': ['net_in', 'net_out'],
+    'chart-net-nodes': ['net_in'],
+};
+
+function defaultThresholdsFor(widgetId, metric) {
+    const key = metric || inferWidgetMetric(widgetId);
+    const base = DEFAULT_METRIC_THRESHOLDS[key];
+    return base ? { ...base } : null;
+}
+
+function normalizeThresholds(raw, fallback) {
+    const base = fallback || { warn: 75, bad: 90, unit: '%' };
+    const read = (value, def) => {
+        const text = String(value ?? '').trim();
+        if (text === '') return def;
+        const num = Number(text);
+        return Number.isFinite(num) ? num : def;
+    };
+    const step = base.unit === '%' || base.unit === 'шт.' ? 1 : 0.1;
+    const max = base.unit === '%' ? 100 : Infinity;
+    let warn = Math.max(0, Math.min(max, read(raw?.warn, base.warn)));
+    let bad = Math.max(0, Math.min(max, read(raw?.bad, base.bad)));
+    if (bad <= warn) bad = Math.min(max, warn + step);
+    return { warn, bad, unit: base.unit || '' };
+}
+
+function thresholdsFor(widgetId, metric) {
+    const base = defaultThresholdsFor(widgetId, metric);
+    if (!base) return null;
+    const saved = layout.thresholds?.[widgetId];
+    return saved ? normalizeThresholds(saved, base) : base;
+}
+
+function defaultConfigForWidget(widgetId, el) {
+    const metrics = DEFAULT_WIDGET_SERIES[widgetId] || [inferWidgetMetric(widgetId)];
+    const series = metrics.map((metric, idx) => {
+        const m = METRIC_OPTIONS[metric] || METRIC_OPTIONS.cpu;
+        return {
+            metric,
+            label: m.label || metric,
+            color: m.color || WIDGET_COLORS[idx % WIDGET_COLORS.length],
+            axis: 'left',
+        };
+    });
+    const type = el ? inferWidgetType(el) : (widgetId.startsWith('chart-') ? 'line-chart' : 'stat');
+    return normalizeWidgetConfig({
+        type,
+        title: el?.dataset?.title || '',
+        series,
+    });
+}
+
 function duplicateWidget(widgetId) {
     const src = document.querySelector(`[data-widget="${widgetId}"]`);
     if (!src) return null;
@@ -927,6 +1058,9 @@ function duplicateWidget(widgetId) {
     const srcIdx = layout.order.indexOf(widgetId);
     layout.order.splice(srcIdx >= 0 ? srcIdx + 1 : layout.order.length, 0, id);
     layout.spans[id] = layout.spans[widgetId] || Number(src.dataset.span) || 3;
+    if (layout.thresholds?.[widgetId]) {
+        layout.thresholds[id] = { ...layout.thresholds[widgetId] };
+    }
     clone.dataset.span = String(layout.spans[id]);
     saveLayout();
     src.parentNode.insertBefore(clone, src.nextSibling);
@@ -1105,11 +1239,18 @@ const updateStats = (summary) => {
     setText(elements.gpuAvg, gpuCount > 0 ? `${Math.round(Number(gpuAvg) || 0)}%` : '—');
     if (elements.netTotal) elements.netTotal.textContent = `${formatBytes(netIn)}/с ↓ ${formatBytes(netOut)}/с ↑`;
     if (elements.trafficTotal) elements.trafficTotal.textContent = formatBytes(trafficTotal);
-    setMeter(elements.cpuMeter, cpu);
-    setMeter(elements.ramMeter, ram);
-    setMeter(elements.diskMeter, disk);
-    setMeter(elements.swapMeter, swapMax);
-    setMeter(elements.gpuMeter, gpuCount > 0 ? gpuMax : 0);
+    const cpuTone = toneForPct(Math.max(cpu, cpuMax), thresholdsFor('stat-cpu', 'cpu'));
+    const ramTone = toneForPct(Math.max(ram, ramMax), thresholdsFor('stat-ram', 'ram'));
+    const diskTone = toneForPct(Math.max(disk, diskMax), thresholdsFor('stat-disk', 'disk'));
+    const swapTone = toneForPct(swapMax, thresholdsFor('stat-swap', 'swap'));
+    const gpuTone = gpuCount > 0 ? toneForPct(gpuMax, thresholdsFor('stat-gpu', 'gpu')) : 'ok';
+    const loadTone = toneForPct(loadAvg, thresholdsFor('stat-load', 'load'));
+    const alertsTone = alerts === 0 ? 'ok' : (alertsCrit > 0 ? 'bad' : toneForPct(alerts, thresholdsFor('stat-alerts', 'alerts')));
+    setMeter(elements.cpuMeter, cpu, cpuTone);
+    setMeter(elements.ramMeter, ram, ramTone);
+    setMeter(elements.diskMeter, disk, diskTone);
+    setMeter(elements.swapMeter, swapMax, swapTone);
+    setMeter(elements.gpuMeter, gpuCount > 0 ? gpuMax : 0, gpuTone);
 
     const nodesSub = document.getElementById('nodes-sub');
     const alertsSub = document.getElementById('alerts-sub');
@@ -1161,16 +1302,16 @@ const updateStats = (summary) => {
     if (trafficSub) trafficSub.textContent = `↓ ${formatBytes(trafficIn)} · ↑ ${formatBytes(trafficOut)}`;
 
     setTone('stat-nodes', online === 0 && total > 0 ? 'bad' : (online < total ? 'warn' : 'ok'));
-    setTone('stat-alerts', alerts === 0 ? 'ok' : (alerts >= 5 || alertsCrit > 0 ? 'bad' : 'warn'));
-    setTone('stat-cpu', toneForPct(Math.max(cpu, cpuMax)));
-    setTone('stat-ram', toneForPct(Math.max(ram, ramMax)));
-    setTone('stat-disk', toneForPct(Math.max(disk, diskMax)));
+    setTone('stat-alerts', alertsTone);
+    setTone('stat-cpu', cpuTone);
+    setTone('stat-ram', ramTone);
+    setTone('stat-disk', diskTone);
     setTone('stat-proc', proc > 0 ? 'ok' : 'warn');
     setTone('stat-ct', 'ok');
     setTone('stat-db', dbTotal === 0 ? 'warn' : (dbOnline < dbTotal ? 'bad' : 'ok'));
-    setTone('stat-load', toneForPct(loadAvg * 25));
-    setTone('stat-swap', toneForPct(swapMax));
-    setTone('stat-gpu', gpuCount > 0 ? toneForPct(gpuMax) : 'ok');
+    setTone('stat-load', loadTone);
+    setTone('stat-swap', swapTone);
+    setTone('stat-gpu', gpuTone);
     setTone('stat-net', 'ok');
     setTone('stat-traffic', 'ok');
 };

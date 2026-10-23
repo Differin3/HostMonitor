@@ -224,7 +224,7 @@ function runDashboard(src) {
     } catch (err) {
         thrown = err;
     }
-    return { thrown, fetchCalls, byId };
+    return { thrown, fetchCalls, byId, sandbox };
 }
 
 const initRun = runDashboard(dashSrc);
@@ -266,6 +266,56 @@ const brokenClickSrc = dashSrc.replace(/\nlet openConfigWidget = null;/, '');
 const brokenClick = clickDashboard(runDashboard(brokenClickSrc));
 check(!!brokenClick.error, 'без объявления openConfigWidget клик падает (ловит регрессию)',
     'click не бросил исключение');
+
+console.log('dashboard.js: дефолтная метрика плашки и пороги');
+
+const configRun = runDashboard(dashSrc);
+check(!configRun.thrown, 'контекст для проверки конфигуратора создан',
+    configRun.thrown && configRun.thrown.message);
+const cfgSandbox = configRun.sandbox;
+const cfgEval = (expr) => vm.runInContext(expr, cfgSandbox);
+
+cfgSandbox.ramEl = { dataset: { widget: 'stat-ram', title: 'RAM' }, querySelector: () => null };
+eq(cfgEval("defaultConfigForWidget('stat-ram', ramEl).series[0].metric"), 'ram',
+    'RAM-плашка открывается с метрикой ram');
+cfgSandbox.diskEl = { dataset: { widget: 'stat-disk', title: 'Диск' }, querySelector: () => null };
+eq(cfgEval("defaultConfigForWidget('stat-disk', diskEl).series[0].metric"), 'disk',
+    'Диск-плашка открывается с метрикой disk');
+cfgSandbox.gpuEl = { dataset: { widget: 'stat-gpu', title: 'GPU' }, querySelector: () => null };
+eq(cfgEval("defaultConfigForWidget('stat-gpu', gpuEl).series[0].metric"), 'gpu',
+    'GPU-плашка открывается с метрикой gpu');
+cfgSandbox.chartEl = { dataset: { widget: 'chart-res', title: 'Ресурсы' }, querySelector: () => null };
+eq(cfgEval("defaultConfigForWidget('chart-res', chartEl).series.map((s) => s.metric).join(',')"),
+    'cpu,ram,disk', 'график ресурсов сохраняет три серии');
+
+eq(cfgEval('toneForPct(80, { warn: 85, bad: 95 })'), 'ok', 'значение ниже warn — ok');
+eq(cfgEval('toneForPct(86, { warn: 85, bad: 95 })'), 'warn', 'значение на warn — warn');
+eq(cfgEval('toneForPct(95, { warn: 85, bad: 95 })'), 'bad', 'значение на bad — bad');
+eq(cfgEval('toneForPct(80)'), 'warn', 'без порогов сохраняется прежнее поведение 75/90');
+eq(cfgEval("thresholdsFor('stat-load', 'load').warn"), 3, 'порог load по умолчанию 3');
+eq(cfgEval("thresholdsFor('stat-alerts', 'alerts').bad"), 5, 'порог alerts по умолчанию 5');
+eq(cfgEval("normalizeThresholds({ warn: '10', bad: '5' }, { warn: 3, bad: 3.6, unit: '' }).bad"), 10.1,
+    'критичный порог поднимается выше предупреждения');
+eq(cfgEval("normalizeThresholds({ warn: '', bad: '' }, { warn: 75, bad: 90, unit: '%' }).warn"), 75,
+    'пустые поля возвращают значение по умолчанию');
+
+cfgEval("layout.thresholds['stat-cpu'] = { warn: 50, bad: 70 }");
+eq(cfgEval("thresholdsFor('stat-cpu', 'cpu').warn"), 50, 'сохранённый порог читается для плашки');
+
+cfgEval("layout.thresholds['stat-cpu'] = { warn: 95, bad: 99 }");
+cfgEval("updateStats({ nodes_online: 1, nodes_total: 1, alerts_count: 0, cpu_avg: 90, cpu_max: 90, ram_avg: 10, ram_max: 10, disk_avg: 10, disk_max: 10, load_avg: 1, swap_max: 0, gpu_count: 0 })");
+eq(configRun.byId['stat-cpu'].dataset.tone, 'ok', '90% CPU остаётся ok при пороге 95/99');
+cfgEval("updateStats({ nodes_online: 1, nodes_total: 1, alerts_count: 0, cpu_avg: 96, cpu_max: 96, ram_avg: 10, ram_max: 10, disk_avg: 10, disk_max: 10, load_avg: 1, swap_max: 0, gpu_count: 0 })");
+eq(configRun.byId['stat-cpu'].dataset.tone, 'warn', '96% CPU даёт warn при пороге 95/99');
+cfgEval("updateStats({ nodes_online: 1, nodes_total: 1, alerts_count: 0, cpu_avg: 99, cpu_max: 99, ram_avg: 10, ram_max: 10, disk_avg: 10, disk_max: 10, load_avg: 1, swap_max: 0, gpu_count: 0 })");
+eq(configRun.byId['stat-cpu'].dataset.tone, 'bad', '99% CPU даёт bad при пороге 95/99');
+
+check(/defaultConfigForWidget\(widgetId, el\)/.test(dashSrc),
+    'openConfigPanel берёт дефолт конкретной плашки');
+check(/keepStandard/.test(dashSrc),
+    'применение только порогов не превращает стандартную плашку в generic');
+check(/dash-config-thresholds/.test(dashSrc),
+    'в конфигураторе есть поля порогов');
 
 console.log(`\nИтог: passed=${passed} failed=${failed}`);
 process.exit(failed > 0 ? 1 : 0);
