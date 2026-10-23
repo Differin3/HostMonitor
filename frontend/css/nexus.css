@@ -3290,6 +3290,33 @@ body.dash-editor-open {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
+.dash-config-thresholds {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.dash-config-threshold {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.dash-config-threshold .dash-config-input {
+    width: 100%;
+    min-width: 0;
+}
+
+.dash-config-hint {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
 .dash-config-colors {
     display: flex;
     gap: 5px;
