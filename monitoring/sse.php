@@ -41,7 +41,9 @@ ignore_user_abort(true);
 $pdo = getDbConnection();
 
 $tickSec = 3;
-$chartEvery = 7;
+// 2 тика = ~6 секунд: графики обновляются почти вместе с карточками,
+// но агрегация метрик не выполняется на каждом трёхсекундном тике.
+$chartEvery = 2;
 $range = (string)($_GET['range'] ?? '1h');
 if (!in_array($range, ['15m', '1h', '6h', '24h'], true)) {
     $range = '1h';

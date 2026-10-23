@@ -1,7 +1,9 @@
 const STORAGE_KEY = 'hm-dashboard-v2';
 const WIDGET_CONFIG_KEY = 'hm-widget-configs';
-const RANGE_SECONDS = { '15m': 900, '1h': 3600, '6h': 21600, '24h': 86400 };
-const RANGE_LABEL = { '15m': '15 мин', '1h': '1 ч', '6h': '6 ч', '24h': 'сутки' };
+const LIVE_WINDOW_SECONDS = 3600;
+const CHART_HISTORY_SECONDS = 6 * 3600;
+const CHART_POINT_LIMIT = 480;
+const CHART_FALLBACK_LIMIT = 80;
 
 const WIDGET_TYPES = {
     stat: { label: 'Число', icon: 'hash' },
@@ -52,7 +54,6 @@ const DEFAULT_LAYOUT = {
         'list-nodes': 6, 'list-alerts': 6,
     },
     thresholds: {},
-    range: '1h',
 };
 
 const elements = {
@@ -97,6 +98,13 @@ let lastNodes = [];
 let lastAlerts = [];
 let openConfigWidget = null;
 let lastChartsPayload = null;
+let chartCache = [];
+let chartView = { from: 0, to: 0 };
+let chartFollowLive = true;
+let chartPan = null;
+let chartHistoryLoading = false;
+let chartHistoryFloor = 0;
+let netNodesCache = { labels: [], nodes: {}, series: {} };
 let widgetConfigs = loadWidgetConfigs();
 const SSE_BASE = window.MONITORING_SSE_BASE || '/sse.php';
 
@@ -165,7 +173,6 @@ function loadLayout() {
             hidden: Array.isArray(parsed.hidden) ? parsed.hidden : DEFAULT_LAYOUT.hidden.slice(),
             spans: { ...DEFAULT_LAYOUT.spans, ...(parsed.spans || {}) },
             thresholds: (parsed.thresholds && typeof parsed.thresholds === 'object') ? parsed.thresholds : {},
-            range: RANGE_SECONDS[parsed.range] ? parsed.range : '1h',
         };
     } catch (err) {
         return structuredClone(DEFAULT_LAYOUT);
@@ -293,14 +300,132 @@ function renderCatalog() {
     if (window.lucide) lucide.createIcons();
 }
 
-function paintRange() {
-    document.querySelectorAll('#dash-ranges [data-range]').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.range === layout.range);
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+function chartWindowLabel() {
+    if (chartFollowLive || !chartView.from || !chartView.to) return 'live';
+    const from = new Date(chartView.from * 1000);
+    const to = new Date(chartView.to * 1000);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 'live';
+    const fromText = from.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
     });
-    const label = RANGE_LABEL[layout.range] || layout.range;
+    const toText = to.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `${fromText}–${toText}`;
+}
+
+function paintRange() {
+    const label = chartWindowLabel();
     document.querySelectorAll('[data-range-label]').forEach((el) => {
         el.textContent = `${el.dataset.base || el.textContent} · ${label}`;
     });
+}
+
+const pointTimeMs = (point) => parseApiDate(point?.ts ?? point?.timestamp ?? 0).getTime();
+const pointsOf = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.data)) return payload.data;
+    if (payload && Array.isArray(payload.metrics)) return payload.metrics;
+    return [];
+};
+
+const normalizeChartPoints = (payload) => pointsOf(payload)
+    .filter((point) => Number.isFinite(pointTimeMs(point)))
+    .sort((a, b) => pointTimeMs(a) - pointTimeMs(b));
+
+function mergeChartPoints(base, incoming, replaceFromMs = null) {
+    const points = new Map();
+    (base || []).forEach((point) => {
+        const ts = pointTimeMs(point);
+        if (Number.isFinite(ts) && (!replaceFromMs || ts < replaceFromMs)) points.set(ts, point);
+    });
+    (incoming || []).forEach((point) => {
+        const ts = pointTimeMs(point);
+        if (Number.isFinite(ts)) points.set(ts, point);
+    });
+    return [...points.entries()].sort((a, b) => a[0] - b[0]).map((entry) => entry[1]);
+}
+
+function setLiveChartWindow() {
+    const to = nowSeconds();
+    chartView = { from: to - LIVE_WINDOW_SECONDS, to };
+}
+
+function chartFetchWindow(history = false) {
+    if (history) {
+        const to = nowSeconds();
+        return { from: to - CHART_HISTORY_SECONDS, to };
+    }
+    if (chartFollowLive) {
+        const to = nowSeconds();
+        return { from: to - LIVE_WINDOW_SECONDS, to };
+    }
+    return { from: Math.floor(chartView.from), to: Math.floor(chartView.to) };
+}
+
+const chartCacheStart = () => (chartCache.length ? pointTimeMs(chartCache[0]) / 1000 : 0);
+
+function chartPointsInView() {
+    if (!chartView.from || !chartView.to) setLiveChartWindow();
+    const fromMs = chartView.from * 1000;
+    const toMs = chartView.to * 1000;
+    return chartCache.filter((point) => {
+        const ts = pointTimeMs(point);
+        return ts >= fromMs && ts <= toMs;
+    });
+}
+
+function normalizeNetNodesPayload(payload) {
+    if (!payload || !Array.isArray(payload.labels) || !payload.nodes || typeof payload.nodes !== 'object') {
+        return { labels: [], nodes: {}, series: {} };
+    }
+    const labels = [...new Set(payload.labels.filter((label) => Number.isFinite(parseApiDate(label).getTime())))].sort();
+    const series = {};
+    Object.keys(payload.nodes).forEach((nodeId) => {
+        series[nodeId] = payload.series?.[nodeId] || {};
+    });
+    return { labels, nodes: { ...payload.nodes }, series };
+}
+
+function mergeNetNodesPayload(base, incoming, replaceFromMs = null) {
+    const next = normalizeNetNodesPayload(incoming);
+    if (!next.labels.length) return base;
+    const keep = (base?.labels || []).filter((label) => {
+        const ts = parseApiDate(label).getTime();
+        return Number.isFinite(ts) && (!replaceFromMs || ts < replaceFromMs);
+    });
+    const labels = [...new Set([...keep, ...next.labels])].sort();
+    const keepSet = new Set(keep);
+    const nodes = { ...(base?.nodes || {}), ...next.nodes };
+    const series = {};
+    Object.keys(nodes).forEach((nodeId) => {
+        const oldSeries = base?.series?.[nodeId] || {};
+        const newSeries = next.series[nodeId] || {};
+        series[nodeId] = {};
+        labels.forEach((label) => {
+            if (newSeries[label]) series[nodeId][label] = newSeries[label];
+            else if (keepSet.has(label) && oldSeries[label]) series[nodeId][label] = oldSeries[label];
+        });
+    });
+    return { labels, nodes, series };
+}
+
+function netNodesInView() {
+    const fromMs = chartView.from * 1000;
+    const toMs = chartView.to * 1000;
+    const labels = netNodesCache.labels.filter((label) => {
+        const ts = parseApiDate(label).getTime();
+        return ts >= fromMs && ts <= toMs;
+    });
+    const series = {};
+    Object.keys(netNodesCache.series).forEach((nodeId) => {
+        series[nodeId] = {};
+        labels.forEach((label) => {
+            const point = netNodesCache.series[nodeId]?.[label];
+            if (point) series[nodeId][label] = point;
+        });
+    });
+    return { labels, nodes: netNodesCache.nodes, series };
 }
 
 function resizeCharts() {
@@ -485,7 +610,7 @@ function renderGenericLine(el, config, summary) {
     if (hasRight) {
         scales.y1 = { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: {} };
     }
-    lineCharts[el.dataset.widget] = new Chart(canvas, {
+    const chart = new Chart(canvas, {
         type: 'line',
         data: { labels: [], datasets },
         options: {
@@ -495,9 +620,10 @@ function renderGenericLine(el, config, summary) {
             scales,
         },
     });
-    if (lastChartsPayload && (!lastChartsPayload.range || lastChartsPayload.range === layout.range)) {
-        updateGenericLineCharts(lastChartsPayload, el.dataset.widget);
-    }
+    lineCharts[el.dataset.widget] = chart;
+    bindChartPan(canvas, chart);
+    const points = chartCache.length ? chartPointsInView() : pointsOf(lastChartsPayload);
+    if (points.length) updateGenericLineCharts({ data: points }, el.dataset.widget);
 }
 
 function renderGenericTable(el, config, summary) {
@@ -562,7 +688,6 @@ function updateGenericWidgets(summary) {
 
 function updateGenericLineCharts(metrics, onlyId) {
     const points = asPoints(metrics);
-    if (!points.length) return;
     const dates = points.map((p) => parseApiDate(p.ts || p.timestamp || Date.now()));
     const labels = dates.map((d) => Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
     Object.entries(widgetConfigs).forEach(([widgetId, config]) => {
@@ -1406,9 +1531,9 @@ const renderTopNodes = (nodes) => {
 let lastAllNodes = [];
 const initNetNodesChart = () => {
     if (!window.Chart) return;
-    const ctx = document.getElementById('net-nodes-chart');
-    if (!ctx) return;
-    netNodesChart = new Chart(ctx, {
+    const canvas = document.getElementById('net-nodes-chart');
+    if (!canvas) return;
+    netNodesChart = new Chart(canvas, {
         type: 'line',
         data: { labels: [], datasets: [] },
         options: {
@@ -1423,10 +1548,17 @@ const initNetNodesChart = () => {
             },
         },
     });
+    bindChartPan(canvas, netNodesChart);
 };
 
 const applyNetNodesPayload = (data) => {
-    if (!netNodesChart || !data || !Array.isArray(data.labels) || !data.nodes || typeof data.nodes !== 'object') return;
+    if (!netNodesChart) return;
+    if (!data || !Array.isArray(data.labels) || !data.nodes || typeof data.nodes !== 'object') {
+        netNodesChart.data.labels = [];
+        netNodesChart.data.datasets = [];
+        netNodesChart.update('none');
+        return;
+    }
     const nodeIds = Object.keys(data.nodes);
     const nodeColors = ['#38bdf8', '#818cf8', '#f472b6', '#34d399', '#fbbf24', '#fb923c', '#a78bfa', '#38bdf8'];
     const labels = data.labels.map((ts) => {
@@ -1450,10 +1582,19 @@ const applyNetNodesPayload = (data) => {
     netNodesChart.update('none');
 };
 
-const refreshNetNodesChart = async () => {
-    if (!netNodesChart) return;
-    const data = await fetchJson(`/summary?action=network_per_node&range=${encodeURIComponent(layout.range)}`).catch(() => null);
-    if (data) applyNetNodesPayload(data);
+const refreshNetNodesChart = async (opts = {}) => {
+    if (!netNodesChart || (!chartFollowLive && !opts.force)) return;
+    const win = chartFetchWindow(opts.history === true);
+    const query = `/summary?action=network_per_node&range=1h&from=${win.from}&to=${win.to}`;
+    const data = await fetchJson(query).catch(() => null);
+    if (!data) return;
+    netNodesCache = mergeNetNodesPayload(netNodesCache, data);
+    if (chartFollowLive) {
+        if (!chartView.to) setLiveChartWindow();
+        applyNetNodesPayload(netNodesInView());
+    } else if (opts.force) {
+        applyNetNodesPayload(netNodesInView());
+    }
 };
 
 const colorFill = (hex, a = 0.14) => {
@@ -1513,6 +1654,7 @@ const initCharts = () => {
                 },
             },
         });
+        bindChartPan(resCtx, resChart);
     }
 
     if (netCtx) {
@@ -1537,8 +1679,131 @@ const initCharts = () => {
                 },
             },
         });
+        bindChartPan(netCtx, netChart);
     }
 };
+
+function chartPlotWidth(chart, canvas) {
+    const area = chart?.chartArea;
+    if (area && area.right > area.left) return area.right - area.left;
+    return Number(canvas?.clientWidth) || Number(canvas?.width) || 0;
+}
+
+function bindChartPan(canvas, chart) {
+    if (!canvas || !chart) return;
+    canvas.title = 'Тяните мышью по времени · двойной клик — live';
+    canvas.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        const width = chartPlotWidth(chart, canvas);
+        if (!width) return;
+        chartPan = {
+            canvas,
+            chart,
+            startX: e.clientX,
+            width,
+            startView: { ...chartView },
+            moved: false,
+            wasFollow: chartFollowLive,
+        };
+        canvas.classList.add('is-panning');
+        canvas.setPointerCapture?.(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+        if (!chartPan || chartPan.canvas !== canvas) return;
+        const dx = e.clientX - chartPan.startX;
+        if (!chartPan.moved && Math.abs(dx) < 3) return;
+        chartPan.moved = true;
+        chartFollowLive = false;
+        const span = chartPan.startView.to - chartPan.startView.from || LIVE_WINDOW_SECONDS;
+        const shift = -(dx / chartPan.width) * span;
+        const now = nowSeconds();
+        let from = chartPan.startView.from + shift;
+        let to = chartPan.startView.to + shift;
+        if (to > now) {
+            to = now;
+            from = to - span;
+        }
+        chartView = { from, to };
+        renderChartWindow();
+        e.preventDefault();
+    });
+    const finishPan = (e) => {
+        if (!chartPan || chartPan.canvas !== canvas) return;
+        const pan = chartPan;
+        chartPan = null;
+        canvas.classList.remove('is-panning');
+        canvas.releasePointerCapture?.(e.pointerId);
+        if (!pan.moved) {
+            chartFollowLive = pan.wasFollow;
+            if (chartFollowLive) {
+                setLiveChartWindow();
+                renderChartWindow();
+            }
+            return;
+        }
+        if (chartView.to >= nowSeconds() - 3) {
+            chartFollowLive = true;
+            setLiveChartWindow();
+            renderChartWindow();
+            refreshCharts({ force: true });
+            refreshNetNodesChart({ force: true });
+            return;
+        }
+        chartFollowLive = false;
+        renderChartWindow();
+        loadOlderChartHistory(chartView.from);
+    };
+    canvas.addEventListener('pointerup', finishPan);
+    canvas.addEventListener('pointercancel', finishPan);
+    canvas.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        chartFollowLive = true;
+        setLiveChartWindow();
+        renderChartWindow();
+        refreshCharts({ force: true });
+        refreshNetNodesChart({ force: true });
+    });
+}
+
+async function loadOlderChartHistory(viewFrom) {
+    const start = chartCacheStart();
+    if (chartHistoryLoading || !start || viewFrom >= start - 1) return;
+    if (chartHistoryFloor && viewFrom >= chartHistoryFloor - 1) return;
+    chartHistoryLoading = true;
+    const to = Math.floor(start);
+    const from = Math.max(Math.floor(viewFrom) - CHART_HISTORY_SECONDS, to - 30 * 86400);
+    try {
+        const [metrics, nodes] = await Promise.all([
+            fetchJson(`/metrics?from=${from}&to=${to}&limit=${CHART_POINT_LIMIT}`).catch(() => null),
+            netNodesChart
+                ? fetchJson(`/summary?action=network_per_node&range=1h&from=${from}&to=${to}`).catch(() => null)
+                : Promise.resolve(null),
+        ]);
+        if (metrics) {
+            const incoming = normalizeChartPoints(metrics);
+            if (incoming.length) {
+                chartCache = mergeChartPoints(chartCache, incoming);
+                chartHistoryFloor = pointTimeMs(chartCache[0]) / 1000;
+            } else {
+                chartHistoryFloor = Math.floor(viewFrom) - 60;
+            }
+        }
+        if (nodes) netNodesCache = mergeNetNodesPayload(netNodesCache, nodes);
+        if (!chartFollowLive) renderChartWindow();
+    } finally {
+        chartHistoryLoading = false;
+    }
+}
+
+function renderChartWindow() {
+    if (!chartView.from || !chartView.to) setLiveChartWindow();
+    const points = chartPointsInView();
+    lastChartsPayload = { data: points };
+    updateCharts({ data: points });
+    updateGenericLineCharts({ data: points });
+    applyNetNodesPayload(netNodesInView());
+    paintRange();
+}
 
 const asPoints = (payload) => {
     if (Array.isArray(payload)) return payload;
@@ -1548,9 +1813,8 @@ const asPoints = (payload) => {
 };
 
 const updateCharts = (payload) => {
-    const points = asPoints(payload);
-    if (!points.length) return;
-    lastChartsPayload = payload;
+    const points = pointsOf(payload);
+    lastChartsPayload = { data: points };
     if (!resChart && !netChart) return;
 
     const dates = points.map((p) => parseApiDate(p.ts || p.timestamp || Date.now()));
@@ -1635,17 +1899,35 @@ const refreshOverview = async () => {
     });
 };
 
-const refreshCharts = async () => {
-    const seconds = RANGE_SECONDS[layout.range] || 3600;
-    const from = Math.floor(Date.now() / 1000) - seconds;
-    const limit = layout.range === '24h' ? 160 : (layout.range === '6h' ? 120 : 80);
-    const metrics = await fetchJson(`/metrics?from=${from}&limit=${limit}`).catch(() => null);
-    if (metrics) updateCharts(metrics);
-    if (metrics) updateGenericLineCharts(metrics);
+const refreshCharts = async (opts = {}) => {
+    if (!resChart && !netChart) return;
+    if (!chartFollowLive && !opts.force) return;
+    const history = opts.history === true || (opts.initial === true && !chartCache.length);
+    const win = chartFetchWindow(history);
+    const limit = history ? CHART_POINT_LIMIT : CHART_FALLBACK_LIMIT;
+    const metrics = await fetchJson(`/metrics?from=${win.from}&to=${win.to}&limit=${limit}`).catch(() => null);
+    if (!metrics) return;
+    const incoming = normalizeChartPoints(metrics);
+    if (!incoming.length && !chartCache.length) return;
+    const replaceFrom = !history && chartFollowLive && !opts.force ? (nowSeconds() - LIVE_WINDOW_SECONDS - 60) * 1000 : null;
+    chartCache = mergeChartPoints(chartCache, incoming, replaceFrom);
+    if (!chartCache.length) return;
+    if (chartFollowLive) {
+        setLiveChartWindow();
+        renderChartWindow();
+    } else if (opts.force) {
+        renderChartWindow();
+    }
 };
 
 const refreshAll = async () => {
-    await Promise.all([refreshOverview(), refreshCharts(), refreshNetNodesChart()]);
+    const needHistory = !chartCache.length;
+    await Promise.all([
+        refreshOverview(),
+        refreshCharts({ history: needHistory, force: true }),
+        refreshNetNodesChart({ history: !netNodesCache.labels.length, force: true }),
+    ]);
+    renderChartWindow();
 };
 
 function stopPolling() {
@@ -1671,7 +1953,7 @@ function disconnectSse() {
 function connectSse() {
     if (!window.EventSource || !elements.board) return;
     disconnectSse();
-    const url = `${SSE_BASE}?range=${encodeURIComponent(layout.range)}&_=${Date.now()}`;
+    const url = `${SSE_BASE}?_=${Date.now()}`;
     const es = new EventSource(url);
     sseSource = es;
 
@@ -1686,10 +1968,20 @@ function connectSse() {
     es.addEventListener('charts', (e) => {
         try {
             const payload = JSON.parse(e.data);
-            if (payload?.range && payload.range !== layout.range) return;
-            updateCharts(payload);
-            updateGenericLineCharts(payload);
-            if (payload?.net_nodes) applyNetNodesPayload(payload.net_nodes);
+            const incoming = normalizeChartPoints(payload);
+            if (incoming.length) {
+                const replaceFrom = pointTimeMs(incoming[0]);
+                chartCache = mergeChartPoints(chartCache, incoming, replaceFrom);
+            }
+            const netIncoming = normalizeNetNodesPayload(payload?.net_nodes);
+            if (netIncoming.labels.length) {
+                const replaceFrom = parseApiDate(netIncoming.labels[0]).getTime();
+                netNodesCache = mergeNetNodesPayload(netNodesCache, payload.net_nodes, replaceFrom);
+            }
+            if (chartFollowLive) {
+                setLiveChartWindow();
+                renderChartWindow();
+            }
         } catch (err) {
             console.warn('SSE charts parse error', err);
         }
@@ -1932,9 +2224,8 @@ async function updateDetailChart(kind) {
         return;
     }
     if (wrap) wrap.style.display = '';
-    const seconds = RANGE_SECONDS[layout.range] || 3600;
-    const from = Math.floor(Date.now() / 1000) - seconds;
-    const metrics = await fetchJson(`/metrics?from=${from}&limit=80`).catch(() => null);
+    const win = chartFetchWindow(false);
+    const metrics = await fetchJson(`/metrics?from=${win.from}&to=${win.to}&limit=${CHART_FALLBACK_LIMIT}`).catch(() => null);
     const points = asPoints(metrics);
     const labels = points.map((p) => {
         const d = parseApiDate(p.ts || p.timestamp || Date.now());
@@ -2021,18 +2312,6 @@ function bindToolbar() {
         if (e.key !== 'Escape') return;
         if (openConfigWidget) closeConfigPanel(true);
         closeAddPanel();
-    });
-    document.getElementById('dash-ranges')?.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-range]');
-        if (!btn) return;
-        layout.range = btn.dataset.range;
-        saveLayout();
-        paintRange();
-        if (sseConnected) {
-            connectSse();
-        }
-        refreshCharts();
-        refreshNetNodesChart();
     });
     document.getElementById('dash-edit')?.addEventListener('click', () => {
         setEditing(!editing);

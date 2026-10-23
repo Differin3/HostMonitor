@@ -2228,6 +2228,14 @@ select optgroup {
 .chart-body canvas {
     width: 100% !important;
     height: 100% !important;
+    cursor: grab;
+    touch-action: pan-y;
+}
+
+.chart-body canvas.is-panning,
+.chart-body.is-panning canvas {
+    cursor: grabbing;
+    user-select: none;
 }
 
 .metrics-charts {

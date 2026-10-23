@@ -494,20 +494,27 @@ function dashboard_charts_per_node(PDO $pdo, string $range = '1h', int $topN = 5
     return $result;
 }
 
-function dashboard_network_per_node(PDO $pdo, string $range = '1h', int $topN = 5): array
+function dashboard_network_per_node(PDO $pdo, string $range = '1h', int $topN = 5, ?int $from = null, ?int $to = null): array
 {
     $ranges = ['15m' => 900, '1h' => 3600, '6h' => 21600, '24h' => 86400];
-    $seconds = $ranges[$range] ?? 3600;
-    $from = time() - $seconds;
-    $to = time();
-    $limit = $range === '24h' ? 160 : ($range === '6h' ? 120 : 80);
+    $now = time();
+    $to = $to !== null ? min($to, $now) : $now;
+    $from = $from !== null ? $from : $to - ($ranges[$range] ?? 3600);
+    // Защита от перевёрнутого и слишком длинного окна: график панорамируется
+    // произвольными интервалами, но не должен превращаться в full-scan таблицы.
+    if ($from >= $to) {
+        $from = $to - 3600;
+    }
+    $from = max($from, $to - 30 * 86400);
+    $span = $to - $from;
+    $limit = (int)max(80, min(480, (int)ceil($span / 45)));
     $bucket = dashboard_charts_bucket_seconds($from, $to, $limit);
 
     $topNodes = $pdo->query(
         "SELECT n.id, n.name FROM nodes n
          INNER JOIN (
              SELECT node_id, MAX(timestamp) AS ts FROM metrics
-             WHERE timestamp >= FROM_UNIXTIME({$from})
+             WHERE timestamp BETWEEN FROM_UNIXTIME({$from}) AND FROM_UNIXTIME({$to})
              GROUP BY node_id
          ) last ON last.node_id = n.id
          LEFT JOIN metrics m ON m.node_id = n.id AND m.timestamp = last.ts

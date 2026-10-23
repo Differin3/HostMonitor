@@ -26,13 +26,7 @@ HTML;
 ?>
     <section class="dashboard" id="dashboard">
         <div class="dash-toolbar">
-            <div class="dash-ranges" id="dash-ranges" role="tablist" aria-label="Диапазон графиков">
-                <button type="button" data-range="15m">15 мин</button>
-                <button type="button" data-range="1h" class="active">1 час</button>
-                <button type="button" data-range="6h">6 часов</button>
-                <button type="button" data-range="24h">сутки</button>
-            </div>
-            <p class="dash-hint" id="dash-edit-hint">Клик по метрике открывает подробную статистику. Настроить — порядок, размер и набор виджетов.</p>
+            <p class="dash-hint" id="dash-edit-hint">Графики обновляются в реальном времени. Тяните график мышью по времени, двойной клик возвращает к live.</p>
             <div class="dash-edit-actions" id="dash-edit-actions" hidden>
                 <button class="btn-outline" type="button" id="dash-add-widget"><i data-lucide="plus"></i> Добавить виджет</button>
             </div>

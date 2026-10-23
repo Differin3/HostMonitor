@@ -22,8 +22,10 @@ $pdo = getDbConnection();
 try {
     $action = $_GET['action'] ?? '';
     if ($action === 'network_per_node') {
-        $range = $_GET['range'] ?? '1h';
-        echo json_encode(dashboard_network_per_node($pdo, $range));
+        $range = (string)($_GET['range'] ?? '1h');
+        $from = isset($_GET['from']) ? (int)$_GET['from'] : null;
+        $to = isset($_GET['to']) ? (int)$_GET['to'] : null;
+        echo json_encode(dashboard_network_per_node($pdo, $range, 5, $from, $to));
     } else {
         echo json_encode(dashboard_summary($pdo));
     }

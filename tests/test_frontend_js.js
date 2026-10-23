@@ -158,8 +158,16 @@ check(/const parseApiDate =/.test(dashSrc),
     'есть безопасный parseApiDate для MySQL datetime');
 check(/payload\?\.net_nodes/.test(dashSrc),
     'SSE charts применяет net_nodes');
-check(/refreshCharts\(\);\s*refreshNetNodesChart\(\);/.test(dashSrc),
-    'смена диапазона обновляет и сетевой график');
+check(/const LIVE_WINDOW_SECONDS = 3600;/.test(dashSrc),
+    'живой график показывает окно в один час');
+check(!/RANGE_SECONDS|layout\.range|dash-ranges/.test(dashSrc),
+    'фиксированные диапазоны и кнопки убраны из дашборда');
+check(/function bindChartPan\(canvas, chart\)/.test(dashSrc),
+    'графики привязывают перетаскивание по времени');
+check(/function mergeChartPoints\(base, incoming/.test(dashSrc),
+    'точки графиков объединяются в общий кэш');
+check(/from=\$\{win\.from\}&to=\$\{win\.to\}/.test(dashSrc),
+    'история графиков запрашивается по окну from/to');
 check(/setInterval\(refreshNetNodesChart, 20000\)/.test(dashSrc),
     'fallback-поллинг обновляет сетевой график');
 
@@ -287,6 +295,28 @@ eq(cfgEval("defaultConfigForWidget('stat-gpu', gpuEl).series[0].metric"), 'gpu',
 cfgSandbox.chartEl = { dataset: { widget: 'chart-res', title: 'Ресурсы' }, querySelector: () => null };
 eq(cfgEval("defaultConfigForWidget('chart-res', chartEl).series.map((s) => s.metric).join(',')"),
     'cpu,ram,disk', 'график ресурсов сохраняет три серии');
+
+cfgSandbox.__oldPoints = [
+    { ts: '2026-10-23 10:00:00', cpu: 1 },
+    { ts: '2026-10-23 10:01:00', cpu: 2 },
+];
+cfgSandbox.__newPoints = [
+    { ts: '2026-10-23 10:01:00', cpu: 3 },
+    { ts: '2026-10-23 10:02:00', cpu: 4 },
+];
+eq(cfgEval('mergeChartPoints(__oldPoints, __newPoints).map((p) => p.cpu).join(",")'),
+    '1,3,4', 'кэш графика заменяет точку с тем же временем и сохраняет порядок');
+cfgSandbox.__replaceFrom = cfgEval("new Date('2026-10-23T10:01:00').getTime()");
+eq(cfgEval('mergeChartPoints(__oldPoints, __newPoints, __replaceFrom).map((p) => p.cpu).join(",")'),
+    '1,3,4', 'SSE заменяет только последнее окно кэша');
+
+cfgSandbox.__viewPoints = [
+    { ts: '2026-10-23 09:59:00', cpu: 0 },
+    { ts: '2026-10-23 10:00:00', cpu: 1 },
+    { ts: '2026-10-23 10:05:00', cpu: 5 },
+];
+eq(cfgEval("chartView = { from: new Date('2026-10-23T10:00:00').getTime() / 1000, to: new Date('2026-10-23T10:05:00').getTime() / 1000 }; chartCache = __viewPoints; chartPointsInView().map((p) => p.cpu).join(',')"),
+    '1,5', 'панорама показывает только точки видимого окна');
 
 eq(cfgEval('toneForPct(80, { warn: 85, bad: 95 })'), 'ok', 'значение ниже warn — ok');
 eq(cfgEval('toneForPct(86, { warn: 85, bad: 95 })'), 'warn', 'значение на warn — warn');
