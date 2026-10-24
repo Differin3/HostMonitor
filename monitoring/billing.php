@@ -370,11 +370,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         </div>
     </div>
     
-<?php
-render_layout_end(['/frontend/js/billing.js']);
-
-
-
+    
     <div class="tabs" style="margin-top: 24px;">
         <button class="tab-btn" data-tab="expenses" onclick="switchBillingTab('expenses')">
             <i data-lucide="receipt"></i> Расходы хостинга
@@ -424,7 +420,7 @@ render_layout_end(['/frontend/js/billing.js']);
             <div class="card-header">
                 <div class="card-title">
                     <i data-lucide="globe"></i>
-                    <span>Доменные имена</span>
+                    <span>Домены</span>
                 </div>
                 <div class="card-actions">
                     <button onclick="loadBillingDomains()" class="icon-btn"><i data-lucide="refresh-cw"></i></button>
@@ -520,3 +516,7 @@ render_layout_end(['/frontend/js/billing.js']);
             </form>
         </div>
     </div>
+
+<?php
+render_layout_end(['/frontend/js/billing.js']);
+?>
