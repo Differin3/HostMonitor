@@ -371,17 +371,30 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
     
     
-    <div class="tabs" style="margin-top: 24px;">
-        <button class="tab-btn" data-tab="expenses" onclick="switchBillingTab('expenses')">
-            <i data-lucide="receipt"></i> Расходы хостинга
-        </button>
-        <button class="tab-btn" data-tab="domains" onclick="switchBillingTab('domains')">
-            <i data-lucide="globe"></i> Домены
-        </button>
-        <button class="tab-btn" data-tab="imports" onclick="switchBillingTab('imports')">
-            <i data-lucide="upload"></i> Импорт
-        </button>
+    <div class="card" style="margin-top: 24px;">
+        <div class="card-header">
+            <div class="card-title">
+                <i data-lucide="credit-card"></i>
+                <span>Биллинг</span>
+            </div>
+        </div>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="overview" onclick="switchBillingTab('overview')">
+                <i data-lucide="bar-chart-3"></i> Статистика
+            </button>
+            <button class="tab-btn" data-tab="expenses" onclick="switchBillingTab('expenses')">
+                <i data-lucide="receipt"></i> Расходы хостинга
+            </button>
+            <button class="tab-btn" data-tab="domains" onclick="switchBillingTab('domains')">
+                <i data-lucide="globe"></i> Домены
+            </button>
+            <button class="tab-btn" data-tab="imports" onclick="switchBillingTab('imports')">
+                <i data-lucide="upload"></i> Импорт
+            </button>
+        </div>
     </div>
+
+    <div id="overview-tab" class="tab-content active">
 
     <div id="expenses-tab" class="tab-content">
         <div class="card" style="margin-top: 24px;">
