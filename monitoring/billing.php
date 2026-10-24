@@ -374,3 +374,149 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
 render_layout_end(['/frontend/js/billing.js']);
 
 
+
+    <div class="tabs" style="margin-top: 24px;">
+        <button class="tab-btn" data-tab="expenses" onclick="switchBillingTab('expenses')">
+            <i data-lucide="receipt"></i> Расходы хостинга
+        </button>
+        <button class="tab-btn" data-tab="domains" onclick="switchBillingTab('domains')">
+            <i data-lucide="globe"></i> Домены
+        </button>
+        <button class="tab-btn" data-tab="imports" onclick="switchBillingTab('imports')">
+            <i data-lucide="upload"></i> Импорт
+        </button>
+    </div>
+
+    <div id="expenses-tab" class="tab-content">
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header">
+                <div class="card-title">
+                    <i data-lucide="receipt"></i>
+                    <span>Расходы из выписки</span>
+                </div>
+                <div class="card-actions">
+                    <button onclick="loadBillingExpenses()" class="icon-btn"><i data-lucide="refresh-cw"></i></button>
+                    <button onclick="openExpenseImport()" class="icon-btn primary"><i data-lucide="upload"></i></button>
+                </div>
+            </div>
+            <div class="table-container compact-table" style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Описание</th>
+                            <th>На счёт</th>
+                            <th>Сумма</th>
+                            <th>Сопоставлено</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="billing-expenses-tbody">
+                        <tr><td colspan="6" class="text-center">Нет данных</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="domains-tab" class="tab-content">
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header">
+                <div class="card-title">
+                    <i data-lucide="globe"></i>
+                    <span>Доменные имена</span>
+                </div>
+                <div class="card-actions">
+                    <button onclick="loadBillingDomains()" class="icon-btn"><i data-lucide="refresh-cw"></i></button>
+                    <button onclick="openDomainImport()" class="icon-btn primary"><i data-lucide="upload"></i></button>
+                </div>
+            </div>
+            <div class="table-container compact-table" style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Домен</th>
+                            <th>Зона</th>
+                            <th>Проект</th>
+                            <th>Действует до</th>
+                            <th>Цена в год</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="billing-domains-tbody">
+                        <tr><td colspan="6" class="text-center">Нет данных</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="imports-tab" class="tab-content">
+        <div class="grid-2" style="margin-top: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title"><i data-lucide="upload"></i><span>Импорт CSV</span></div>
+                </div>
+                <div class="card-body">
+                    <div class="form-field">
+                        <label class="form-label">Тип</label>
+                        <select id="billing-import-type" class="provider-select">
+                            <option value="payments">Платежи (var_payment.csv)</option>
+                            <option value="expenses">Расходы (var_expense.csv)</option>
+                            <option value="domains">Домены (var_domain.csv)</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label">Файл CSV</label>
+                        <input type="file" id="billing-import-file" accept=".csv,.txt">
+                    </div>
+                    <button class="primary" onclick="startBillingImport()"><i data-lucide="upload"></i> Загрузить</button>
+                    <div id="billing-import-result" style="margin-top: 12px; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title"><i data-lucide="history"></i><span>История импортов</span></div>
+                    <div class="card-actions"><button onclick="loadBillingImports()" class="icon-btn"><i data-lucide="refresh-cw"></i></button></div>
+                </div>
+                <div class="table-container compact-table">
+                    <table>
+                        <thead><tr><th>ID</th><th>Тип</th><th>Файл</th><th>Импортировано</th><th>Сопоставлено</th><th>Статус</th></tr></thead>
+                        <tbody id="billing-imports-tbody"><tr><td colspan="6" class="text-center">Нет данных</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal hidden" id="expense-match-modal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h2>Сопоставить расход</h2>
+                <button class="modal-close" onclick="closeExpenseMatchModal()" type="button" aria-label="Закрыть"><i data-lucide="x"></i></button>
+            </div>
+            <form id="expense-match-form" onsubmit="saveExpenseMatch(event)">
+                <input type="hidden" id="expense-match-id">
+                <div class="form-field">
+                    <label class="form-label">Расход</label>
+                    <div id="expense-match-desc" style="color: var(--text-secondary); font-size: 13px;"></div>
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Сопоставить с VPS/нодой</label>
+                    <select id="expense-match-node" class="provider-select">
+                        <option value="">Не сопоставлять</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Сопоставить с доменом</label>
+                    <select id="expense-match-domain" class="provider-select">
+                        <option value="">Не сопоставлять</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="secondary" onclick="closeExpenseMatchModal()">Отмена</button>
+                    <button type="submit" class="primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>

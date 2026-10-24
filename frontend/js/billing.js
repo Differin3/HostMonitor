@@ -1584,3 +1584,199 @@ function openProviderModal() {
     }
 }
 
+
+// Импорт и расходы
+window.openExpenseImport = function() { switchBillingTab('imports'); document.getElementById('billing-import-type').value='expenses'; };
+window.openDomainImport = function() { switchBillingTab('imports'); document.getElementById('billing-import-type').value='domains'; };
+
+async function startBillingImport() {
+    const type = document.getElementById('billing-import-type').value;
+    const fileInput = document.getElementById('billing-import-file');
+    const resDiv = document.getElementById('billing-import-result');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        resDiv.textContent = 'Выберите файл';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('type', type);
+    formData.append('file', fileInput.files[0]);
+    resDiv.textContent = 'Загрузка...';
+    try {
+        const resp = await fetch(`${API_BASE}/billing_import.php`, {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+        const data = await resp.json();
+        if (data.success) {
+            resDiv.textContent = `Импортировано: ${data.imported}, сопоставлено: ${data.matched}`;
+            loadBillingImports();
+            if (type === 'expenses') loadBillingExpenses();
+            if (type === 'domains') loadBillingDomains();
+        } else {
+            resDiv.textContent = data.error || 'Ошибка импорта';
+        }
+    } catch (e) {
+        console.error(e);
+        resDiv.textContent = 'Ошибка импорта';
+    }
+}
+window.startBillingImport = startBillingImport;
+
+async function loadBillingImports() {
+    try {
+        const resp = await fetch(`${API_BASE}/billing_import.php?type=imports`, { credentials: 'include' });
+        const data = await resp.json();
+        const tbody = document.getElementById('billing-imports-tbody');
+        if (!tbody) return;
+        const imports = data.imports || [];
+        if (imports.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
+        }
+        tbody.innerHTML = imports.map(im => `
+            <tr>
+                <td>${im.id}</td>
+                <td>${esc(im.type)}</td>
+                <td>${esc(im.filename || '-')}</td>
+                <td>${im.imported_rows || 0}</td>
+                <td>${im.matched_rows || 0}</td>
+                <td>${esc(im.status)}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error(e);
+    }
+}
+window.loadBillingImports = loadBillingImports;
+
+async function loadBillingExpenses() {
+    try {
+        const resp = await fetch(`${API_BASE}/billing_import.php?type=expenses`, { credentials: 'include' });
+        const data = await resp.json();
+        const tbody = document.getElementById('billing-expenses-tbody');
+        if (!tbody) return;
+        const expenses = data.expenses || [];
+        if (expenses.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
+        }
+        tbody.innerHTML = expenses.map(e => {
+            const matched = e.matched_node_id ? `VPS: ${esc(e.node_name||'')}` : (e.matched_domain_id ? `Домен: ${esc(e.domain_name||'')}` : '<span style="color: var(--text-tertiary);">не сопоставлено</span>');
+            const d = e.expense_date ? new Date(e.expense_date).toLocaleDateString('ru-RU') : '-';
+            return `<tr>
+                <td>${d}</td>
+                <td title="${esc(e.description||'')}">${esc((e.description||'').substring(0,80))}${(e.description||'').length>80?'...':''}</td>
+                <td>${esc(e.account_ref||'-')}</td>
+                <td>${parseFloat(e.amount||0).toFixed(2)} ₽</td>
+                <td>${matched}</td>
+                <td><button class="icon-btn" onclick='openExpenseMatch(${e.id}, ${JSON.stringify(e.description||'')})'><i data-lucide="link"></i></button></td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error(e);
+    }
+}
+window.loadBillingExpenses = loadBillingExpenses;
+
+async function loadBillingDomains() {
+    try {
+        const resp = await fetch(`${API_BASE}/billing_import.php?type=domains`, { credentials: 'include' });
+        const data = await resp.json();
+        const tbody = document.getElementById('billing-domains-tbody');
+        if (!tbody) return;
+        const domains = data.domains || [];
+        if (domains.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
+        }
+        tbody.innerHTML = domains.map(d => {
+            const exp = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : '-';
+            const price = d.price_per_year ? parseFloat(d.price_per_year).toFixed(2) + ' ₽' : '-';
+            return `<tr>
+                <td><strong>${esc(d.name)}</strong></td>
+                <td>${esc(d.zone||'-')}</td>
+                <td>${esc(d.project||'-')}</td>
+                <td>${exp}</td>
+                <td>${price}</td>
+                <td>${esc(d.status)}</td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error(e);
+    }
+}
+window.loadBillingDomains = loadBillingDomains;
+
+let _expenseMatchData = {id:null};
+window.openExpenseMatch = function(id, desc) {
+    _expenseMatchData.id = id;
+    document.getElementById('expense-match-id').value = id;
+    document.getElementById('expense-match-desc').textContent = desc || '';
+    // fill nodes
+    const nodeSel = document.getElementById('expense-match-node');
+    nodeSel.innerHTML = '<option value="">Не сопоставлять</option>';
+    if (window.billingNodesData) {
+        window.billingNodesData.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n.id;
+            opt.textContent = n.name + (n.provider_name ? ' ('+n.provider_name+')' : '');
+            nodeSel.appendChild(opt);
+        });
+    }
+    // domains
+    const domSel = document.getElementById('expense-match-domain');
+    domSel.innerHTML = '<option value="">Не сопоставлять</option>';
+    fetch(`${API_BASE}/billing_import.php?type=domains`, {credentials:'include'}).then(r=>r.json()).then(data=>{
+        (data.domains||[]).forEach(d=>{
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = d.name;
+            domSel.appendChild(opt);
+        });
+    }).catch(()=>{});
+    const modal = document.getElementById('expense-match-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+};
+window.closeExpenseMatchModal = function() {
+    const modal = document.getElementById('expense-match-modal');
+    if (modal) { modal.classList.remove('active'); setTimeout(()=>modal.classList.add('hidden'),200); }
+};
+window.saveExpenseMatch = async function(e) {
+    e.preventDefault();
+    const id = document.getElementById('expense-match-id').value;
+    const nodeId = document.getElementById('expense-match-node').value;
+    const domainId = document.getElementById('expense-match-domain').value;
+    try {
+        const resp = await fetch(`${API_BASE}/billing_expense_match.php`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({expense_id:id, node_id:nodeId||null, domain_id:domainId||null})
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showToast('Сопоставлено', 'success');
+            closeExpenseMatchModal();
+            loadBillingExpenses();
+            loadBillingData();
+        } else {
+            showToast(data.error||'Ошибка', 'error');
+        }
+    } catch (ex) {
+        console.error(ex);
+        showToast('Ошибка', 'error');
+    }
+};
+
+const _origSwitch = window.switchBillingTab;
+window.switchBillingTab = function(tab) {
+    if (typeof _origSwitch === 'function') _origSwitch(tab);
+    if (tab === 'expenses') loadBillingExpenses();
+    if (tab === 'domains') loadBillingDomains();
+    if (tab === 'imports') loadBillingImports();
+};
