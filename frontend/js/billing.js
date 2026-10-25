@@ -1797,3 +1797,13 @@ window.switchBillingUnifiedTab = function(tab) {
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
+
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        if (typeof loadBillingData === 'function') loadBillingData();
+        if (typeof loadPaymentsHistory === 'function') loadPaymentsHistory();
+        if (typeof populateProviderSelects === 'function') populateProviderSelects();
+    } catch (e) {
+        console.error('billing init error', e);
+    }
+});
