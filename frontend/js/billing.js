@@ -1780,3 +1780,20 @@ window.switchBillingTab = function(tab) {
     if (tab === 'domains') loadBillingDomains();
     if (tab === 'imports') loadBillingImports();
 };
+
+window.switchBillingUnifiedTab = function(tab) {
+    document.querySelectorAll('.tabs .tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
+    });
+    document.querySelectorAll('.tab-content').forEach(tc => {
+        tc.classList.toggle('active', tc.id === tab + '-tab');
+    });
+    if (tab === 'expenses') loadBillingExpenses();
+    if (tab === 'domains') loadBillingDomains();
+    if (tab === 'imports') loadBillingImports();
+    if (tab === 'stats') {
+        loadBillingData();
+        loadPaymentsHistory();
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+};
