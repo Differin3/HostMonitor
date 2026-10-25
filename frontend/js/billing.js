@@ -1775,19 +1775,23 @@ async function loadBillingDomains() {
         }
         tbody.innerHTML = domains.map(d => {
             const exp = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : '-';
-            const price = d.price_per_year ? parseFloat(d.price_per_year).toFixed(2) + ' ₽' : '-';
+            const price = d.price ? parseFloat(d.price).toFixed(2) + ' ₽' : '-';
             return `<tr>
-                <td><strong>${esc(d.name)}</strong></td>
-                <td>${esc(d.zone||'-')}</td>
-                <td>${esc(d.project||'-')}</td>
+                <td><strong>${esc(d.domain_name || '-')}</strong></td>
+                <td>${esc(d.tld || '-')}</td>
+                <td>${esc(d.contact || '-')}</td>
                 <td>${exp}</td>
                 <td>${price}</td>
-                <td>${esc(d.status)}</td>
+                <td>${esc(d.status || '-')}</td>
             </tr>`;
         }).join('');
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
-        console.error(e);
+        console.error('loadBillingDomains', e);
+        const tbody = document.getElementById('billing-domains-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--danger)">Ошибка загрузки</td></tr>';
+        }
     }
 }
 window.loadBillingDomains = loadBillingDomains;
