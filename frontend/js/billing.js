@@ -699,6 +699,7 @@ function closeProviderModal() {
 function refreshProviders() {
     loadProviders();
 }
+let providersPerPage = 9; // 3 колонки × 3 ряда
 
 async function loadProviders() {
     try {
