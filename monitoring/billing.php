@@ -238,6 +238,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
                 <div class="form-field">
                     <label class="form-label">Тип</label>
                     <select id="billing-import-type" class="provider-select">
+                        <option value="vds">VDS / Ноды (var_vds.csv)</option>
                         <option value="payments">Платежи (var_payment.csv)</option>
                         <option value="expenses">Расходы хостинга (var_expense.csv)</option>
                         <option value="domains">Домены (var_domain.csv)</option>
