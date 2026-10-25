@@ -37,10 +37,6 @@ try {
 
 /* -------------------- helpers -------------------- */
 
-/**
- * Определяет разделитель по первым ~20 непустым строкам.
- * Одиночная строка "Платежи" раньше ломала определение — теперь смотрим суммарно.
- */
 function detectDelimiter($content) {
     $lines = preg_split("/\R/", (string)$content);
     $semi = 0; $comma = 0; $tab = 0; $checked = 0;
@@ -58,10 +54,6 @@ function detectDelimiter($content) {
     return ',';
 }
 
-/**
- * Первая непустая строка, которая при разборе даёт >= 2 полей.
- * Возвращает [index, fields].
- */
 function findHeaderRow(array $lines, string $delimiter): array {
     foreach ($lines as $i => $raw) {
         $l = preg_replace('/^\xEF\xBB\xBF/', '', $raw);
@@ -75,13 +67,12 @@ function findHeaderRow(array $lines, string $delimiter): array {
     return [-1, []];
 }
 
-/** Сумма из строки вида "299.00 RUB", "2 419,30 ₽", "340.00 RUB / Год". */
 function parseAmount($val) {
     if ($val === null) return 0.0;
     $s = trim((string)$val);
     if ($s === '') return 0.0;
     $s = str_replace(["\xC2\xA0", ' '], '', $s);
-    $s = preg_replace('/[Rr][Uu][Bb].*$/u', '', $s); // убрать RUB и всё после
+    $s = preg_replace('/[Rr][Uu][Bb].*$/u', '', $s);
     $s = preg_replace('/[₽].*$/u', '', $s);
     if (strpos($s, ',') !== false && strpos($s, '.') === false) {
         $s = str_replace(',', '.', $s);
@@ -93,7 +84,6 @@ function parseAmount($val) {
     return (float)$s;
 }
 
-/** Парсит дату из разных форматов: Y-m-d, d.m.Y, Y/m/d, d/m/Y, c fallback на strtotime. */
 function parseDate($val): ?string {
     if ($val === null) return null;
     $s = trim((string)$val);
@@ -111,7 +101,6 @@ function parseDate($val): ?string {
     return null;
 }
 
-/** Достаёт значение из $data по списку возможных ключей. */
 function pick(array $data, array $keys) {
     foreach ($keys as $k) {
         if (array_key_exists($k, $data) && $data[$k] !== null && $data[$k] !== '') {
@@ -119,6 +108,13 @@ function pick(array $data, array $keys) {
         }
     }
     return null;
+}
+
+/** Возвращает валидный JSON или null (для колонок с CHECK json_valid). */
+function safeJson($data): ?string {
+    $j = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($j === false) return null;
+    return $j;
 }
 
 /* -------------------- import -------------------- */
@@ -210,24 +206,22 @@ function handleImport($pdo) {
                 $pdate = parseDate($dateStr);
                 if ($pdate === null) continue;
 
-                // Попытка матчинга по FBRUS-NNNN или pfx/NNNN в номере/описании/плательщике
+                // Матчинг ноды по FBRUS-NNNN или pfx/NNNN
                 $matchedNodeId = null;
                 $haystack = trim(($num ?? '') . ' ' . ($desc ?? '') . ' ' . ($externalId ?? ''));
                 if ($haystack !== '' && preg_match('/(FBRUS-\d+|pfx\/\d+)/iu', $haystack, $m)) {
                     $pat = $m[1];
-                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? OR notes LIKE ? LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? OR host LIKE ? LIMIT 1");
                     $stmt->execute(['%' . $pat . '%', '%' . $pat . '%']);
                     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         $matchedNodeId = (int)$r['id'];
                     }
                 }
 
-                // Дедупликация: (node_id, amount, payment_date) в пределах суток
                 $chk = $pdo->prepare("SELECT id FROM payments WHERE node_id <=> ? AND amount = ? AND payment_date = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY) LIMIT 1");
                 $chk->execute([$matchedNodeId, $amount, $pdate]);
                 if ($chk->fetch()) continue;
 
-                // Импортируем ВСЕГДА — даже без ноды, чтобы не терять данные
                 $ins = $pdo->prepare("INSERT INTO payments (node_id, amount, currency, payment_date) VALUES (?,?, 'RUB', ?)");
                 $ins->execute([$matchedNodeId, $amount, $pdate]);
                 $imported++;
@@ -257,7 +251,6 @@ function handleImport($pdo) {
                 $dateStr    = pick($data, ['дата списания', 'дата операции', 'дата', 'date']);
                 $amount     = parseAmount(pick($data, ['сумма', 'amount']));
                 $amountWo   = parseAmount(pick($data, ['без скидки', 'amount_without_discount'])) ?: $amount;
-                // "Оплачено платежами" — это ссылки на платежи (FBRUS-NNNN / pfx/NNNN), логично писать в account_ref
                 $account    = pick($data, ['оплачено платежами', 'на счёт', 'на счет', 'account_ref', 'account']);
 
                 if ($amount == 0 && $amountWo == 0) continue;
@@ -265,10 +258,9 @@ function handleImport($pdo) {
                 $edate = parseDate($dateStr);
                 if ($edate === null) continue;
 
-                // Матчинг ноды по account_ref + описанию
-                $matchedNodeId = null;
+                $matchedNodeId   = null;
                 $matchedDomainId = null;
-                $matchType = 'none';
+                $matchType       = 'none';
 
                 if ($account && preg_match('/(FBRUS-\d+|pfx\/\d+)/iu', $account . ' ' . $desc, $m)) {
                     $pat = $m[1];
@@ -281,7 +273,7 @@ function handleImport($pdo) {
                 }
                 if (preg_match('/#(\d+)\s*\(([a-z0-9\.-]+\.[a-z]{2,})\)/iu', (string)$desc, $dm)) {
                     $dname = strtolower($dm[2]);
-                    $stmt = $pdo->prepare("SELECT id FROM domains WHERE name = ? LIMIT 1");
+                    $stmt = $pdo->prepare("SELECT id FROM domains WHERE domain_name = ? LIMIT 1");
                     $stmt->execute([$dname]);
                     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         $matchedDomainId = (int)$r['id'];
@@ -294,11 +286,13 @@ function handleImport($pdo) {
                 $chk->execute([$externalId, $desc, $edate, $amount]);
                 if ($chk->fetch()) continue;
 
+                $rawJson = safeJson($data);
+
                 $ins = $pdo->prepare("INSERT INTO billing_expenses (external_id, description, expense_date, amount, amount_without_discount, account_ref, matched_node_id, matched_domain_id, match_type, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?)");
                 $ins->execute([
                     $externalId, $desc, $edate, $amount, $amountWo, $account,
                     $matchedNodeId, $matchedDomainId, $matchType,
-                    json_encode($data, JSON_UNESCAPED_UNICODE)
+                    $rawJson
                 ]);
                 $imported++;
             }
@@ -322,24 +316,49 @@ function handleImport($pdo) {
                 }
 
                 $externalId = pick($data, ['id']);
-                $dname      = mb_strtolower((string)pick($data, ['имя домена', 'домен', 'domain']));
+                $dname      = mb_strtolower((string)pick($data, ['имя домена', 'домен', 'domain', 'domain_name']));
                 if ($dname === '') continue;
-                $zone       = pick($data, ['зона', 'zone']);
-                $project    = pick($data, ['проект', 'project', 'контакт']);
+
+                $tld        = pick($data, ['тариф', 'зона', 'zone', 'tld']);
+                $contact    = pick($data, ['контакт', 'contact', 'проект', 'project']);
                 $expiresRaw = pick($data, ['действует до', 'expires', 'expires_at']);
                 $status     = pick($data, ['статус услуги', 'статус', 'status']);
-                $price      = parseAmount(pick($data, ['стоимость', 'цена', 'price_per_year']));
+                $priceRaw   = pick($data, ['стоимость', 'цена', 'price']);
+
+                $price = 0.0;
+                $pricePeriod = 'year';
+                if ($priceRaw) {
+                    $price = parseAmount($priceRaw);
+                    if (preg_match('/\/\s*(\S+)/u', (string)$priceRaw, $pm)) {
+                        $p = mb_strtolower($pm[1]);
+                        if (strpos($p, 'год') !== false || strpos($p, 'year') !== false) $pricePeriod = 'year';
+                        elseif (strpos($p, 'мес') !== false || strpos($p, 'month') !== false) $pricePeriod = 'month';
+                        else $pricePeriod = $pm[1];
+                    }
+                }
 
                 $expDate = parseDate($expiresRaw);
 
-                $chk = $pdo->prepare("SELECT id FROM domains WHERE name = ? LIMIT 1");
+                // external_key NOT NULL — используем id из CSV или сам домен
+                $externalKey = ($externalId !== null && $externalId !== '')
+                    ? (string)$externalId
+                    : $dname;
+
+                $chk = $pdo->prepare("SELECT id FROM domains WHERE domain_name = ? LIMIT 1");
                 $chk->execute([$dname]);
                 if ($chk->fetch()) {
-                    $upd = $pdo->prepare("UPDATE domains SET external_id=COALESCE(?,external_id), zone=COALESCE(?,zone), project=COALESCE(?,project), expires_at=COALESCE(?,expires_at), price_per_year=CASE WHEN ?>0 THEN ? ELSE price_per_year END, status=? WHERE name=?");
-                    $upd->execute([$externalId, $zone, $project, $expDate, $price, $price, ($status && stripos($status, 'актив') !== false) ? 'active' : 'active', $dname]);
+                    $upd = $pdo->prepare("UPDATE domains
+                        SET external_key = ?, tld = COALESCE(?, tld), contact = COALESCE(?, contact),
+                            expires_at = COALESCE(?, expires_at),
+                            price = CASE WHEN ? > 0 THEN ? ELSE price END,
+                            price_period = ?, status = COALESCE(?, status)
+                        WHERE domain_name = ?");
+                    $upd->execute([$externalKey, $tld, $contact, $expDate, $price, $price, $pricePeriod, $status, $dname]);
                 } else {
-                    $ins = $pdo->prepare("INSERT INTO domains (external_id, name, zone, project, expires_at, price_per_year, status) VALUES (?,?,?,?,?,?,?)");
-                    $ins->execute([$externalId, $dname, $zone, $project, $expDate, $price > 0 ? $price : null, 'active']);
+                    $ins = $pdo->prepare("INSERT INTO domains
+                        (external_key, domain_name, tld, contact, expires_at, price, price_period, status, source, currency)
+                        VALUES (?,?,?,?,?,?,?,?, 'csv', 'RUB')");
+                    $ins->execute([$externalKey, $dname, $tld, $contact, $expDate, $price > 0 ? $price : null, $pricePeriod, $status]);
                 }
                 $imported++;
             }
@@ -350,24 +369,24 @@ function handleImport($pdo) {
         }
     }
 
+    $reportJson = safeJson(['imported' => $imported, 'matched' => $matched]);
     $upd = $pdo->prepare("UPDATE billing_imports SET imported_rows=?, matched_rows=?, status='done', report=? WHERE id=?");
-    $upd->execute([$imported, $matched, json_encode(['imported' => $imported, 'matched' => $matched], JSON_UNESCAPED_UNICODE), $importId]);
+    $upd->execute([$imported, $matched, $reportJson, $importId]);
 
     echo json_encode([
-        'success'   => true,
-        'imported'  => $imported,
-        'matched'   => $matched,
-        'import_id' => $importId,
-        'delimiter' => $delimiter,
+        'success'    => true,
+        'imported'   => $imported,
+        'matched'    => $matched,
+        'import_id'  => $importId,
+        'delimiter'  => $delimiter,
         'header_row' => $headerIdx,
-        'headers'   => $headersNorm,
     ]);
 }
 
 function handleList($pdo) {
     $type = $_GET['type'] ?? null;
     if ($type === 'expenses') {
-        $stmt = $pdo->query("SELECT e.*, n.name as node_name, d.name as domain_name FROM billing_expenses e LEFT JOIN nodes n ON e.matched_node_id = n.id LEFT JOIN domains d ON e.matched_domain_id = d.id ORDER BY e.expense_date DESC, e.id DESC LIMIT 200");
+        $stmt = $pdo->query("SELECT e.*, n.name as node_name, d.domain_name as domain_name FROM billing_expenses e LEFT JOIN nodes n ON e.matched_node_id = n.id LEFT JOIN domains d ON e.matched_domain_id = d.id ORDER BY e.expense_date DESC, e.id DESC LIMIT 200");
         echo json_encode(['expenses' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         return;
     }
