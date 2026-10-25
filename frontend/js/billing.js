@@ -90,6 +90,133 @@ function getCountryFlag(country) {
     const flags = { RU:'🇷🇺', NL:'🇳🇱', DE:'🇩🇪', US:'🇺🇸', GB:'🇬🇧', FR:'🇫🇷', PL:'🇵🇱', FI:'🇫🇮', SG:'🇸🇬', JP:'🇯🇵' };
     return flags[country] || '';
 }
+/* ==================== БИЛЛИНГ НОДЫ (добавить/редактировать) ==================== */
+
+function openNodeBillingModal(nodeId) {
+    const modal = document.getElementById('node-billing-modal');
+    if (!modal) return;
+
+    const idEl = document.getElementById('node-billing-id');
+    const titleEl = document.getElementById('node-billing-title');
+    const nodeSel = document.getElementById('node-billing-node-select');
+    const providerSel = document.getElementById('node-billing-provider');
+    const amountEl = document.getElementById('node-billing-amount');
+    const periodEl = document.getElementById('node-billing-period');
+    const dateEl = document.getElementById('node-billing-next-payment');
+
+    // Заполняем селект нод (все ноды, не только те что в биллинге)
+    nodeSel.innerHTML = '<option value="">Выберите ноду</option>';
+    (window.billingNodesData || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = n.name + (n.provider_name ? ' (' + n.provider_name + ')' : '');
+        nodeSel.appendChild(opt);
+    });
+
+    // Заполняем селект провайдеров
+    providerSel.innerHTML = '<option value="">— Не выбран —</option>';
+    (providersList || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.name;
+        providerSel.appendChild(opt);
+    });
+
+    if (nodeId) {
+        // Редактирование
+        const node = (window.billingNodesData || []).find(n => n.id == nodeId);
+        if (!node) return;
+        idEl.value = node.id;
+        titleEl.textContent = 'Редактировать биллинг · ' + node.name;
+        nodeSel.value = node.id;
+        nodeSel.disabled = true; // ноду менять нельзя, только параметры биллинга
+        providerSel.value = node.provider_name || '';
+        amountEl.value = node.billing_amount || '';
+        periodEl.value = String(node.billing_period || 30);
+        dateEl.value = node.next_payment_date || '';
+    } else {
+        // Добавление
+        idEl.value = '';
+        titleEl.textContent = 'Добавить в биллинг';
+        nodeSel.disabled = false;
+        nodeSel.value = '';
+        providerSel.value = '';
+        amountEl.value = '';
+        periodEl.value = '30';
+        dateEl.value = '';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeNodeBillingModal() {
+    const modal = document.getElementById('node-billing-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => modal.classList.add('hidden'), 200);
+    // Снять disabled, чтобы в следующий раз всё работало
+    const nodeSel = document.getElementById('node-billing-node-select');
+    if (nodeSel) nodeSel.disabled = false;
+}
+
+async function saveNodeBilling(e) {
+    e.preventDefault();
+    const idEl = document.getElementById('node-billing-id');
+    const nodeSel = document.getElementById('node-billing-node-select');
+    const providerSel = document.getElementById('node-billing-provider');
+    const amountEl = document.getElementById('node-billing-amount');
+    const periodEl = document.getElementById('node-billing-period');
+    const dateEl = document.getElementById('node-billing-next-payment');
+
+    const nodeId = parseInt(nodeSel.value, 10);
+    const amount = parseFloat(amountEl.value);
+    const period = parseInt(periodEl.value, 10) || 30;
+    const providerName = providerSel.value || null;
+    const nextPayment = dateEl.value || null;
+
+    if (!nodeId || !(amount > 0)) {
+        showToastSafe('Заполните ноду и цену', 'error');
+        return;
+    }
+
+    // Если выбран провайдер — подтянем его URL
+    let providerUrl = null;
+    if (providerName) {
+        const p = (providersList || []).find(x => x.name === providerName);
+        if (p) providerUrl = p.url || null;
+    }
+
+    try {
+        const csrf = getCsrfToken();
+        const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: JSON.stringify({
+                billing_amount: amount,
+                billing_period: period,
+                provider_name: providerName,
+                provider_url: providerUrl,
+                next_payment_date: nextPayment,
+            })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            let msg = 'HTTP ' + res.status;
+            try { const d = JSON.parse(text); msg = d.error || msg; } catch (_) {}
+            throw new Error(msg);
+        }
+        showToastSafe(idEl.value ? 'Биллинг обновлён' : 'Нода добавлена в биллинг', 'success');
+        closeNodeBillingModal();
+        loadBillingData();
+    } catch (err) {
+        console.error('saveNodeBilling', err);
+        showToastSafe('Ошибка сохранения: ' + err.message, 'error');
+    }
+}
+
 /* ==================== ЗАГРУЗКА ДАННЫХ ==================== */
 
 async function loadBillingData(silent) {

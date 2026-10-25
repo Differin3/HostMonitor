@@ -89,7 +89,10 @@ render_layout_start('Биллинг', 'nodes-billing', '');
     <div class="card" style="margin-top: 24px;">
         <div class="card-header">
             <div class="card-title"><i data-lucide="server"></i><span>Ноды с биллингом</span></div>
-            <div class="card-actions"><button onclick="loadBillingData()" class="icon-btn" title="Обновить"><i data-lucide="refresh-cw"></i></button></div>
+            <div class="card-actions">
+                <button onclick="loadBillingData()" class="icon-btn" title="Обновить"><i data-lucide="refresh-cw"></i></button>
+                <button onclick="openNodeBillingModal()" class="primary"><i data-lucide="plus"></i> Добавить ноду</button>
+            </div>
         </div>
         <div class="table-container compact-table" style="overflow-x: auto;">
             <table>
@@ -102,7 +105,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
                         <th>Оплачено до</th>
                         <th>Остаток</th>
                         <th>Статус</th>
-                        <th style="width:80px;">Действия</th>
+                        <th style="width:110px;">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="billing-nodes-tbody"><tr><td colspan="8" class="text-center">Загрузка...</td></tr></tbody>
@@ -255,6 +258,53 @@ render_layout_start('Биллинг', 'nodes-billing', '');
                 <table><thead><tr><th>ID</th><th>Тип</th><th>Файл</th><th>Импорт</th><th>Сопоставлено</th><th>Статус</th></tr></thead><tbody id="billing-imports-tbody"><tr><td colspan="6" class="text-center">Нет данных</td></tr></tbody></table>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- ===================== МОДАЛКА: БИЛЛИНГ НОДЫ ===================== -->
+<div class="modal hidden" id="node-billing-modal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h2 id="node-billing-title">Добавить в биллинг</h2>
+            <button class="modal-close" onclick="closeNodeBillingModal()" type="button"><i data-lucide="x"></i></button>
+        </div>
+        <form id="node-billing-form" onsubmit="saveNodeBilling(event)">
+            <input type="hidden" id="node-billing-id">
+            <div class="form-field">
+                <label class="form-label">Нода *</label>
+                <select id="node-billing-node-select" class="provider-select" required>
+                    <option value="">Выберите ноду</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label class="form-label">Провайдер</label>
+                <select id="node-billing-provider" class="provider-select">
+                    <option value="">— Не выбран —</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label class="form-label">Цена, ₽ *</label>
+                <input type="number" id="node-billing-amount" step="0.01" min="0.01" required placeholder="0.00">
+            </div>
+            <div class="form-field">
+                <label class="form-label">Период оплаты</label>
+                <select id="node-billing-period" class="provider-select">
+                    <option value="30">Месяц (30 дней)</option>
+                    <option value="365">Год (365 дней)</option>
+                    <option value="1">День</option>
+                    <option value="7">Неделя</option>
+                    <option value="90">Квартал (90 дней)</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label class="form-label">Оплачено до</label>
+                <input type="date" id="node-billing-next-payment">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary" onclick="closeNodeBillingModal()">Отмена</button>
+                <button type="submit" class="primary">Сохранить</button>
+            </div>
+        </form>
     </div>
 </div>
 
