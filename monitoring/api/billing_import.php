@@ -5,7 +5,6 @@
  * Импорт CSV: payments | expenses | domains | vds
  *
  * Дедупликация:
-<<<<<<< HEAD
  *  - payments  → external_id | (amount, payment_date, currency)
  *  - expenses  → external_id | (description, expense_date, amount)
  *  - domains   → UNIQUE по domain_name (upsert)
@@ -19,15 +18,6 @@
  *  5) Второй проход: group-match по account_ref — все услуги одного
  *     платежа FBRUS-NNNN привязываются к той же ноде, что уже
  *     привязанная услуга с этим же FBRUS.
-=======
- *  - payments  → external_id (Id из CSV) | (amount, payment_date, currency)
- *  - expenses  → external_id (Id из CSV) | (description, expense_date, amount)
- *  - domains   → UNIQUE по domain_name (upsert)
- *  - vds       → UNIQUE по name (upsert)
- *
- * При повторном импорте существующие записи не дублируются, а
- * «догоняют» недостающие поля (node_id для payments, matched_* для expenses).
->>>>>>> origin/main
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -63,11 +53,7 @@ try {
 }
 
 /* ================================================================
-<<<<<<< HEAD
  * Helpers: парсинг CSV
-=======
- * Helpers
->>>>>>> origin/main
  * ================================================================ */
 
 function detectDelimiter($content) {
@@ -138,13 +124,10 @@ function safeJson($data): ?string {
     return $j === false ? null : $j;
 }
 
-<<<<<<< HEAD
 /* ================================================================
  * Helpers: эвристики
  * ================================================================ */
 
-=======
->>>>>>> origin/main
 function detectCountry(string $text): ?string {
     $map = [
         'росси' => 'RU', 'russia' => 'RU', 'москва' => 'RU', 'moscow' => 'RU', 'спб' => 'RU',
@@ -185,18 +168,12 @@ function guessProvider(PDO $pdo, string $domainName): array {
     return [$name, $url];
 }
 
-<<<<<<< HEAD
 /* ================================================================
  * Helpers: матчинг к нодам
  * ================================================================ */
 
 /**
  * По FBRUS-NNNN или pfx/NNNN в произвольной строке → nodes.name LIKE.
-=======
-/**
- * Ищет ноду по FBRUS-NNNN или pfx/NNNN в произвольной строке.
- * Возвращает id или null.
->>>>>>> origin/main
  */
 function findNodeByPattern(PDO $pdo, string $haystack): ?int {
     if ($haystack === '') return null;
@@ -209,11 +186,7 @@ function findNodeByPattern(PDO $pdo, string $haystack): ?int {
 }
 
 /**
-<<<<<<< HEAD
  * По IP-адресу в строке → nodes.host.
-=======
- * Ищет ноду по IP-адресу (nodes.host).
->>>>>>> origin/main
  */
 function findNodeByIp(PDO $pdo, string $haystack): ?int {
     if ($haystack === '') return null;
@@ -226,7 +199,6 @@ function findNodeByIp(PDO $pdo, string $haystack): ?int {
 }
 
 /**
-<<<<<<< HEAD
  * По ID услуги из "#NNN" в описании.
  * Сначала по nodes.external_id, потом fallback по nodes.name LIKE.
  */
@@ -249,9 +221,6 @@ function findNodeByServiceId(PDO $pdo, string $haystack): ?int {
 /**
  * По "#NNN (domain.tld)" в описании.
  * Возвращает [nodeId, domainId] — оба могут быть null.
-=======
- * Ищет домен по "#NNN (domain.tld)" в описании. Возвращает [nodeId, domainId].
->>>>>>> origin/main
  */
 function findDomainByName(PDO $pdo, string $haystack): array {
     if ($haystack === '') return [null, null];
@@ -271,7 +240,6 @@ function findDomainByName(PDO $pdo, string $haystack): array {
     return [$nodeId, $domainId];
 }
 
-<<<<<<< HEAD
 /**
  * Второй проход: групповой матчинг по account_ref.
  *
@@ -336,8 +304,6 @@ function applyPaymentGroupMatching(PDO $pdo): int {
     return $updated;
 }
 
-=======
->>>>>>> origin/main
 /* ================================================================
  * Import
  * ================================================================ */
@@ -391,23 +357,13 @@ function handleImport($pdo) {
     $importStmt->execute([$type, $_FILES['file']['name'] ?? null, $_SESSION['user_id'] ?? null, max(0, count($lines) - $start)]);
     $importId = (int)$pdo->lastInsertId();
 
-<<<<<<< HEAD
-    $imported = 0;   // новых INSERT
-    $matched  = 0;   // сколько всего привязано к ноде
-    $skipped  = 0;   // сколько уже есть в БД
-    $updated  = 0;   // сколько существующих обновлено
+    $imported = 0;
+    $matched  = 0;
+    $skipped  = 0;
+    $updated  = 0;
 
     // Внутренний дедуп: если в CSV две одинаковые строки — вторую пропускаем
     $seenKeys = [];
-=======
-    $imported = 0;   // новых записей
-    $matched  = 0;   // записей, у которых определился matched_node_id / node_id
-    $skipped  = 0;   // дубликатов (уже были в БД или в этом же файле)
-    $updated  = 0;   // существующих записей, у которых «догоняли» поля
-
-    // Внутренний дедуп: если в CSV две одинаковые строки — вторую пропускаем.
-    $seenExternalIds = [];
->>>>>>> origin/main
 
     try {
         if ($type === 'payments') {
@@ -433,22 +389,16 @@ function handleImport($pdo) {
                     'сумма в валюте платежа', 'итого',
                 ]));
 
-<<<<<<< HEAD
                 if ($amount <= 0) continue;
                 if ($status !== '' && (
                     strpos($status, 'отмен') !== false ||
                     strpos($status, 'возврат') !== false ||
                     strpos($status, 'ошиб') !== false
                 )) continue;
-=======
-                if ($amount <= 0) { continue; }
-                if ($status !== '' && (strpos($status, 'отмен') !== false || strpos($status, 'возврат') !== false || strpos($status, 'ошиб') !== false)) continue;
->>>>>>> origin/main
 
                 $pdate = parseDate($dateStr);
                 if ($pdate === null) continue;
 
-<<<<<<< HEAD
                 // Внутренний дедуп
                 $dedupKey = ($externalId !== null && $externalId !== '')
                     ? 'ext:' . $externalId
@@ -456,24 +406,11 @@ function handleImport($pdo) {
                 if (isset($seenKeys[$dedupKey])) { $skipped++; continue; }
                 $seenKeys[$dedupKey] = true;
 
-                // Матчинг
-                $haystack = trim(($num ?? '') . ' ' . ($desc ?? '') . ' ' . ($externalId ?? ''));
-                $matchedNodeId = findNodeByPattern($pdo, $haystack);
-
-                // Ищем существующий платёж
-=======
-                // Внутренний дубль в CSV
-                $dedupKey = ($externalId !== null && $externalId !== '') ? 'ext:' . $externalId
-                                                                        : 'amt:' . $amount . '|' . $pdate;
-                if (isset($seenExternalIds[$dedupKey])) { $skipped++; continue; }
-                $seenExternalIds[$dedupKey] = true;
-
                 // Матчинг ноды
                 $haystack = trim(($num ?? '') . ' ' . ($desc ?? '') . ' ' . ($externalId ?? ''));
                 $matchedNodeId = findNodeByPattern($pdo, $haystack);
 
-                // Поиск существующего платежа
->>>>>>> origin/main
+                // Ищем существующий платёж
                 $existing = null;
                 if ($externalId !== null && $externalId !== '') {
                     $chk = $pdo->prepare("SELECT id, node_id FROM payments WHERE external_id = ? LIMIT 1");
@@ -487,7 +424,6 @@ function handleImport($pdo) {
                 }
 
                 if ($existing) {
-<<<<<<< HEAD
                     $sets = []; $params = [];
                     if ($externalId !== null && $externalId !== '') {
                         $sets[] = "external_id = ?"; $params[] = $externalId;
@@ -496,15 +432,6 @@ function handleImport($pdo) {
                         $sets[] = "node_id = ?"; $params[] = $matchedNodeId;
                     }
                     if ($sets) {
-=======
-                    // Уже есть — «догоняем» external_id и/или node_id, если они пусты
-                    $needExternal = ($externalId !== null && $externalId !== '');
-                    $needNode = ($existing['node_id'] === null && $matchedNodeId !== null);
-                    if ($needExternal || $needNode) {
-                        $sets = []; $params = [];
-                        if ($needExternal) { $sets[] = "external_id = ?"; $params[] = $externalId; }
-                        if ($needNode)     { $sets[] = "node_id = ?";     $params[] = $matchedNodeId; }
->>>>>>> origin/main
                         $params[] = $existing['id'];
                         $upd = $pdo->prepare("UPDATE payments SET " . implode(', ', $sets) . " WHERE id = ?");
                         $upd->execute($params);
@@ -516,10 +443,7 @@ function handleImport($pdo) {
                     continue;
                 }
 
-<<<<<<< HEAD
-=======
                 // Новый
->>>>>>> origin/main
                 $ins = $pdo->prepare("INSERT INTO payments (external_id, node_id, amount, currency, payment_date) VALUES (?,?,?,?,?)");
                 $ins->execute([$externalId ?: null, $matchedNodeId, $amount, 'RUB', $pdate]);
                 $imported++;
@@ -551,7 +475,6 @@ function handleImport($pdo) {
                 $edate = parseDate($dateStr);
                 if ($edate === null) continue;
 
-<<<<<<< HEAD
                 // Внутренний дедуп
                 $dedupKey = ($externalId !== null && $externalId !== '')
                     ? 'ext:' . $externalId
@@ -559,23 +482,12 @@ function handleImport($pdo) {
                 if (isset($seenKeys[$dedupKey])) { $skipped++; continue; }
                 $seenKeys[$dedupKey] = true;
 
-                // ---- Матчинг ноды / домена по приоритету ----
-
-=======
-                // Внутренний дубль в CSV
-                $dedupKey = ($externalId !== null && $externalId !== '') ? 'ext:' . $externalId
-                                                                        : 'amt:' . $amount . '|' . $edate . '|' . md5((string)$desc);
-                if (isset($seenExternalIds[$dedupKey])) { $skipped++; continue; }
-                $seenExternalIds[$dedupKey] = true;
-
-                // Матчинг ноды / домена
->>>>>>> origin/main
+                // Матчинг ноды / домена по приоритету
                 $matchedNodeId = null;
                 $matchedDomainId = null;
                 $matchType = 'none';
                 $descStr = (string)$desc;
 
-<<<<<<< HEAD
                 // 1) #NNN → nodes.external_id (самый надёжный для VDS)
                 if (!$matchedNodeId) {
                     $bySid = findNodeByServiceId($pdo, $descStr);
@@ -598,40 +510,19 @@ function handleImport($pdo) {
                 if (!$matchedNodeId && $account) {
                     $byAcc = findNodeByPattern($pdo, $account . ' ' . $descStr);
                     if ($byAcc) { $matchedNodeId = $byAcc; $matchType = 'auto'; }
-=======
-                if ($account) {
-                    $byAcc = findNodeByPattern($pdo, $account . ' ' . $desc);
-                    if ($byAcc) { $matchedNodeId = $byAcc; $matchType = 'auto'; }
-                }
-                [$byDomNode, $byDomDomain] = findDomainByName($pdo, (string)$desc);
-                if ($byDomDomain) $matchedDomainId = $byDomDomain;
-                if (!$matchedNodeId && $byDomNode) { $matchedNodeId = $byDomNode; }
-                if ($matchType === 'none' && ($matchedNodeId || $matchedDomainId)) $matchType = 'auto';
-                if (!$matchedNodeId) {
-                    $byIp = findNodeByIp($pdo, (string)$desc);
-                    if ($byIp) { $matchedNodeId = $byIp; if ($matchType === 'none') $matchType = 'auto'; }
->>>>>>> origin/main
                 }
 
                 if ($matchedNodeId || $matchedDomainId) $matched++;
 
-<<<<<<< HEAD
                 // Ищем существующий расход
                 $existing = null;
                 if ($externalId !== null && $externalId !== '') {
                     $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type
                         FROM billing_expenses WHERE external_id = ? LIMIT 1");
-=======
-                // Поиск существующего
-                $existing = null;
-                if ($externalId !== null && $externalId !== '') {
-                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type FROM billing_expenses WHERE external_id = ? LIMIT 1");
->>>>>>> origin/main
                     $chk->execute([$externalId]);
                     $existing = $chk->fetch(PDO::FETCH_ASSOC) ?: null;
                 }
                 if (!$existing) {
-<<<<<<< HEAD
                     $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type
                         FROM billing_expenses WHERE description = ? AND expense_date = ? AND amount = ? LIMIT 1");
                     $chk->execute([$desc, $edate, $amount]);
@@ -662,29 +553,6 @@ function handleImport($pdo) {
                     }
                     continue;
                 }
-=======
-                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type FROM billing_expenses WHERE description = ? AND expense_date = ? AND amount = ? LIMIT 1");
-                    $chk->execute([$desc, $edate, $amount]);
-                    $existing = $chk->fetch(PDO::FETCH_ASSOC) ?: null;
-                }
->>>>>>> origin/main
-
-                if ($existing) {
-                    $sets = []; $params = [];
-                    if ($externalId !== null && $externalId !== '') { $sets[] = "external_id = ?"; $params[] = $externalId; }
-                    if ($existing['matched_node_id'] === null && $matchedNodeId !== null) { $sets[] = "matched_node_id = ?"; $params[] = $matchedNodeId; }
-                    if ($existing['matched_domain_id'] === null && $matchedDomainId !== null) { $sets[] = "matched_domain_id = ?"; $params[] = $matchedDomainId; }
-                    if ($existing['match_type'] === 'none' && $matchType !== 'none') { $sets[] = "match_type = ?"; $params[] = $matchType; }
-                    if ($sets) {
-                        $params[] = $existing['id'];
-                        $upd = $pdo->prepare("UPDATE billing_expenses SET " . implode(', ', $sets) . " WHERE id = ?");
-                        $upd->execute($params);
-                        $updated++;
-                    } else {
-                        $skipped++;
-                    }
-                    continue;
-                }
 
                 // Новый
                 $rawJson = safeJson($data);
@@ -698,7 +566,6 @@ function handleImport($pdo) {
                 ]);
                 $imported++;
             }
-<<<<<<< HEAD
 
             // Второй проход: групповой матчинг по account_ref (FBRUS-NNNN).
             // Ловит услуги без #NNN/домена/IP — например, "Резервное копирование FTP",
@@ -710,10 +577,6 @@ function handleImport($pdo) {
 
             $pdo->commit();
 
-=======
-            $pdo->commit();
-
->>>>>>> origin/main
         } elseif ($type === 'domains') {
             $pdo->beginTransaction();
             for ($i = $start; $i < count($lines); $i++) {
@@ -732,13 +595,8 @@ function handleImport($pdo) {
                 if ($dname === '') continue;
 
                 $dedupKey = 'dom:' . $dname;
-<<<<<<< HEAD
                 if (isset($seenKeys[$dedupKey])) { $skipped++; continue; }
                 $seenKeys[$dedupKey] = true;
-=======
-                if (isset($seenExternalIds[$dedupKey])) { $skipped++; continue; }
-                $seenExternalIds[$dedupKey] = true;
->>>>>>> origin/main
 
                 $tld        = pick($data, ['тариф', 'зона', 'zone', 'tld']);
                 $contact    = pick($data, ['контакт', 'contact', 'проект', 'project']);
@@ -811,13 +669,8 @@ function handleImport($pdo) {
                 if ($name === '') continue;
 
                 $dedupKey = 'node:' . $name;
-<<<<<<< HEAD
                 if (isset($seenKeys[$dedupKey])) { $skipped++; continue; }
                 $seenKeys[$dedupKey] = true;
-=======
-                if (isset($seenExternalIds[$dedupKey])) { $skipped++; continue; }
-                $seenExternalIds[$dedupKey] = true;
->>>>>>> origin/main
 
                 $host = $ip !== '' ? $ip : $domainName;
                 if ($host === '') continue;
