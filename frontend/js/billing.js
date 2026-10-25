@@ -6,7 +6,7 @@ const API_PAYMENTS = `${API_BASE}/payments.php`;
 let selectedBillingNodes = new Set();
 let providersList = [];
 let providersCurrentPage = 1;
-let providersPerPage = 10;
+let providersPerPage = 9;
 let monthlyChart = null;
 let providerChart = null;
 let paymentsTimelineChart = null;
@@ -650,17 +650,14 @@ function populatePaymentNodes() {
 function populateBillingNodes() {
     const select = document.getElementById('billing-node-select');
     if (!select) return;
-    
-    // Если данные еще не загружены, загружаем их
+
     if (!window.billingNodesData) {
-        loadBillingData().then(() => {
-            populateBillingNodes();
-        });
+        loadBillingData(); // loadBillingData сам всё populate'нет и отрисует
         return;
     }
-    
+
     select.innerHTML = '<option value="">Выберите ноду</option>';
-    if (window.billingNodesData && window.billingNodesData.length > 0) {
+    if (window.billingNodesData.length > 0) {
         window.billingNodesData.forEach(node => {
             const option = document.createElement('option');
             option.value = node.id;
@@ -705,137 +702,180 @@ function refreshProviders() {
 
 async function loadProviders() {
     try {
-        if (window.toggleTableLoader) {
-            window.toggleTableLoader('providers-tbody', true);
-        }
         const res = await fetch(API_PROVIDERS, {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' }
         });
-        
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const text = await res.text();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
         const data = text ? JSON.parse(text) : { providers: [] };
-        
-            providersList = data.providers || [];
-            renderProviders(providersList);
-            populateProviderSelects();
-            populatePaymentProviders();
+        providersList = data.providers || [];
+        renderProviders(providersList);
+        populateProviderSelects();
+        populatePaymentProviders();
     } catch (error) {
-            console.error('Ошибка загрузки провайдеров:', error);
-            providersList = [];
-            renderProviders(providersList);
-            populateProviderSelects();
-            populatePaymentProviders();
-    } finally {
-        if (window.toggleTableLoader) {
-            window.toggleTableLoader('providers-tbody', false);
-        }
+        console.error('Ошибка загрузки провайдеров:', error);
+        providersList = [];
+        renderProviders(providersList);
+        populateProviderSelects();
+        populatePaymentProviders();
     }
+}
+
+function getFilteredProviders() {
+    const search = (document.getElementById('providers-search')?.value || '').toLowerCase().trim();
+    if (!search) return providersList;
+    return providersList.filter(p =>
+        (p.name || '').toLowerCase().includes(search) ||
+        (p.url  || '').toLowerCase().includes(search)
+    );
+}
+
+function updateProviderStats(providers) {
+    const totalEl   = document.getElementById('providers-total');
+    const costEl    = document.getElementById('providers-cost');
+    const serversEl = document.getElementById('providers-servers');
+
+    const allNodes = Array.isArray(window.billingNodesData) ? window.billingNodesData : [];
+    const providerNames = new Set(
+        providers.map(p => (p.name || '').toLowerCase()).filter(Boolean)
+    );
+    const linked = allNodes.filter(n =>
+        n.provider_name && providerNames.has(n.provider_name.toLowerCase())
+    );
+    const totalCost = linked.reduce((s, n) => s + parseFloat(n.billing_amount || 0), 0);
+
+    if (totalEl)   totalEl.textContent = providers.length;
+    if (costEl)    costEl.textContent = totalCost.toFixed(2) + ' ₽';
+    if (serversEl) serversEl.textContent = linked.length;
+}
+
+function renderProviderCard(provider) {
+    const icon = getProviderIcon(provider.favicon_url, provider.name, provider.url);
+    const safeUrl = provider.url && /^https?:\/\//i.test(provider.url) ? provider.url : null;
+
+    const allNodes = Array.isArray(window.billingNodesData) ? window.billingNodesData : [];
+    const nodes = allNodes.filter(n =>
+        n.provider_name && provider.name &&
+        n.provider_name.toLowerCase() === provider.name.toLowerCase()
+    );
+    const total = nodes.reduce((s, n) => s + parseFloat(n.billing_amount || 0), 0);
+    const serversCount = nodes.length;
+
+    const costHtml = total > 0
+        ? `<span class="provider-card-metric-value">${total.toFixed(2)} ₽</span><span class="provider-card-metric-sub">/мес</span>`
+        : '<span class="provider-card-metric-empty">— не указано —</span>';
+
+    const serverWord = serversCount === 1 ? 'сервер'
+                     : (serversCount >= 2 && serversCount <= 4 ? 'сервера' : 'серверов');
+
+    const serversHtml = serversCount > 0
+        ? nodes.slice(0, 5).map(n => {
+            const flag = getCountryFlag(n.country);
+            return `<span class="node-tag" title="${escHtmlAttr(n.name)}">${flag} ${esc(n.name)}</span>`;
+        }).join('') + (serversCount > 5
+            ? `<span class="node-tag node-tag-more">+${serversCount - 5}</span>` : '')
+        : '<span class="provider-card-metric-empty">Нет привязанных серверов</span>';
+
+    return `
+        <div class="provider-card">
+            <div class="provider-card-header">
+                <div class="provider-card-favicon">${icon}</div>
+                <div class="provider-card-info">
+                    <div class="provider-card-name" title="${escHtmlAttr(provider.name)}">${esc(provider.name)}</div>
+                    ${safeUrl
+                        ? `<a class="provider-card-url" href="${escHtmlAttr(safeUrl)}" target="_blank" rel="noopener noreferrer" title="${escHtmlAttr(provider.url)}">${esc(provider.url)}</a>`
+                        : '<div class="provider-card-url provider-card-url-empty">URL не указан</div>'}
+                </div>
+                <div class="provider-card-actions">
+                    <button class="icon-btn" onclick="editProvider(${provider.id})" title="Редактировать">
+                        <i data-lucide="pencil"></i>
+                    </button>
+                    <button class="icon-btn danger" onclick="deleteProvider(${provider.id})" title="Удалить">
+                        <i data-lucide="trash-2"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="provider-card-metrics">
+                <div class="provider-card-metric">
+                    <i data-lucide="wallet"></i>
+                    ${costHtml}
+                </div>
+                <div class="provider-card-metric">
+                    <i data-lucide="server"></i>
+                    <span class="provider-card-metric-value">${serversCount}</span>
+                    <span class="provider-card-metric-sub">${serverWord}</span>
+                </div>
+            </div>
+            <div class="provider-card-servers">${serversHtml}</div>
+        </div>
+    `;
 }
 
 function renderProviders(providers) {
-    const tbody = document.getElementById('providers-tbody');
-    if (!tbody) return;
-    
-    if (providers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Нет провайдеров</td></tr>';
-        document.getElementById('providers-pagination').style.display = 'none';
+    const container = document.getElementById('providers-list');
+    if (!container) return;
+
+    updateProviderStats(providers);
+
+    const filtered = getFilteredProviders();
+    const search = (document.getElementById('providers-search')?.value || '').trim();
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="providers-empty">
+                <i data-lucide="building-2"></i>
+                <h3>${search ? 'Ничего не найдено' : 'Провайдеров пока нет'}</h3>
+                <p>${search ? 'Попробуйте изменить поисковый запрос' : 'Добавьте первого провайдера, чтобы начать учёт'}</p>
+                ${!search ? '<button class="primary" onclick="addProvider()" style="margin-top: 16px;"><i data-lucide="plus"></i> Добавить провайдера</button>' : ''}
+            </div>`;
+        const pag = document.getElementById('providers-pagination');
+        if (pag) pag.style.display = 'none';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
         return;
     }
-    
-    // Подсчитываем общую сумму и количество серверов для каждого провайдера
-    const providersWithStats = providers.map(provider => {
-        const nodes = window.billingNodesData?.filter(n => n.provider_id === provider.id) || [];
-        const total = nodes.reduce((sum, n) => sum + parseFloat(n.billing_amount || 0), 0);
-        return { ...provider, total, servers: nodes };
-    });
-    
-    // Пагинация
-    const totalPages = Math.ceil(providersWithStats.length / providersPerPage);
-    const startIndex = (providersCurrentPage - 1) * providersPerPage;
-    const endIndex = startIndex + providersPerPage;
-    const paginatedProviders = providersWithStats.slice(startIndex, endIndex);
-    
-    tbody.innerHTML = paginatedProviders.map(provider => {
-        const servers = provider.servers && provider.servers.length > 0 
-            ? provider.servers.map(n => {
-                const flag = getCountryFlag(n.country);
-                return `<span class="node-tag">${flag} ${esc(n.name)}</span>`;
-            }).join('')
-            : '<span class="text-muted">Нет серверов</span>';
-        
-        return `
-            <tr>
-                <td>
-                    <div class="table-cell-with-icon">
-                        ${getProviderIcon(provider.favicon_url, provider.name, provider.url)}
-                        <span>${esc(provider.name)}</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="link"></i>
-                        ${provider.url ? `<a href="${escHtmlAttr(provider.url)}" target="_blank" onclick="event.stopPropagation();">${esc(provider.url)}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '<span>-</span>'}
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="dollar-sign"></i>
-                        <span class="provider-total">${provider.total.toFixed(2)} ₽</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="server"></i>
-                        <div class="provider-servers">${servers}</div>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-actions">
-                        <button class="icon-btn" onclick="editProvider(${provider.id})" title="Редактировать">
-                            <i data-lucide="edit"></i>
-                        </button>
-                        <button class="icon-btn danger" onclick="deleteProvider(${provider.id})" title="Удалить">
-                            <i data-lucide="trash-2"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-    
-    // Обновление пагинации
-    const pagination = document.getElementById('providers-pagination');
+
+    const totalPages = Math.ceil(filtered.length / providersPerPage);
+    if (providersCurrentPage > totalPages) providersCurrentPage = totalPages;
+    if (providersCurrentPage < 1) providersCurrentPage = 1;
+
+    const start = (providersCurrentPage - 1) * providersPerPage;
+    const paginated = filtered.slice(start, start + providersPerPage);
+
+    container.innerHTML = paginated.map(renderProviderCard).join('');
+
+    const pag      = document.getElementById('providers-pagination');
     const pageInfo = document.getElementById('providers-page-info');
-    const prevBtn = document.getElementById('providers-prev');
-    const nextBtn = document.getElementById('providers-next');
-    
+    const prevBtn  = document.getElementById('providers-prev');
+    const nextBtn  = document.getElementById('providers-next');
+
     if (totalPages > 1) {
-        pagination.style.display = 'flex';
-        pageInfo.textContent = `Страница ${providersCurrentPage} из ${totalPages}`;
-        prevBtn.disabled = providersCurrentPage === 1;
-        nextBtn.disabled = providersCurrentPage === totalPages;
+        if (pag)      pag.style.display = 'flex';
+        if (pageInfo) pageInfo.textContent = `Страница ${providersCurrentPage} из ${totalPages}`;
+        if (prevBtn)  prevBtn.disabled = providersCurrentPage === 1;
+        if (nextBtn)  nextBtn.disabled = providersCurrentPage === totalPages;
     } else {
-        pagination.style.display = 'none';
+        if (pag) pag.style.display = 'none';
     }
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
+function filterProviders() {
+    providersCurrentPage = 1;
+    renderProviders(providersList);
+}
+window.filterProviders = filterProviders;
+
 function changeProvidersPage(direction) {
-    const totalPages = Math.ceil(providersList.length / providersPerPage);
+    const filtered = getFilteredProviders();
+    const totalPages = Math.ceil(filtered.length / providersPerPage);
     const newPage = providersCurrentPage + direction;
     if (newPage >= 1 && newPage <= totalPages) {
         providersCurrentPage = newPage;
         renderProviders(providersList);
     }
 }
-
 window.changeProvidersPage = changeProvidersPage;
 
 function editProvider(id) {

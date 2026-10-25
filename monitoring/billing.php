@@ -4,6 +4,103 @@ require_once __DIR__ . '/includes/database.php';
 
 render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" onclick="openAddPaymentModal()"><i data-lucide="plus"></i> Добавить платёж</button>');
 ?>
+
+<style>
+/* ==================== Провайдеры ==================== */
+.providers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+.providers-empty {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 60px 20px; text-align: center;
+    color: var(--text-secondary, #999);
+}
+.providers-empty > svg { width: 56px; height: 56px; opacity: .3; margin-bottom: 16px; }
+.providers-empty h3 { margin: 0 0 8px; font-size: 16px; color: inherit; }
+.providers-empty p { margin: 0; font-size: 13px; color: var(--text-muted, #666); }
+
+.provider-card {
+    display: flex; flex-direction: column;
+    background: var(--bg-secondary, #1a1a1a);
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 12px; padding: 16px;
+    transition: border-color .2s, transform .15s, box-shadow .2s;
+}
+.provider-card:hover {
+    border-color: #4f46e5;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(79,70,229,.15);
+}
+.provider-card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.provider-card-favicon {
+    width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px;
+    background: var(--bg-tertiary, #252525);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.provider-card-favicon .provider-icon-wrapper,
+.provider-card-favicon .provider-icon,
+.provider-card-favicon .provider-icon-placeholder {
+    width: 100%; height: 100%; border-radius: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff; font-weight: 600; font-size: 18px;
+}
+.provider-card-favicon .provider-icon-wrapper { background: var(--bg-tertiary, #252525); }
+.provider-card-favicon .provider-favicon,
+.provider-card-favicon img { width: 28px; height: 28px; object-fit: contain; }
+
+.provider-card-info { flex: 1; min-width: 0; }
+.provider-card-name {
+    font-weight: 600; font-size: 15px; margin-bottom: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.provider-card-url {
+    display: block; font-size: 12px; text-decoration: none;
+    color: var(--text-secondary, #999);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: color .15s;
+}
+.provider-card-url:hover { color: #4f46e5; }
+.provider-card-url-empty { font-style: italic; color: var(--text-muted, #666); }
+.provider-card-actions { display: flex; gap: 2px; flex-shrink: 0; }
+
+.provider-card-metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    padding: 12px 0; margin-bottom: 12px;
+    border-top: 1px solid var(--border-color, #2a2a2a);
+    border-bottom: 1px solid var(--border-color, #2a2a2a);
+}
+.provider-card-metric { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+.provider-card-metric > svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .7; }
+.provider-card-metric-value { font-weight: 600; font-size: 14px; }
+.provider-card-metric-sub { color: var(--text-secondary, #999); font-size: 12px; }
+.provider-card-metric-empty { color: var(--text-muted, #666); font-size: 12px; font-style: italic; }
+.provider-card-servers { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
+.node-tag-more { opacity: .6; font-style: italic; }
+
+.providers-search-wrapper { position: relative; display: inline-flex; align-items: center; }
+.providers-search-wrapper > svg {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px; opacity: .5; pointer-events: none;
+}
+.providers-search-wrapper input {
+    padding: 6px 12px 6px 32px; border-radius: 6px; font-size: 13px;
+    border: 1px solid var(--border-color, #2a2a2a);
+    background: var(--bg-secondary, #1a1a1a);
+    color: inherit; width: 220px; transition: border-color .15s;
+}
+.providers-search-wrapper input:focus { outline: none; border-color: #4f46e5; }
+
+@media (max-width: 640px) {
+    .providers-grid { grid-template-columns: 1fr; }
+    .providers-search-wrapper input { width: 140px; }
+}
+</style>
+
 <div class="card" style="margin-top: 24px;">
     <div class="card-header">
         <div class="card-title">
@@ -21,7 +118,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: БИЛЛИНГ ===================== -->
+<!-- ===================== БИЛЛИНГ ===================== -->
 <div id="billing-tab" class="tab-content active">
     <div class="stats-grid stats-grid-dash" style="margin-top: 24px;">
         <div class="stat-card">
@@ -70,7 +167,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: СТАТИСТИКА ===================== -->
+<!-- ===================== СТАТИСТИКА ===================== -->
 <div id="stats-tab" class="tab-content">
     <div class="grid-2" style="margin-top: 24px;">
         <div class="card"><div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3"></i><span>Платежи по месяцам</span></div></div><div class="card-body"><canvas id="paymentsChart" height="220"></canvas></div></div>
@@ -78,7 +175,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: РАСХОДЫ ХОСТИНГА ===================== -->
+<!-- ===================== РАСХОДЫ ===================== -->
 <div id="expenses-tab" class="tab-content">
     <div class="card" style="margin-top: 24px;">
         <div class="card-header"><div class="card-title"><i data-lucide="receipt"></i><span>Расходы хостинга</span></div><div class="card-actions"><button onclick="loadBillingExpenses()" class="icon-btn"><i data-lucide="refresh-cw"></i></button><button onclick="switchBillingUnifiedTab('imports'); document.getElementById('billing-import-type').value='expenses';" class="icon-btn primary"><i data-lucide="upload"></i></button></div></div>
@@ -88,7 +185,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: ДОМЕНЫ ===================== -->
+<!-- ===================== ДОМЕНЫ ===================== -->
 <div id="domains-tab" class="tab-content">
     <div class="card" style="margin-top: 24px;">
         <div class="card-header"><div class="card-title"><i data-lucide="globe"></i><span>Домены</span></div><div class="card-actions"><button onclick="loadBillingDomains()" class="icon-btn"><i data-lucide="refresh-cw"></i></button><button onclick="switchBillingUnifiedTab('imports'); document.getElementById('billing-import-type').value='domains';" class="icon-btn primary"><i data-lucide="upload"></i></button></div></div>
@@ -98,8 +195,23 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: ПРОВАЙДЕРЫ ===================== -->
+<!-- ===================== ПРОВАЙДЕРЫ (переработано) ===================== -->
 <div id="providers-tab" class="tab-content">
+    <div class="stats-grid stats-grid-dash" style="margin-top: 24px;">
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #818cf8, #4f46e5);"><i data-lucide="building-2"></i></div>
+            <div class="stat-card-content"><h3>Провайдеров</h3><div class="stat-value" id="providers-total">0</div><p class="stat-subtitle">всего в системе</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);"><i data-lucide="wallet"></i></div>
+            <div class="stat-card-content"><h3>Расходы</h3><div class="stat-value" id="providers-cost">0 ₽</div><p class="stat-subtitle">в месяц суммарно</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #fbbf24, #d97706);"><i data-lucide="server"></i></div>
+            <div class="stat-card-content"><h3>Серверов</h3><div class="stat-value" id="providers-servers">0</div><p class="stat-subtitle">привязано к провайдерам</p></div>
+        </div>
+    </div>
+
     <div class="card" style="margin-top: 24px;">
         <div class="card-header">
             <div class="card-title">
@@ -107,35 +219,28 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
                 <span>Провайдеры</span>
             </div>
             <div class="card-actions">
+                <div class="providers-search-wrapper">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="providers-search" placeholder="Поиск..." oninput="filterProviders()">
+                </div>
                 <button onclick="loadProviders()" class="icon-btn" title="Обновить"><i data-lucide="refresh-cw"></i></button>
-                <button onclick="addProvider()" class="primary"><i data-lucide="plus"></i> Добавить провайдера</button>
+                <button onclick="addProvider()" class="primary"><i data-lucide="plus"></i> Добавить</button>
             </div>
         </div>
-        <div class="table-container compact-table" style="overflow-x: auto;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Провайдер</th>
-                        <th>Ссылка</th>
-                        <th>Сумма/мес</th>
-                        <th>Серверы</th>
-                        <th style="width: 120px;">Действия</th>
-                    </tr>
-                </thead>
-                <tbody id="providers-tbody">
-                    <tr><td colspan="5" class="text-center">Загрузка...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="pagination" id="providers-pagination" style="display: none; margin-top: 12px; align-items: center; justify-content: center; gap: 12px;">
-            <button type="button" class="icon-btn" id="providers-prev" onclick="changeProvidersPage(-1)"><i data-lucide="chevron-left"></i></button>
-            <span id="providers-page-info">Страница 1</span>
-            <button type="button" class="icon-btn" id="providers-next" onclick="changeProvidersPage(1)"><i data-lucide="chevron-right"></i></button>
+        <div class="card-body">
+            <div id="providers-list" class="providers-grid">
+                <div class="providers-empty"><p>Загрузка...</p></div>
+            </div>
+            <div class="pagination" id="providers-pagination" style="display: none; margin-top: 24px; align-items: center; justify-content: center; gap: 12px;">
+                <button type="button" class="icon-btn" id="providers-prev" onclick="changeProvidersPage(-1)"><i data-lucide="chevron-left"></i></button>
+                <span id="providers-page-info">Страница 1</span>
+                <button type="button" class="icon-btn" id="providers-next" onclick="changeProvidersPage(1)"><i data-lucide="chevron-right"></i></button>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- ===================== ВКЛАДКА: ИМПОРТ ===================== -->
+<!-- ===================== ИМПОРТ ===================== -->
 <div id="imports-tab" class="tab-content">
     <div class="grid-2" style="margin-top: 24px;">
         <div class="card">
@@ -156,7 +261,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== МОДАЛКА: БИЛЛИНГ НОДЫ ===================== -->
+<!-- ===================== МОДАЛКИ ===================== -->
 <div class="modal hidden" id="node-billing-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Биллинг ноды</h2><button class="modal-close" onclick="closeNodeBillingModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -169,7 +274,6 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== МОДАЛКА: ДОБАВИТЬ ПЛАТЁЖ ===================== -->
 <div class="modal hidden" id="add-payment-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Добавить платёж</h2><button class="modal-close" onclick="closeAddPaymentModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -182,7 +286,6 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== МОДАЛКА: ПРОВАЙДЕР ===================== -->
 <div class="modal hidden" id="provider-modal">
     <div class="modal-dialog">
         <div class="modal-header">
@@ -211,7 +314,6 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== МОДАЛКА: СОПОСТАВИТЬ РАСХОД ===================== -->
 <div class="modal hidden" id="expense-match-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Сопоставить расход</h2><button class="modal-close" onclick="closeExpenseMatchModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -225,7 +327,6 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
-<!-- ===================== КОНТЕКСТНОЕ МЕНЮ ===================== -->
 <div class="context-menu hidden" id="billing-context-menu">
     <div class="context-menu-header"><span>ВЫБРАНО: <span id="billing-selected-count">0</span></span></div>
     <div class="context-menu-actions">
