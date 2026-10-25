@@ -25,17 +25,20 @@ let providerChart = null;
 
 /* ==================== УТИЛИТЫ ==================== */
 (function () {
-    if (typeof window.esc !== 'function') {
-        window.esc = function (s) {
-            return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-            });
-        };
+    function escImpl(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
     }
+    // Ставим в window только если там ещё ничего нет — не перетираем глобальные хелперы из layout.php
+    if (typeof window.esc !== 'function') window.esc = escImpl;
     if (typeof window.escHtmlAttr !== 'function') window.escHtmlAttr = window.esc;
 })();
-function esc(s) { return window.esc(s); }
-function escHtmlAttr(s) { return window.escHtmlAttr(s); }
+
+// Локальные алиасы. ВАЖНО: именно `var`, не `function` —
+// `function esc(){}` в глобальном scope снова перезаписал бы window.esc и дал бы рекурсию.
+var esc = window.esc;
+var escHtmlAttr = window.escHtmlAttr;
 
 function showToastSafe(msg, type) {
     type = type || 'info';
@@ -87,7 +90,6 @@ function getCountryFlag(country) {
     const flags = { RU:'🇷🇺', NL:'🇳🇱', DE:'🇩🇪', US:'🇺🇸', GB:'🇬🇧', FR:'🇫🇷', PL:'🇵🇱', FI:'🇫🇮', SG:'🇸🇬', JP:'🇯🇵' };
     return flags[country] || '';
 }
-
 /* ==================== ЗАГРУЗКА ДАННЫХ ==================== */
 
 async function loadBillingData(silent) {
