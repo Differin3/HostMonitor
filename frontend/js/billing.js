@@ -19,6 +19,43 @@ const toggleTableLoader = (tableId, show) => {
     }
 };
 
+async function loadPaymentsHistory() {
+    const tbody = document.getElementById('payments-history-tbody')
+               || document.getElementById('payments-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center">Загрузка...</td></tr>';
+    try {
+        const res = await fetch(API_PAYMENTS, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : { payments: [] };
+        const payments = (data.payments || []).sort(
+            (a, b) => new Date(b.payment_date) - new Date(a.payment_date)
+        );
+        if (payments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center">Нет платежей</td></tr>';
+            return;
+        }
+        tbody.innerHTML = payments.slice(0, 200).map(p => {
+            const node = window.billingNodesData?.find(n => n.id == p.node_id);
+            const label = node?.provider_name
+                || node?.name
+                || p.node_name
+                || ('node-' + p.node_id);
+            const d = new Date(p.payment_date).toLocaleDateString('ru-RU');
+            return `<tr>
+                <td>${esc(label)}</td>
+                <td>${d}</td>
+                <td>${parseFloat(p.amount || 0).toFixed(2)} ₽</td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error('loadPaymentsHistory', e);
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center" style="color:var(--danger)">Ошибка загрузки</td></tr>';
+    }
+}
+
 async function loadBillingData(silent = false) {
     try {
         if (!silent) {
@@ -208,16 +245,18 @@ function getCountryFlag(country) {
 }
 
 function renderPayments(payments) {
-    const tbody = document.getElementById('payments-tbody');
-    
-    if (payments.length === 0) {
+    const tbody = document.getElementById('payments-tbody')
+               || document.getElementById('payments-history-tbody');
+    if (!tbody) return;
+
+    if (!payments || payments.length === 0) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center">Нет платежей</td></tr>';
         return;
     }
-    
+
     // Сортируем по дате (новые сверху)
     payments.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
-    
+
     tbody.innerHTML = payments.map(payment => {
         const paymentDate = new Date(payment.payment_date);
         const paymentDateStr = paymentDate.toLocaleDateString('ru-RU', {
@@ -227,7 +266,7 @@ function renderPayments(payments) {
         }) + ' года';
         const node = window.billingNodesData?.find(n => n.id == payment.node_id);
         const providerName = node?.provider_name || payment.provider_name || '';
-        
+
         return `
             <tr>
                 <td>
@@ -251,7 +290,7 @@ function renderPayments(payments) {
             </tr>
         `;
     }).join('');
-    
+
     if (typeof lucide !== 'undefined') {
         lucide.createIcons();
     }
@@ -1837,7 +1876,7 @@ window.switchBillingUnifiedTab = function(tab) {
     if (tab === 'providers') loadProviders();
     if (tab === 'stats') {
         loadBillingData();
-        loadPaymentsHistory();
+        if (typeof loadPaymentsHistory === 'function') loadPaymentsHistory();  // ← + typeof
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 };
