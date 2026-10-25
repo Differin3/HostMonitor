@@ -16,10 +16,12 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
         <button class="tab-btn" data-tab="stats" onclick="switchBillingUnifiedTab('stats')"><i data-lucide="bar-chart-3"></i> Статистика</button>
         <button class="tab-btn" data-tab="expenses" onclick="switchBillingUnifiedTab('expenses')"><i data-lucide="receipt"></i> Расходы хостинга</button>
         <button class="tab-btn" data-tab="domains" onclick="switchBillingUnifiedTab('domains')"><i data-lucide="globe"></i> Домены</button>
+        <button class="tab-btn" data-tab="providers" onclick="switchBillingUnifiedTab('providers')"><i data-lucide="building-2"></i> Провайдеры</button>
         <button class="tab-btn" data-tab="imports" onclick="switchBillingUnifiedTab('imports')"><i data-lucide="upload"></i> Импорт</button>
     </div>
 </div>
 
+<!-- ===================== ВКЛАДКА: БИЛЛИНГ ===================== -->
 <div id="billing-tab" class="tab-content active">
     <div class="stats-grid stats-grid-dash" style="margin-top: 24px;">
         <div class="stat-card">
@@ -68,6 +70,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== ВКЛАДКА: СТАТИСТИКА ===================== -->
 <div id="stats-tab" class="tab-content">
     <div class="grid-2" style="margin-top: 24px;">
         <div class="card"><div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3"></i><span>Платежи по месяцам</span></div></div><div class="card-body"><canvas id="paymentsChart" height="220"></canvas></div></div>
@@ -75,6 +78,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== ВКЛАДКА: РАСХОДЫ ХОСТИНГА ===================== -->
 <div id="expenses-tab" class="tab-content">
     <div class="card" style="margin-top: 24px;">
         <div class="card-header"><div class="card-title"><i data-lucide="receipt"></i><span>Расходы хостинга</span></div><div class="card-actions"><button onclick="loadBillingExpenses()" class="icon-btn"><i data-lucide="refresh-cw"></i></button><button onclick="switchBillingUnifiedTab('imports'); document.getElementById('billing-import-type').value='expenses';" class="icon-btn primary"><i data-lucide="upload"></i></button></div></div>
@@ -84,6 +88,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== ВКЛАДКА: ДОМЕНЫ ===================== -->
 <div id="domains-tab" class="tab-content">
     <div class="card" style="margin-top: 24px;">
         <div class="card-header"><div class="card-title"><i data-lucide="globe"></i><span>Домены</span></div><div class="card-actions"><button onclick="loadBillingDomains()" class="icon-btn"><i data-lucide="refresh-cw"></i></button><button onclick="switchBillingUnifiedTab('imports'); document.getElementById('billing-import-type').value='domains';" class="icon-btn primary"><i data-lucide="upload"></i></button></div></div>
@@ -93,6 +98,44 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== ВКЛАДКА: ПРОВАЙДЕРЫ ===================== -->
+<div id="providers-tab" class="tab-content">
+    <div class="card" style="margin-top: 24px;">
+        <div class="card-header">
+            <div class="card-title">
+                <i data-lucide="building-2"></i>
+                <span>Провайдеры</span>
+            </div>
+            <div class="card-actions">
+                <button onclick="loadProviders()" class="icon-btn" title="Обновить"><i data-lucide="refresh-cw"></i></button>
+                <button onclick="addProvider()" class="primary"><i data-lucide="plus"></i> Добавить провайдера</button>
+            </div>
+        </div>
+        <div class="table-container compact-table" style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Провайдер</th>
+                        <th>Ссылка</th>
+                        <th>Сумма/мес</th>
+                        <th>Серверы</th>
+                        <th style="width: 120px;">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="providers-tbody">
+                    <tr><td colspan="5" class="text-center">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" id="providers-pagination" style="display: none; margin-top: 12px; align-items: center; justify-content: center; gap: 12px;">
+            <button type="button" class="icon-btn" id="providers-prev" onclick="changeProvidersPage(-1)"><i data-lucide="chevron-left"></i></button>
+            <span id="providers-page-info">Страница 1</span>
+            <button type="button" class="icon-btn" id="providers-next" onclick="changeProvidersPage(1)"><i data-lucide="chevron-right"></i></button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== ВКЛАДКА: ИМПОРТ ===================== -->
 <div id="imports-tab" class="tab-content">
     <div class="grid-2" style="margin-top: 24px;">
         <div class="card">
@@ -113,6 +156,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== МОДАЛКА: БИЛЛИНГ НОДЫ ===================== -->
 <div class="modal hidden" id="node-billing-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Биллинг ноды</h2><button class="modal-close" onclick="closeNodeBillingModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -125,6 +169,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== МОДАЛКА: ДОБАВИТЬ ПЛАТЁЖ ===================== -->
 <div class="modal hidden" id="add-payment-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Добавить платёж</h2><button class="modal-close" onclick="closeAddPaymentModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -137,6 +182,36 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== МОДАЛКА: ПРОВАЙДЕР ===================== -->
+<div class="modal hidden" id="provider-modal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h2>Провайдер</h2>
+            <button class="modal-close" onclick="closeProviderModal()" type="button"><i data-lucide="x"></i></button>
+        </div>
+        <form id="provider-form">
+            <input type="hidden" id="provider-edit-id">
+            <div class="form-field">
+                <label class="form-label">Название *</label>
+                <input type="text" id="provider-name" required maxlength="255" placeholder="Например, Hetzner">
+            </div>
+            <div class="form-field">
+                <label class="form-label">Ссылка для входа</label>
+                <input type="url" id="provider-url" maxlength="255" placeholder="https://example.com">
+            </div>
+            <div class="form-field">
+                <label class="form-label">Favicon URL <span style="color: var(--text-secondary); font-size: 11px;">(можно оставить пустым — сгенерируется автоматически)</span></label>
+                <input type="url" id="provider-favicon" maxlength="255" placeholder="https://...">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary" onclick="closeProviderModal()">Отмена</button>
+                <button type="submit" class="primary">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ===================== МОДАЛКА: СОПОСТАВИТЬ РАСХОД ===================== -->
 <div class="modal hidden" id="expense-match-modal">
     <div class="modal-dialog">
         <div class="modal-header"><h2>Сопоставить расход</h2><button class="modal-close" onclick="closeExpenseMatchModal()" type="button"><i data-lucide="x"></i></button></div>
@@ -150,6 +225,7 @@ render_layout_start('Биллинг', 'nodes-billing', '<button class="primary" 
     </div>
 </div>
 
+<!-- ===================== КОНТЕКСТНОЕ МЕНЮ ===================== -->
 <div class="context-menu hidden" id="billing-context-menu">
     <div class="context-menu-header"><span>ВЫБРАНО: <span id="billing-selected-count">0</span></span></div>
     <div class="context-menu-actions">

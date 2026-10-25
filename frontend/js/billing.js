@@ -1680,6 +1680,9 @@ async function loadBillingExpenses() {
 }
 window.loadBillingExpenses = loadBillingExpenses;
 
+
+
+
 async function loadBillingDomains() {
     try {
         const resp = await fetch(`${API_BASE}/billing_import.php?type=domains`, { credentials: 'include' });
@@ -1791,6 +1794,7 @@ window.switchBillingUnifiedTab = function(tab) {
     if (tab === 'expenses') loadBillingExpenses();
     if (tab === 'domains') loadBillingDomains();
     if (tab === 'imports') loadBillingImports();
+    if (tab === 'providers') loadProviders();
     if (tab === 'stats') {
         loadBillingData();
         loadPaymentsHistory();
