@@ -19,12 +19,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     switch ($method) {
-        case 'POST':
-            handleImport($pdo);
-            break;
-        case 'GET':
-            handleList($pdo);
-            break;
+        case 'POST': handleImport($pdo); break;
+        case 'GET':  handleList($pdo);   break;
         default:
             http_response_code(405);
             echo json_encode(['error' => 'Method not allowed']);
@@ -56,13 +52,10 @@ function detectDelimiter($content) {
 
 function findHeaderRow(array $lines, string $delimiter): array {
     foreach ($lines as $i => $raw) {
-        $l = preg_replace('/^\xEF\xBB\xBF/', '', $raw);
-        $l = trim($l);
+        $l = trim(preg_replace('/^\xEF\xBB\xBF/', '', $raw));
         if ($l === '') continue;
         $fields = str_getcsv($l, $delimiter);
-        if (is_array($fields) && count($fields) >= 2) {
-            return [$i, $fields];
-        }
+        if (is_array($fields) && count($fields) >= 2) return [$i, $fields];
     }
     return [-1, []];
 }
@@ -90,40 +83,76 @@ function parseDate($val): ?string {
     if ($s === '') return null;
     foreach (['Y-m-d', 'd.m.Y', 'Y/m/d', 'd/m/Y', 'Y-m-d H:i:s', 'd.m.Y H:i:s'] as $fmt) {
         $dt = DateTime::createFromFormat($fmt, $s);
-        if ($dt instanceof DateTime) {
-            return $dt->format('Y-m-d');
-        }
+        if ($dt instanceof DateTime) return $dt->format('Y-m-d');
     }
     $ts = strtotime($s);
-    if ($ts !== false) {
-        return date('Y-m-d', $ts);
-    }
-    return null;
+    return $ts !== false ? date('Y-m-d', $ts) : null;
 }
 
 function pick(array $data, array $keys) {
     foreach ($keys as $k) {
-        if (array_key_exists($k, $data) && $data[$k] !== null && $data[$k] !== '') {
-            return $data[$k];
-        }
+        if (array_key_exists($k, $data) && $data[$k] !== null && $data[$k] !== '') return $data[$k];
     }
     return null;
 }
 
-/** Возвращает валидный JSON или null (для колонок с CHECK json_valid). */
 function safeJson($data): ?string {
     $j = json_encode($data, JSON_UNESCAPED_UNICODE);
-    if ($j === false) return null;
-    return $j;
+    return $j === false ? null : $j;
+}
+
+/** Пытается угадать страну по тексту дата-центра. */
+function detectCountry(string $text): ?string {
+    $map = [
+        'росси' => 'RU', 'russia' => 'RU', 'москва' => 'RU', 'moscow' => 'RU', 'спб' => 'RU',
+        'нидерланд' => 'NL', 'netherlands' => 'NL', 'holland' => 'NL', 'amsterdam' => 'NL',
+        'германи' => 'DE', 'germany' => 'DE', 'deutschland' => 'DE', 'frankfurt' => 'DE',
+        'сша' => 'US', 'usa' => 'US', 'united states' => 'US', 'america' => 'US',
+        'сингапур' => 'SG', 'singapore' => 'SG',
+        'финлянди' => 'FI', 'finland' => 'FI', 'helsinki' => 'FI',
+        'польш' => 'PL', 'poland' => 'PL', 'warsaw' => 'PL',
+        'великобритани' => 'GB', 'united kingdom' => 'GB', 'london' => 'GB',
+        'франци' => 'FR', 'france' => 'FR', 'paris' => 'FR',
+        'япони' => 'JP', 'japan' => 'JP', 'tokyo' => 'JP',
+    ];
+    $lower = mb_strtolower($text, 'UTF-8');
+    foreach ($map as $pattern => $code) {
+        if (mb_strpos($lower, $pattern) !== false) return $code;
+    }
+    return null;
+}
+
+/**
+ * По доменному имени ноды пробует найти провайдера в таблице providers.
+ * vm3630969.firstbyte.club → попробует firstbyte → найдёт firstbyte.ru
+ */
+function guessProvider(PDO $pdo, string $domainName): array {
+    $name = null; $url = null;
+    if ($domainName !== '') {
+        $parts = explode('.', $domainName);
+        $hints = array_filter($parts, function ($p) {
+            return !preg_match('/^(vm|vds|srv|host|node|\d+|ru|com|net|org|club|io|de|nl|us|sg)$/i', $p);
+        });
+        if (!empty($hints)) {
+            $hint = reset($hints);
+            $stmt = $pdo->prepare("SELECT name, url FROM providers WHERE name LIKE ? LIMIT 1");
+            $stmt->execute([$hint . '%']);
+            if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $name = $r['name'];
+                $url  = $r['url'];
+            }
+        }
+    }
+    return [$name, $url];
 }
 
 /* -------------------- import -------------------- */
 
 function handleImport($pdo) {
     $type = $_POST['type'] ?? null;
-    if (!in_array($type, ['payments','expenses','domains'], true)) {
+    if (!in_array($type, ['payments','expenses','domains','vds'], true)) {
         http_response_code(400);
-        echo json_encode(['error' => 'type must be payments|expenses|domains']);
+        echo json_encode(['error' => 'type must be payments|expenses|domains|vds']);
         return;
     }
     if (empty($_FILES['file']['tmp_name'])) {
@@ -161,8 +190,7 @@ function handleImport($pdo) {
 
     $headersNorm = [];
     foreach ($headers as $h) {
-        $h2 = trim(preg_replace('/^\xEF\xBB\xBF/', '', (string)$h));
-        $headersNorm[] = mb_strtolower($h2);
+        $headersNorm[] = mb_strtolower(trim(preg_replace('/^\xEF\xBB\xBF/', '', (string)$h)));
     }
 
     $importStmt = $pdo->prepare("INSERT INTO billing_imports (type, filename, imported_by, total_rows, status) VALUES (?,?,?,?, 'pending')");
@@ -191,31 +219,21 @@ function handleImport($pdo) {
                 $dateStr    = pick($data, ['дата', 'date', 'дата операции', 'дата платежа']);
                 $desc       = pick($data, ['описание', 'description', 'плательщик', 'назначение платежа']);
                 $status     = mb_strtolower((string)pick($data, ['статус', 'status']));
-                $amount     = parseAmount(pick($data, [
-                    'сумма', 'amount', 'сумма к зачислению',
-                    'сумма в валюте платежа', 'итого',
-                ]));
+                $amount     = parseAmount(pick($data, ['сумма', 'amount', 'сумма к зачислению', 'сумма в валюте платежа', 'итого']));
 
                 if ($amount <= 0) continue;
-                if ($status !== '' && (
-                    strpos($status, 'отмен') !== false ||
-                    strpos($status, 'возврат') !== false ||
-                    strpos($status, 'ошиб') !== false
-                )) continue;
+                if ($status !== '' && (strpos($status, 'отмен') !== false || strpos($status, 'возврат') !== false || strpos($status, 'ошиб') !== false)) continue;
 
                 $pdate = parseDate($dateStr);
                 if ($pdate === null) continue;
 
-                // Матчинг ноды по FBRUS-NNNN или pfx/NNNN
                 $matchedNodeId = null;
                 $haystack = trim(($num ?? '') . ' ' . ($desc ?? '') . ' ' . ($externalId ?? ''));
                 if ($haystack !== '' && preg_match('/(FBRUS-\d+|pfx\/\d+)/iu', $haystack, $m)) {
                     $pat = $m[1];
-                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? OR host LIKE ? LIMIT 1");
-                    $stmt->execute(['%' . $pat . '%', '%' . $pat . '%']);
-                    if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                        $matchedNodeId = (int)$r['id'];
-                    }
+                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? LIMIT 1");
+                    $stmt->execute(['%' . $pat . '%']);
+                    if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) $matchedNodeId = (int)$r['id'];
                 }
 
                 $chk = $pdo->prepare("SELECT id FROM payments WHERE node_id <=> ? AND amount = ? AND payment_date = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY) LIMIT 1");
@@ -228,10 +246,8 @@ function handleImport($pdo) {
                 if ($matchedNodeId) $matched++;
             }
             $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+
     } elseif ($type === 'expenses') {
         $pdo->beginTransaction();
         try {
@@ -254,32 +270,54 @@ function handleImport($pdo) {
                 $account    = pick($data, ['оплачено платежами', 'на счёт', 'на счет', 'account_ref', 'account']);
 
                 if ($amount == 0 && $amountWo == 0) continue;
-
                 $edate = parseDate($dateStr);
                 if ($edate === null) continue;
 
-                $matchedNodeId   = null;
+                $matchedNodeId = null;
                 $matchedDomainId = null;
-                $matchType       = 'none';
+                $matchType = 'none';
 
+                // 1) Матчинг по номеру платежа в account (FBRUS-*/pfx/*)
                 if ($account && preg_match('/(FBRUS-\d+|pfx\/\d+)/iu', $account . ' ' . $desc, $m)) {
                     $pat = $m[1];
-                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? OR notes LIKE ? LIMIT 1");
-                    $stmt->execute(['%' . $pat . '%', '%' . $pat . '%']);
+                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? LIMIT 1");
+                    $stmt->execute(['%' . $pat . '%']);
                     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         $matchedNodeId = (int)$r['id'];
                         $matchType = 'auto';
                     }
                 }
-                if (preg_match('/#(\d+)\s*\(([a-z0-9\.-]+\.[a-z]{2,})\)/iu', (string)$desc, $dm)) {
+                // 2) Матчинг по домену из описания "#NNN (domain.name)"
+                if (preg_match('/#(\d+)\s*\(([a-z0-9\.-]+\.[a-z]{2,})/iu', (string)$desc, $dm)) {
                     $dname = strtolower($dm[2]);
+                    // 2a) domains
                     $stmt = $pdo->prepare("SELECT id FROM domains WHERE domain_name = ? LIMIT 1");
                     $stmt->execute([$dname]);
                     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
                         $matchedDomainId = (int)$r['id'];
                         if ($matchType === 'none') $matchType = 'auto';
                     }
+                    // 2b) nodes (VDS-импорт кладёт домен в nodes.name)
+                    if (!$matchedNodeId) {
+                        $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name = ? OR name LIKE ? LIMIT 1");
+                        $stmt->execute([$dname, '%' . $dname . '%']);
+                        if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $matchedNodeId = (int)$r['id'];
+                            if ($matchType === 'none') $matchType = 'auto';
+                        }
+                    }
                 }
+                // 3) Матчинг по IP в описании
+                if (!$matchedNodeId && preg_match('/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/', (string)$desc, $ipm)) {
+                    $ip = $ipm[1];
+                    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE host = ? LIMIT 1");
+                    $stmt->execute([$ip]);
+                    if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                        $matchedNodeId = (int)$r['id'];
+                        if ($matchType === 'none') $matchType = 'auto';
+                    }
+                }
+
                 if ($matchedNodeId || $matchedDomainId) $matched++;
 
                 $chk = $pdo->prepare("SELECT id FROM billing_expenses WHERE external_id = ? OR (description = ? AND expense_date = ? AND amount = ?) LIMIT 1");
@@ -287,20 +325,13 @@ function handleImport($pdo) {
                 if ($chk->fetch()) continue;
 
                 $rawJson = safeJson($data);
-
                 $ins = $pdo->prepare("INSERT INTO billing_expenses (external_id, description, expense_date, amount, amount_without_discount, account_ref, matched_node_id, matched_domain_id, match_type, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?)");
-                $ins->execute([
-                    $externalId, $desc, $edate, $amount, $amountWo, $account,
-                    $matchedNodeId, $matchedDomainId, $matchType,
-                    $rawJson
-                ]);
+                $ins->execute([$externalId, $desc, $edate, $amount, $amountWo, $account, $matchedNodeId, $matchedDomainId, $matchType, $rawJson]);
                 $imported++;
             }
             $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+
     } elseif ($type === 'domains') {
         $pdo->beginTransaction();
         try {
@@ -325,8 +356,7 @@ function handleImport($pdo) {
                 $status     = pick($data, ['статус услуги', 'статус', 'status']);
                 $priceRaw   = pick($data, ['стоимость', 'цена', 'price']);
 
-                $price = 0.0;
-                $pricePeriod = 'year';
+                $price = 0.0; $pricePeriod = 'year';
                 if ($priceRaw) {
                     $price = parseAmount($priceRaw);
                     if (preg_match('/\/\s*(\S+)/u', (string)$priceRaw, $pm)) {
@@ -338,11 +368,7 @@ function handleImport($pdo) {
                 }
 
                 $expDate = parseDate($expiresRaw);
-
-                // external_key NOT NULL — используем id из CSV или сам домен
-                $externalKey = ($externalId !== null && $externalId !== '')
-                    ? (string)$externalId
-                    : $dname;
+                $externalKey = ($externalId !== null && $externalId !== '') ? (string)$externalId : $dname;
 
                 $chk = $pdo->prepare("SELECT id FROM domains WHERE domain_name = ? LIMIT 1");
                 $chk->execute([$dname]);
@@ -363,10 +389,94 @@ function handleImport($pdo) {
                 $imported++;
             }
             $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+
+    } elseif ($type === 'vds') {
+        // Импорт виртуальных выделенных серверов как нод.
+        // CSV: Id; Доменное имя; IP-адрес; Шаблон ОС; Тариф; Дата-центр;
+        //      Действует до; Статус услуги; Стоимость
+        $pdo->beginTransaction();
+        try {
+            for ($i = $start; $i < count($lines); $i++) {
+                $line = $lines[$i];
+                if (trim($line) === '') continue;
+                $row = str_getcsv($line, $delimiter);
+                if (!is_array($row) || count($row) === 0) continue;
+
+                $data = [];
+                foreach ($headersNorm as $idx => $hn) {
+                    $data[$hn] = isset($row[$idx]) ? trim((string)$row[$idx]) : null;
+                }
+
+                $externalId = pick($data, ['id']);
+                $domainName = mb_strtolower((string)pick($data, ['доменное имя', 'домен', 'domain', 'domain_name']));
+                $ip         = pick($data, ['ip-адрес', 'ip', 'ip_address', 'host']);
+                $datacenter = pick($data, ['дата-центр', 'датацентр', 'datacenter', 'dc', 'location']);
+                $statusStr  = pick($data, ['статус услуги', 'статус', 'status']);
+                $priceRaw   = pick($data, ['стоимость', 'цена', 'price']);
+
+                if ($domainName === '' && $ip === '' && !$externalId) continue;
+
+                $name = $domainName !== ''
+                    ? $domainName
+                    : ($externalId ? 'VDS-' . $externalId : 'VDS-' . str_replace('.', '-', (string)$ip));
+                if ($name === '') continue;
+
+                $host = $ip !== '' ? $ip : $domainName;
+                if ($host === '') continue;
+
+                $country = $datacenter ? detectCountry((string)$datacenter) : null;
+                [$providerName, $providerUrl] = guessProvider($pdo, (string)$domainName);
+
+                $billingAmount = 0.0; $billingCurrency = 'RUB'; $billingPeriod = 30;
+                if ($priceRaw) {
+                    $billingAmount = parseAmount($priceRaw);
+                    if (preg_match('/\b([A-Z]{3})\b/u', (string)$priceRaw, $cm)) $billingCurrency = $cm[1];
+                    if (preg_match('/\/\s*(\S+)/u', (string)$priceRaw, $pm)) {
+                        $p = mb_strtolower($pm[1]);
+                        if (strpos($p, 'год') !== false || strpos($p, 'year') !== false) $billingPeriod = 365;
+                        elseif (strpos($p, 'мес') !== false || strpos($p, 'month') !== false) $billingPeriod = 30;
+                        elseif (strpos($p, 'дн') !== false || strpos($p, 'day') !== false) $billingPeriod = 1;
+                    }
+                }
+
+                $status = ($statusStr && mb_stripos($statusStr, 'актив') !== false) ? 'online' : 'offline';
+
+                $chk = $pdo->prepare("SELECT id FROM nodes WHERE name = ? LIMIT 1");
+                $chk->execute([$name]);
+                $existing = $chk->fetch(PDO::FETCH_ASSOC);
+
+                if ($existing) {
+                    $upd = $pdo->prepare("UPDATE nodes
+                        SET host = COALESCE(?, host),
+                            status = ?,
+                            country = COALESCE(?, country),
+                            provider_name = COALESCE(?, provider_name),
+                            provider_url = COALESCE(?, provider_url),
+                            billing_amount = CASE WHEN ? > 0 THEN ? ELSE billing_amount END,
+                            billing_currency = ?,
+                            billing_period = ?
+                        WHERE id = ?");
+                    $upd->execute([
+                        $host, $status, $country, $providerName, $providerUrl,
+                        $billingAmount, $billingAmount, $billingCurrency, $billingPeriod,
+                        $existing['id']
+                    ]);
+                } else {
+                    $ins = $pdo->prepare("INSERT INTO nodes
+                        (name, host, port, status, country, provider_name, provider_url,
+                         billing_amount, billing_currency, billing_period)
+                        VALUES (?,?,22,?,?,?,?,?,?,?)");
+                    $ins->execute([
+                        $name, $host, $status, $country, $providerName, $providerUrl,
+                        $billingAmount > 0 ? $billingAmount : null,
+                        $billingCurrency, $billingPeriod
+                    ]);
+                }
+                $imported++;
+            }
+            $pdo->commit();
+        } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
     }
 
     $reportJson = safeJson(['imported' => $imported, 'matched' => $matched]);
