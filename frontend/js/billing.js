@@ -138,7 +138,7 @@ function renderBillingNodes(nodes) {
     const billingNodes = nodes.filter(n => n.billing_amount && parseFloat(n.billing_amount) > 0);
     
     if (billingNodes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Нет нод с биллингом</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">Нет нод с биллингом</td></tr>';
         return;
     }
     

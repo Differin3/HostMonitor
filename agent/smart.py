@@ -66,7 +66,33 @@ def _coerce_str(value):
             if text:
                 return text
         return ''
-    return str(value)
+def _is_virtual_or_excluded(device_name: str) -> bool:
+    """Исключаем виртуальные/вспомогательные устройства из SMART."""
+    if not device_name:
+        return True
+    d = device_name.lower()
+    # loop, ram, zram
+    if d.startswith('/dev/loop') or d.startswith('/dev/ram') or d.startswith('/dev/zram'):
+        return True
+    # device mapper, mdadm (software raid members often not useful standalone)
+    if d.startswith('/dev/dm-'):
+        return True
+    if d.startswith('/dev/md'):
+        # can show SMART on some setups but often confusing; skip md devices
+        return True
+    # virtio block devices in some cases - but sometimes they pass through; better skip common virtual
+    if d.startswith('/dev/vd') or d.startswith('/dev/xvd'):
+        return True
+    # sr/cdrom
+    if '/sr' in d or d.startswith('/dev/cd'):
+        return True
+    # nbd
+    if d.startswith('/dev/nbd'):
+        return True
+    # mmcblk virtual?
+    # avoid obviously virtual
+    return False
+
 
 
 class SmartMixin:
@@ -180,6 +206,8 @@ class SmartMixin:
             for dev in devices:
                 device_name = dev.get('name') or dev.get('info_name') or ''
                 if not device_name:
+                    continue
+                if _is_virtual_or_excluded(device_name):
                     continue
 
                 try:
