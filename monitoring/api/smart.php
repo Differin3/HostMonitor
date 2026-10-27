@@ -189,12 +189,17 @@ function handleSmartGet(PDO $pdo): void
     $action = $_GET['action'] ?? null;
     $range = $_GET['range'] ?? '7d';
 
+    // Строка без модели и без единого SMART-показателя — это passthrough/
+    // виртуальное устройство (SCSI от гипервизора, USB-мост), а не диск.
+    // Держим такие строки вне выдачи, даже если агент старой версии их записал.
+    $hasData = "(COALESCE(sd.model, '') <> '' OR sd.temperature IS NOT NULL OR sd.power_on_hours IS NOT NULL)";
+
     // Простой список приводов (для селекта)
     if ($action === 'drives') {
         $sql = "SELECT sd.*, COALESCE(n.name, CONCAT('Node ', sd.node_id)) as node_name
                 FROM smart_drives sd
                 LEFT JOIN nodes n ON sd.node_id = n.id
-                WHERE 1=1";
+                WHERE $hasData";
         $params = [];
         if ($nodeId) {
             $sql .= " AND sd.node_id = ?";
@@ -246,7 +251,7 @@ function handleSmartGet(PDO $pdo): void
     $sql = "SELECT sd.*, COALESCE(n.name, CONCAT('Node ', sd.node_id)) as node_name
             FROM smart_drives sd
             LEFT JOIN nodes n ON sd.node_id = n.id
-            WHERE 1=1";
+            WHERE $hasData";
     $params = [];
     if ($nodeId) {
         $sql .= " AND sd.node_id = ?";

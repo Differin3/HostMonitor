@@ -358,6 +358,14 @@ class SmartMixin:
         if not attributes and health == 'unknown':
             health = 'unsupported'
 
+        # Пассивно проброшенные/виртуальные диски (SCSI-устройство от
+        # гипервизора, USB-мост, virtio-blk) отдают capacity и serial, но
+        # не отдают ни модель, ни SMART-атрибуты. Такие строки в таблице
+        # выглядят как «диски без температуры и наработки» и только шумят.
+        if not _coerce_str(model_info) and temperature is None and power_on_hours is None and not attributes:
+            _log(f"SMART: {device_name} без SMART-данных — пропускаем (passthrough/virtual)", level='debug')
+            return None
+
         # Пытаемся определить корзину (bay) из /sys
         bay = self._detect_drive_bay(device_name)
 
