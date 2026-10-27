@@ -14,6 +14,7 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/jobs.php';
+require_once __DIR__ . '/../includes/agent_auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -358,17 +359,29 @@ function agent_clear_stale_pending(PDO $pdo, int $maxAgeSec = 600): int
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = (string)($_GET['action'] ?? '');
 
-$authHeader = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-$bearer = '';
-if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $m)) {
-    $bearer = $m[1];
-}
-
+/*
+ * Агент аутентифицируется тем же способом, что и для heartbeat/get-command:
+ * Ed25519-подпись (приоритет) с fallback на legacy Bearer-токен.
+ *
+ * Раньше здесь был только Bearer по node_token. Ноды, переведённые на
+ * подписи, при ротации ключа получают node_token = NULL и на report
+ * отвечали 401 — статус обновления не сохранялся, «доступно обновление»
+ * висело вечно, текст ошибки не доходил до UI.
+ *
+ * Scope: commands:ack (есть у всех нод по умолчанию; legacy получает
+ * legacy:full и проходит проверку).
+ */
 $agentNode = null;
-if ($bearer !== '') {
-    $stmt = $pdo->prepare('SELECT id, name FROM nodes WHERE node_token = ? LIMIT 1');
-    $stmt->execute([$bearer]);
-    $agentNode = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+if ($method === 'POST' && $action === 'report') {
+    $agent = authenticate_agent($pdo);
+    if ($agent === null) {
+        json_error('Unauthorized', 401);
+    }
+    require_scope($agent, 'commands:ack');
+    $agentNode = [
+        'id'   => (int)$agent['node_id'],
+        'name' => (string)($agent['name'] ?? ''),
+    ];
 }
 
 try {
@@ -376,7 +389,9 @@ try {
         if (!$agentNode) {
             json_error('Unauthorized', 401);
         }
-        $data = json_decode((string)file_get_contents('php://input'), true);
+        // Тело уже прочитано при проверке подписи — повторный
+        // file_get_contents('php://input') вернул бы пустую строку.
+        $data = json_decode(agent_request_body(), true);
         if (!is_array($data)) {
             json_error('Invalid JSON', 400);
         }
