@@ -1,1593 +1,929 @@
-// Биллинг система
-const API_URL = API_BASE;
-const API_NODES = `${API_BASE}/nodes.php`;
-const API_PROVIDERS = `${API_BASE}/providers.php`;
-const API_PAYMENTS = `${API_BASE}/payments.php`;
+/* ============================================================
+ * Биллинг — полностью переработан
+ * Совместим с billing.php (карточки провайдеров, вкладки,
+ * модалки pay/link, чарты paymentsChart/providersChart)
+ * Требует: api/billing_payment_link.php
+ * ============================================================ */
+'use strict';
+
+/* ==================== КОНСТАНТЫ ==================== */
+const API_URL           = typeof API_BASE !== 'undefined' ? API_BASE : '/api';
+const API_NODES         = `${API_URL}/nodes.php`;
+const API_PROVIDERS     = `${API_URL}/providers.php`;
+const API_PAYMENTS      = `${API_URL}/payments.php`;
+const API_PAYMENT_LINK  = `${API_URL}/billing_payment_link.php`;
+const API_IMPORT        = `${API_URL}/billing_import.php`;
+const API_EXPENSE_MATCH = `${API_URL}/billing_expense_match.php`;
+
+/* ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================== */
 let selectedBillingNodes = new Set();
 let providersList = [];
 let providersCurrentPage = 1;
-let providersPerPage = 10;
+let providersPerPage = 9;
 let monthlyChart = null;
 let providerChart = null;
-let paymentsTimelineChart = null;
-const datePickers = {}; // хранилище наших однодневных календарей
 
-const toggleTableLoader = (tableId, show) => {
-    const tableContainer = document.querySelector(`#${tableId}`)?.closest('.table-container');
-    if (tableContainer) {
-        tableContainer.classList.toggle('is-loading', show);
+/* ==================== УТИЛИТЫ ==================== */
+(function () {
+    function escImpl(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
     }
-};
+    // Ставим в window только если там ещё ничего нет — не перетираем глобальные хелперы из layout.php
+    if (typeof window.esc !== 'function') window.esc = escImpl;
+    if (typeof window.escHtmlAttr !== 'function') window.escHtmlAttr = window.esc;
+})();
 
-async function loadBillingData(silent = false) {
+// Локальные алиасы. ВАЖНО: именно `var`, не `function` —
+// `function esc(){}` в глобальном scope снова перезаписал бы window.esc и дал бы рекурсию.
+var esc = window.esc;
+var escHtmlAttr = window.escHtmlAttr;
+
+function showToastSafe(msg, type) {
+    type = type || 'info';
+    if (typeof window.showToast === 'function') window.showToast(msg, type);
+    else console.log('[toast:' + type + ']', msg);
+}
+
+function getCsrfToken() {
+    if (typeof window.CSRF_TOKEN === 'string' && window.CSRF_TOKEN) return window.CSRF_TOKEN;
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) return meta.content;
+    const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+}
+
+function toggleTableLoader(tableId, show) {
+    const el = document.getElementById(tableId);
+    if (!el) return;
+    const c = el.closest('.table-container');
+    if (c) c.classList.toggle('is-loading', !!show);
+}
+
+function buildFaviconUrl(faviconUrl, providerUrl) {
+    const src = faviconUrl || providerUrl;
+    if (!src) return null;
+    const t = String(src).trim();
+    if (!t) return null;
+    if (/^https?:\/\//i.test(t)) {
+        if (faviconUrl) return t;
+        try { return 'https://www.google.com/s2/favicons?sz=64&domain=' + new URL(t).hostname; }
+        catch (e) { return t; }
+    }
+    const d = t.split('/')[0].split('?')[0].split('#')[0];
+    return 'https://www.google.com/s2/favicons?sz=64&domain=' + d;
+}
+
+function getProviderIcon(faviconUrl, providerName, providerUrl) {
+    const src = buildFaviconUrl(faviconUrl, providerUrl);
+    const letter = providerName ? escHtmlAttr(String(providerName).charAt(0).toUpperCase()) : '?';
+    const safeName = escHtmlAttr(providerName || '');
+    if (src) {
+        return '<span class="provider-icon-wrapper"><img src="' + escHtmlAttr(src) + '" alt="' + safeName + '" class="provider-favicon" loading="lazy" onerror="this.onerror=null; var w=this.closest(\'.provider-icon-wrapper\'); if(w \&\& !w.querySelector(\'.provider-icon\')){ w.innerHTML=\'<div class=&quot;provider-icon&quot;>' + letter + '</div>\'; }"></span>';
+    }
+    if (providerName) return '<div class="provider-icon">' + letter + '</div>';
+    return '<div class="provider-icon-placeholder">?</div>';
+}
+
+function getCountryFlag(country) {
+    const flags = { RU:'🇷🇺', NL:'🇳🇱', DE:'🇩🇪', US:'🇺🇸', GB:'🇬🇧', FR:'🇫🇷', PL:'🇵🇱', FI:'🇫🇮', SG:'🇸🇬', JP:'🇯🇵' };
+    return flags[country] || '';
+}
+/* ==================== БИЛЛИНГ НОДЫ (добавить/редактировать) ==================== */
+
+function openNodeBillingModal(nodeId) {
+    const modal = document.getElementById('node-billing-modal');
+    if (!modal) return;
+
+    const idEl = document.getElementById('node-billing-id');
+    const titleEl = document.getElementById('node-billing-title');
+    const nodeSel = document.getElementById('node-billing-node-select');
+    const providerSel = document.getElementById('node-billing-provider');
+    const amountEl = document.getElementById('node-billing-amount');
+    const periodEl = document.getElementById('node-billing-period');
+    const dateEl = document.getElementById('node-billing-next-payment');
+
+    // Заполняем селект нод (все ноды, не только те что в биллинге)
+    nodeSel.innerHTML = '<option value="">Выберите ноду</option>';
+    (window.billingNodesData || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = n.name + (n.provider_name ? ' (' + n.provider_name + ')' : '');
+        nodeSel.appendChild(opt);
+    });
+
+    // Заполняем селект провайдеров
+    providerSel.innerHTML = '<option value="">— Не выбран —</option>';
+    (providersList || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.name;
+        providerSel.appendChild(opt);
+    });
+
+    if (nodeId) {
+        // Редактирование
+        const node = (window.billingNodesData || []).find(n => n.id == nodeId);
+        if (!node) return;
+        idEl.value = node.id;
+        titleEl.textContent = 'Редактировать биллинг · ' + node.name;
+        nodeSel.value = node.id;
+        nodeSel.disabled = true; // ноду менять нельзя, только параметры биллинга
+        providerSel.value = node.provider_name || '';
+        amountEl.value = node.billing_amount || '';
+        periodEl.value = String(node.billing_period || 30);
+        dateEl.value = node.next_payment_date || '';
+    } else {
+        // Добавление
+        idEl.value = '';
+        titleEl.textContent = 'Добавить в биллинг';
+        nodeSel.disabled = false;
+        nodeSel.value = '';
+        providerSel.value = '';
+        amountEl.value = '';
+        periodEl.value = '30';
+        dateEl.value = '';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeNodeBillingModal() {
+    const modal = document.getElementById('node-billing-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => modal.classList.add('hidden'), 200);
+    // Снять disabled, чтобы в следующий раз всё работало
+    const nodeSel = document.getElementById('node-billing-node-select');
+    if (nodeSel) nodeSel.disabled = false;
+}
+
+async function saveNodeBilling(e) {
+    e.preventDefault();
+    const idEl = document.getElementById('node-billing-id');
+    const nodeSel = document.getElementById('node-billing-node-select');
+    const providerSel = document.getElementById('node-billing-provider');
+    const amountEl = document.getElementById('node-billing-amount');
+    const periodEl = document.getElementById('node-billing-period');
+    const dateEl = document.getElementById('node-billing-next-payment');
+
+    const nodeId = parseInt(nodeSel.value, 10);
+    const amount = parseFloat(amountEl.value);
+    const period = parseInt(periodEl.value, 10) || 30;
+    const providerName = providerSel.value || null;
+    const nextPayment = dateEl.value || null;
+
+    if (!nodeId || !(amount > 0)) {
+        showToastSafe('Заполните ноду и цену', 'error');
+        return;
+    }
+
+    // Если выбран провайдер — подтянем его URL
+    let providerUrl = null;
+    if (providerName) {
+        const p = (providersList || []).find(x => x.name === providerName);
+        if (p) providerUrl = p.url || null;
+    }
+
     try {
-        if (!silent) {
-            toggleTableLoader('billing-nodes-tbody', true);
-            toggleTableLoader('payments-tbody', true);
+        const csrf = getCsrfToken();
+        const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: JSON.stringify({
+                billing_amount: amount,
+                billing_period: period,
+                provider_name: providerName,
+                provider_url: providerUrl,
+                next_payment_date: nextPayment,
+            })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            let msg = 'HTTP ' + res.status;
+            try { const d = JSON.parse(text); msg = d.error || msg; } catch (_) {}
+            throw new Error(msg);
         }
-        
+        showToastSafe(idEl.value ? 'Биллинг обновлён' : 'Нода добавлена в биллинг', 'success');
+        closeNodeBillingModal();
+        loadBillingData();
+    } catch (err) {
+        console.error('saveNodeBilling', err);
+        showToastSafe('Ошибка сохранения: ' + err.message, 'error');
+    }
+}
+
+/* ==================== ЗАГРУЗКА ДАННЫХ ==================== */
+
+async function loadBillingData(silent) {
+    try {
+        if (!silent) toggleTableLoader('billing-nodes-tbody', true);
         const [nodesRes, paymentsRes] = await Promise.all([
             fetch(API_NODES, { credentials: 'include' }),
             fetch(API_PAYMENTS, { credentials: 'include' })
         ]);
-        
         if (!nodesRes.ok || !paymentsRes.ok) throw new Error('HTTP error');
-        
         const nodesText = await nodesRes.text();
         const paymentsText = await paymentsRes.text();
-        
-        const nodesData = nodesText ? JSON.parse(nodesText) : { nodes: [] };
-        const paymentsData = paymentsText ? JSON.parse(paymentsText) : { payments: [] };
-        
-        const nodes = nodesData.nodes || [];
-        const payments = paymentsData.payments || [];
-        
+        const nodes = (nodesText ? JSON.parse(nodesText) : { nodes: [] }).nodes || [];
+        const payments = (paymentsText ? JSON.parse(paymentsText) : { payments: [] }).payments || [];
         window.billingNodesData = nodes;
-        
         updateStats(nodes, payments);
         renderBillingNodes(nodes);
         renderPayments(payments);
-        populateBillingNodes();
-    } catch (error) {
-        console.error('Error loading billing:', error);
+        if (Array.isArray(providersList)) renderProviders(providersList);
+    } catch (e) {
+        console.error('loadBillingData', e);
         window.billingNodesData = [];
         updateStats([], []);
         renderBillingNodes([]);
         renderPayments([]);
-        populateBillingNodes();
     } finally {
-        if (!silent) {
-            toggleTableLoader('billing-nodes-tbody', false);
-            toggleTableLoader('payments-tbody', false);
-        }
+        if (!silent) toggleTableLoader('billing-nodes-tbody', false);
     }
 }
 
 function updateStats(nodes, payments) {
     const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    
-    // Ноды ожидающие оплаты в текущем месяце
-    const pendingNodes = nodes.filter(n => {
+    const cm = now.getMonth(), cy = now.getFullYear();
+    const pending = nodes.filter(n => {
         if (!n.next_payment_date) return false;
-        const nextPayment = new Date(n.next_payment_date);
-        return nextPayment.getMonth() === currentMonth && nextPayment.getFullYear() === currentYear;
+        const d = new Date(n.next_payment_date);
+        return d.getMonth() === cm && d.getFullYear() === cy;
     });
-    
-    // Платежи в текущем месяце
-    const monthPayments = payments.filter(p => {
-        const paymentDate = new Date(p.payment_date);
-        return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear;
-    });
-    
-    // Общая сумма платежей в месяце
-    const monthTotal = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-    
-    // Общая сумма всех платежей
-    const totalSpent = payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-    
-    document.getElementById('pending-nodes').textContent = pendingNodes.length;
-    document.getElementById('month-payments').textContent = monthTotal.toFixed(2) + ' ₽';
-    document.getElementById('total-spent').textContent = totalSpent.toFixed(2) + ' ₽';
+    const monthTotal = payments.filter(p => {
+        const d = new Date(p.payment_date);
+        return d.getMonth() === cm && d.getFullYear() === cy;
+    }).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const totalSpent = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const a = document.getElementById('pending-nodes');
+    const b = document.getElementById('month-payments');
+    const c = document.getElementById('total-spent');
+    if (a) a.textContent = pending.length;
+    if (b) b.textContent = monthTotal.toFixed(2) + ' ₽';
+    if (c) c.textContent = totalSpent.toFixed(2) + ' ₽';
 }
 
-function buildFaviconUrl(faviconUrl, providerUrl) {
-    const source = faviconUrl || providerUrl;
-    if (!source) return null;
-    const trimmed = source.trim();
-    if (!trimmed) return null;
-    
-    // Если это уже полный URL с протоколом
-    if (/^https?:\/\//i.test(trimmed)) {
-        // Если это favicon_url и это полный URL, используем его напрямую
-    if (faviconUrl) {
-            return trimmed;
-        }
-        // Если это provider_url, извлекаем домен для favicon
-        try {
-            const url = new URL(trimmed);
-            return `https://www.google.com/s2/favicons?sz=64&domain=${url.hostname}`;
-        } catch {
-            return trimmed;
-        }
-    }
-    
-    // Если это домен без протокола, используем Google favicon API
-    // Убираем возможные пути и параметры
-    const domain = trimmed.split('/')[0].split('?')[0].split('#')[0];
-    return `https://www.google.com/s2/favicons?sz=64&domain=${domain}`;
-}
-
-function getProviderIcon(faviconUrl, providerName, providerUrl) {
-    const iconSrc = buildFaviconUrl(faviconUrl, providerUrl);
-    const fallbackLetter = providerName ? escHtmlAttr(providerName.charAt(0).toUpperCase()) : '?';
-    const safeProviderName = escHtmlAttr(providerName || '');
-    
-    if (iconSrc) {
-        return `<span class="provider-icon-wrapper"><img src="${escHtmlAttr(iconSrc)}" alt="${safeProviderName}" class="provider-favicon" loading="lazy" onerror="this.onerror=null; const wrapper=this.closest('.provider-icon-wrapper'); if(wrapper && !wrapper.querySelector('.provider-icon')){ wrapper.innerHTML='<div class=&quot;provider-icon&quot;>${fallbackLetter}</div>'; }"></span>`;
-    }
-    if (providerName) {
-        return `<div class="provider-icon">${fallbackLetter}</div>`;
-    }
-    return '<div class="provider-icon-placeholder">?</div>';
-}
+/* ==================== НОДЫ ==================== */
 
 function renderBillingNodes(nodes) {
     const tbody = document.getElementById('billing-nodes-tbody');
+    if (!tbody) return;
     const billingNodes = nodes.filter(n => n.billing_amount && parseFloat(n.billing_amount) > 0);
-    
     if (billingNodes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center">Нет нод с биллингом</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">Нет нод с биллингом. Заполните «Цена за месяц» в настройках ноды.</td></tr>';
         return;
     }
-    
-    // Сбрасываем выбор при перерисовке
     selectedBillingNodes.clear();
     updateBillingSelection();
-    
-    // Сохраняем все ноды для редактирования
-    window.billingNodesData = nodes;
-    
+    const now = new Date();
     tbody.innerHTML = billingNodes.map(node => {
         const nextPayment = node.next_payment_date ? new Date(node.next_payment_date) : null;
-        const isOverdue = nextPayment && nextPayment < new Date();
-        const nextPaymentStr = nextPayment ? nextPayment.toLocaleDateString('ru-RU', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric'
-        }) : '-';
-        const countryFlag = node.country ? getCountryFlag(node.country) : '';
-        
+        const daysLeft = nextPayment ? Math.floor((nextPayment - now) / 86400000) : null;
+        const status = daysLeft === null ? 'none' : (daysLeft < 0 ? 'overdue' : (daysLeft <= 7 ? 'soon' : 'ok'));
+        const statusLabel = { none: 'Нет даты', overdue: 'Просрочено', soon: 'Скоро', ok: 'Активно' }[status];
+        const nextStr = nextPayment ? nextPayment.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+        const daysStr = daysLeft === null ? '—' : (daysLeft < 0 ? Math.abs(daysLeft) + ' дн. назад' : daysLeft + ' дн.');
+        const flag = node.country ? getCountryFlag(node.country) : '';
         const safeUrl = (node.provider_url && /^https?:\/\//i.test(node.provider_url)) ? node.provider_url : '#';
-        return `
-            <tr data-node-id="${node.id}" style="cursor: pointer;">
-                <td onclick="event.stopPropagation();">
-                    <input type="checkbox" class="billing-node-checkbox" value="${node.id}" onchange="updateBillingSelection()">
-                </td>
-                <td onclick="editNodeBilling(${node.id})">
-                    <div class="table-cell-with-icon">
-                        ${getProviderIcon(node.favicon_url, node.provider_name, node.provider_url)}
-                        <div>
-                            ${node.provider_name ? `<a href="${safeUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${esc(node.provider_name)}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '-'}
-                        </div>
-                    </div>
-                </td>
-                <td onclick="editNodeBilling(${node.id})">
-                    <div class="table-cell-with-icon">
-                        ${countryFlag}
-                        <span>${esc(node.name)}</span>
-                    </div>
-                </td>
-                <td onclick="editNodeBilling(${node.id})">
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="calendar"></i>
-                        <span class="billing-date-pill ${isOverdue ? 'billing-date-pill-overdue' : ''}">${nextPaymentStr}</span>
-                    </div>
-                </td>
-                <td onclick="quickUpdatePaymentDate(${node.id})">
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="check-circle" style="color: var(--success); cursor: pointer;" title="Быстро обновить до следующего месяца"></i>
-                    </div>
-                </td>
-            </tr>
-        `;
+        return `<tr data-node-id="${node.id}">
+            <td><input type="checkbox" class="billing-node-checkbox" value="${node.id}" onchange="updateBillingSelection()"></td>
+            <td>
+                <div class="table-cell-with-icon">
+                    ${getProviderIcon(node.favicon_url, node.provider_name, node.provider_url)}
+                    ${node.provider_name ? `<a href="${escHtmlAttr(safeUrl)}" target="_blank" rel="noopener">${esc(node.provider_name)}</a>` : '<span style="color:var(--text-tertiary)">—</span>'}
+                </div>
+            </td>
+            <td><div class="table-cell-with-icon">${flag} <span>${esc(node.name)}</span></div></td>
+            <td>${parseFloat(node.billing_amount || 0).toFixed(2)} ₽</td>
+            <td><div class="table-cell-with-icon"><i data-lucide="calendar"></i><span>${nextStr}</span></div></td>
+            <td>${daysStr}</td>
+            <td><span class="billing-status-badge status-${status}">${statusLabel}</span></td>
+            <td><button class="icon-btn primary" onclick="payForNode(${node.id})" title="Оплатить"><i data-lucide="credit-card"></i></button></td>
+        </tr>`;
     }).join('');
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-function getCountryFlag(country) {
-    const flags = {
-        'RU': '🇷🇺', 'NL': '🇳🇱', 'DE': '🇩🇪', 'US': '🇺🇸', 'GB': '🇬🇧',
-        'FR': '🇫🇷', 'PL': '🇵🇱', 'FI': '🇫🇮', 'SG': '🇸🇬', 'JP': '🇯🇵'
-    };
-    return flags[country] || '';
-}
-
-function renderPayments(payments) {
-    const tbody = document.getElementById('payments-tbody');
-    
-    if (payments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center">Нет платежей</td></tr>';
-        return;
-    }
-    
-    // Сортируем по дате (новые сверху)
-    payments.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
-    
-    tbody.innerHTML = payments.map(payment => {
-        const paymentDate = new Date(payment.payment_date);
-        const paymentDateStr = paymentDate.toLocaleDateString('ru-RU', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-        }) + ' года';
-        const node = window.billingNodesData?.find(n => n.id == payment.node_id);
-        const providerName = node?.provider_name || payment.provider_name || '';
-        
-        return `
-            <tr>
-                <td>
-                    <div class="table-cell-with-icon">
-                        ${getProviderIcon(node?.favicon_url || '', providerName, node?.provider_url)}
-                        <span>${esc(providerName || payment.node_name || `node-${payment.node_id}`)}</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="calendar"></i>
-                        <span>${paymentDateStr}</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="dollar-sign"></i>
-                        <span>${parseFloat(payment.amount || 0).toFixed(2)} ₽</span>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-window.editNodeBilling = editNodeBilling;
-window.quickUpdatePaymentDate = quickUpdatePaymentDate;
-window.addNodeBilling = addNodeBilling;
-window.addPayment = addPayment;
-window.addProvider = addProvider;
-window.editProvider = editProvider;
-window.deleteProvider = deleteProvider;
-window.refreshBilling = refreshBilling;
-window.refreshPayments = refreshPayments;
-window.closeBillingModal = closeBillingModal;
-window.closePaymentModal = closePaymentModal;
-window.closeProviderModal = closeProviderModal;
-window.closeUpdatePaymentDateModal = closeUpdatePaymentDateModal;
-window.billingDatePickers = datePickers;
-
-const initDatePicker = (pickerId) => { // инициализация однодневного календаря
-    const displayInput = document.getElementById(`${pickerId}-display`);
-    const hiddenInput = document.getElementById(pickerId);
-    const panel = document.getElementById(`${pickerId}-panel`);
-    const calendarRoot = panel?.querySelector('.date-picker-calendar');
-    if (!displayInput || !hiddenInput || !panel || !calendarRoot) return;
-
-    const state = { monthCursor: new Date(), selected: null };
-
-    const formatDate = (d) => d.toLocaleDateString('ru-RU');
-    const toIsoDate = (d) => d.toISOString().split('T')[0];
-    const sameDay = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-
-    const render = () => {
-        const base = new Date(state.monthCursor.getFullYear(), state.monthCursor.getMonth(), 1);
-        const year = base.getFullYear();
-        const month = base.getMonth();
-        const firstDay = new Date(year, month, 1).getDay() || 7;
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const prevDays = firstDay - 1;
-        const today = new Date();
-
-        let html = `<div class="date-picker-header">
-            <div class="date-picker-nav">
-                <button type="button" id="${pickerId}-prev"><</button>
-                <button type="button" id="${pickerId}-next">></button>
-            </div>
-            <span>${base.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</span>
-        </div>`;
-        const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-        html += '<div class="date-picker-grid">';
-        weekDays.forEach(w => { html += `<div class="date-picker-weekday">${w}</div>`; });
-        for (let i = 0; i < prevDays; i++) {
-            html += '<div class="date-picker-day other-month"></div>';
-        }
-        for (let day = 1; day <= daysInMonth; day++) {
-            const d = new Date(year, month, day);
-            let cls = 'date-picker-day';
-            if (sameDay(d, state.selected)) cls += ' selected';
-            if (sameDay(d, today) && !sameDay(d, state.selected)) cls += ' today';
-            html += `<button type="button" class="${cls}" data-day="${day}">${day}</button>`;
-        }
-        html += '</div>';
-        html += `<div class="date-picker-footer">
-            <span>${state.selected ? formatDate(state.selected) : '—'}</span>
-            <button type="button" class="btn-outline" id="${pickerId}-today">Сегодня</button>
-        </div>`;
-        calendarRoot.innerHTML = html;
-
-        document.getElementById(`${pickerId}-prev`).onclick = () => {
-            state.monthCursor = new Date(year, month - 1, 1);
-            render();
-        };
-        document.getElementById(`${pickerId}-next`).onclick = () => {
-            state.monthCursor = new Date(year, month + 1, 1);
-            render();
-        };
-        document.getElementById(`${pickerId}-today`).onclick = () => {
-            const t = new Date();
-            setDate(t);
-            state.monthCursor = new Date(t.getFullYear(), t.getMonth(), 1);
-            render();
-        };
-        calendarRoot.querySelectorAll('.date-picker-day[data-day]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const day = Number(btn.dataset.day);
-                const d = new Date(year, month, day);
-                setDate(d);
-                render(); // перерисовываем, но панель не закрываем, можно менять месяц/дату дальше
-            });
-        });
-    };
-
-    const hidePanel = () => {
-        panel.classList.add('hidden');
-    };
-
-    const setDate = (date) => {
-        state.selected = date;
-        hiddenInput.value = toIsoDate(date);
-        displayInput.value = formatDate(date);
-    };
-
-    displayInput.addEventListener('click', (e) => {
-        e.stopPropagation();
-        panel.classList.remove('hidden');
-        if (!state.selected && hiddenInput.value) {
-            const d = new Date(hiddenInput.value);
-            if (!isNaN(d.getTime())) state.selected = d;
-        }
-        if (state.selected) {
-            state.monthCursor = new Date(state.selected.getFullYear(), state.selected.getMonth(), 1);
-        }
-        render();
-    });
-
-    // клики внутри панели не должны закрывать её через document.click
-    panel.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!panel.contains(e.target) && !displayInput.contains(e.target)) {
-            hidePanel();
-        }
-    });
-
-    datePickers[pickerId] = { setDate, getDate: () => state.selected };
-};
-
-function editNodeBilling(nodeId) {
-    const node = window.billingNodesData?.find(n => n.id == nodeId);
-    if (!node) return;
-    
-    const modal = document.getElementById('billing-modal');
-    const form = document.getElementById('billing-form');
-    if (!modal || !form) return;
-    
-    form.node_id.value = node.id;
-    
-    // Заполняем выбор ноды
-    const nodeSelect = document.getElementById('billing-node-select');
-    if (nodeSelect) {
-        nodeSelect.innerHTML = '';
-        window.billingNodesData?.forEach(n => {
-            const option = document.createElement('option');
-            option.value = n.id;
-            option.textContent = n.name;
-            option.selected = n.id == nodeId;
-            nodeSelect.appendChild(option);
-        });
-    }
-    
-    const providerSelect = document.getElementById('billing-provider');
-    if (providerSelect) {
-        providerSelect.value = node.provider_name || '';
-    }
-    
-    const billingAmountInput = document.getElementById('billing-amount');
-    if (billingAmountInput) {
-        billingAmountInput.value = node.billing_amount || '';
-    }
-    
-    if (node.next_payment_date) {
-        const date = new Date(node.next_payment_date);
-        if (!isNaN(date.getTime()) && datePickers['billing-next-payment']) {
-            datePickers['billing-next-payment'].setDate(date);
-        }
-    } else if (datePickers['billing-next-payment']) {
-        datePickers['billing-next-payment'].setDate(new Date());
-    }
-    
-    form.querySelector('button[type="submit"]').textContent = 'Сохранить';
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-async function addNodeBilling() {
-    const modal = document.getElementById('billing-modal');
-    if (!modal) {
-        console.error('Billing modal not found');
-        return;
-    }
-    
-    // Убеждаемся что данные загружены
-    if (!window.billingNodesData) {
-        await loadBillingData();
-    }
-    
-    const form = document.getElementById('billing-form');
-    if (form) {
-        form.reset();
-        document.getElementById('billing-node-id').value = '';
-        populateBillingNodes();
-        populateProviderSelects();
-        form.querySelector('button[type="submit"]').textContent = 'Создать';
-    }
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function updateBillingSelection() {
-    const checkboxes = document.querySelectorAll('.billing-node-checkbox:checked');
+    const checked = document.querySelectorAll('.billing-node-checkbox:checked');
     selectedBillingNodes.clear();
-    checkboxes.forEach(cb => selectedBillingNodes.add(parseInt(cb.value)));
-    
-    const count = selectedBillingNodes.size;
+    checked.forEach(cb => selectedBillingNodes.add(parseInt(cb.value, 10)));
     const countEl = document.getElementById('billing-selected-count');
     const menu = document.getElementById('billing-context-menu');
-    
-    if (countEl) countEl.textContent = count;
-    if (menu) {
-        if (count > 0) {
-            menu.classList.remove('hidden');
-            setTimeout(() => {
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons();
-                }
-            }, 10);
-        } else {
-            menu.classList.add('hidden');
-        }
-    }
-    
-    const selectAll = document.getElementById('select-all-billing-nodes');
-    if (selectAll) {
-        const allCheckboxes = document.querySelectorAll('.billing-node-checkbox');
-        selectAll.checked = allCheckboxes.length > 0 && allCheckboxes.length === checkboxes.length;
+    if (countEl) countEl.textContent = selectedBillingNodes.size;
+    if (menu) menu.classList.toggle('hidden', selectedBillingNodes.size === 0);
+    const all = document.getElementById('select-all-billing-nodes');
+    if (all) {
+        const total = document.querySelectorAll('.billing-node-checkbox').length;
+        all.checked = total > 0 && total === checked.length;
     }
 }
 
 function clearBillingSelection() {
     document.querySelectorAll('.billing-node-checkbox').forEach(cb => cb.checked = false);
-    const selectAll = document.getElementById('select-all-billing-nodes');
-    if (selectAll) selectAll.checked = false;
+    const all = document.getElementById('select-all-billing-nodes');
+    if (all) all.checked = false;
     updateBillingSelection();
 }
 
 function selectAllBillingNodes() {
     document.querySelectorAll('.billing-node-checkbox').forEach(cb => cb.checked = true);
-    const selectAll = document.getElementById('select-all-billing-nodes');
-    if (selectAll) selectAll.checked = true;
+    const all = document.getElementById('select-all-billing-nodes');
+    if (all) all.checked = true;
     updateBillingSelection();
-}
-
-window.clearBillingSelection = clearBillingSelection;
-window.selectAllBillingNodes = selectAllBillingNodes;
-
-function quickUpdatePaymentDate(nodeId) {
-    const node = window.billingNodesData?.find(n => n.id == nodeId);
-    if (!node) return;
-    
-    const modal = document.getElementById('update-payment-date-modal');
-    const form = document.getElementById('update-payment-date-form');
-    if (!modal || !form) return;
-    
-    document.getElementById('update-payment-node-id').value = nodeId;
-    const currentDate = node.next_payment_date ? new Date(node.next_payment_date).toISOString().split('T')[0] : '';
-    document.getElementById('update-payment-current-date').value = currentDate;
-    
-    // Автоматически устанавливаем дату на следующий месяц
-    const nextMonth = new Date(currentDate || new Date());
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    document.getElementById('update-payment-new-date').value = nextMonth.toISOString().split('T')[0];
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-function closeUpdatePaymentDateModal() {
-    const modal = document.getElementById('update-payment-date-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.classList.add('hidden'), 200);
-    }
 }
 
 async function updateSelectedPaymentDates() {
     if (selectedBillingNodes.size === 0) return;
-    
     try {
-        showToast('Обновление дат...', 'info');
+        showToastSafe('Обновление дат...', 'info');
         const now = new Date();
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-        const newDate = nextMonth.toISOString().split('T')[0];
-        
-        for (const nodeId of selectedBillingNodes) {
-            await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ next_payment_date: newDate })
+        const next = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        const iso = next.toISOString().split('T')[0];
+        const csrf = getCsrfToken();
+        for (const id of selectedBillingNodes) {
+            await fetch(`${API_NODES}?id=${encodeURIComponent(id)}`, {
+                method: 'PUT', credentials: 'include',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+                body: JSON.stringify({ next_payment_date: iso })
             });
         }
-        showToast(`Обновлено нод: ${selectedBillingNodes.size}`, 'success');
+        showToastSafe(`Обновлено нод: ${selectedBillingNodes.size}`, 'success');
         clearBillingSelection();
         loadBillingData();
-    } catch (error) {
-        console.error(error);
-        showToast('Ошибка обновления', 'error');
+    } catch (e) {
+        console.error(e);
+        showToastSafe('Ошибка обновления', 'error');
     }
 }
 
 async function deleteSelectedBillingNodes() {
     if (selectedBillingNodes.size === 0) return;
-    const confirmed = await window.showConfirm(`Вы уверены, что хотите удалить биллинг для ${selectedBillingNodes.size} нод(у)?`, 'Удаление биллинга', 'danger');
-    if (!confirmed) return;
+    let ok;
+    if (typeof window.showConfirm === 'function') {
+        ok = await window.showConfirm(`Удалить биллинг для ${selectedBillingNodes.size} нод?`, 'Удаление биллинга', 'danger');
+    } else {
+        ok = confirm(`Удалить биллинг для ${selectedBillingNodes.size} нод?`);
+    }
+    if (!ok) return;
     try {
-        for (const nodeId of selectedBillingNodes) {
-            await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ billing_amount: null, provider_name: null, provider_url: null })
+        const csrf = getCsrfToken();
+        for (const id of selectedBillingNodes) {
+            await fetch(`${API_NODES}?id=${encodeURIComponent(id)}`, {
+                method: 'PUT', credentials: 'include',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+                body: JSON.stringify({ billing_amount: null, provider_name: null, provider_url: null, next_payment_date: null })
             });
         }
-        showToast(`Удалено: ${selectedBillingNodes.size}`, 'success');
+        showToastSafe(`Удалено: ${selectedBillingNodes.size}`, 'success');
         clearBillingSelection();
         loadBillingData();
-    } catch (error) {
-        console.error(error);
-        showToast('Ошибка удаления', 'error');
+    } catch (e) {
+        console.error(e);
+        showToastSafe('Ошибка удаления', 'error');
     }
 }
 
-// Экспортируем функции в window для доступа из onclick
-window.updateSelectedPaymentDates = updateSelectedPaymentDates;
-window.deleteSelectedBillingNodes = deleteSelectedBillingNodes;
+/* ==================== ОПЛАТА НОДЫ ==================== */
 
-function addPayment() {
-    const modal = document.getElementById('payment-modal');
-    if (!modal) {
-        console.error('Payment modal not found');
+function payForNode(nodeId) {
+    const node = (window.billingNodesData || []).find(n => n.id == nodeId);
+    if (!node) return;
+    document.getElementById('node-pay-id').value = node.id;
+    document.getElementById('node-pay-name').textContent = node.name + (node.provider_name ? ' · ' + node.provider_name : '');
+    document.getElementById('node-pay-amount').value = node.billing_amount || '';
+    document.getElementById('node-pay-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('node-pay-comment').value = '';
+    const m = document.getElementById('node-pay-modal');
+    if (!m) return;
+    m.classList.remove('hidden');
+    m.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeNodePayModal() {
+    const m = document.getElementById('node-pay-modal');
+    if (m) { m.classList.remove('active'); setTimeout(() => m.classList.add('hidden'), 200); }
+}
+
+async function submitNodePayment(e) {
+    e.preventDefault();
+    const nodeId = parseInt(document.getElementById('node-pay-id').value, 10);
+    const amount = parseFloat(document.getElementById('node-pay-amount').value);
+    const date = document.getElementById('node-pay-date').value;
+    const comment = document.getElementById('node-pay-comment').value.trim();
+    if (!nodeId || !(amount > 0) || !date) {
+        showToastSafe('Заполните все поля', 'error');
         return;
     }
-    const form = document.getElementById('payment-form');
-    if (form) {
-        form.reset();
-    }
-    if (datePickers['payment-date']) {
-        datePickers['payment-date'].setDate(new Date());
-    }
-    populatePaymentProviders();
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-function populatePaymentProviders() {
-    const select = document.getElementById('payment-provider-id');
-    if (!select || !providersList) return;
-    
-    select.innerHTML = '<option value="">Выбрать провайдера...</option>';
-    providersList.forEach(provider => {
-        const option = document.createElement('option');
-        option.value = provider.id;
-        option.textContent = provider.name;
-        select.appendChild(option);
-    });
-}
-
-function closePaymentModal() {
-    const modal = document.getElementById('payment-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.classList.add('hidden'), 200);
-    }
-}
-
-function populatePaymentNodes() {
-    const select = document.getElementById('payment-node-id');
-    if (!select || !window.billingNodesData) return;
-    
-    select.innerHTML = '<option value="">Выберите ноду</option>';
-    window.billingNodesData.forEach(node => {
-        const option = document.createElement('option');
-        option.value = node.id;
-        option.textContent = node.name;
-        select.appendChild(option);
-    });
-}
-
-function populateBillingNodes() {
-    const select = document.getElementById('billing-node-select');
-    if (!select) return;
-    
-    // Если данные еще не загружены, загружаем их
-    if (!window.billingNodesData) {
-        loadBillingData().then(() => {
-            populateBillingNodes();
+    const node = (window.billingNodesData || []).find(n => n.id == nodeId);
+    const period = parseInt(node && node.billing_period, 10) || 30;
+    const next = new Date(date);
+    next.setDate(next.getDate() + period);
+    const nextIso = next.toISOString().split('T')[0];
+    try {
+        const csrf = getCsrfToken();
+        const payBody = { node_id: nodeId, amount: amount, payment_date: date };
+        if (comment) payBody.comment = comment;
+        const payRes = await fetch(API_PAYMENTS, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: JSON.stringify(payBody)
         });
-        return;
-    }
-    
-    select.innerHTML = '<option value="">Выберите ноду</option>';
-    if (window.billingNodesData && window.billingNodesData.length > 0) {
-        window.billingNodesData.forEach(node => {
-            const option = document.createElement('option');
-            option.value = node.id;
-            option.textContent = node.name;
-            select.appendChild(option);
+        if (!payRes.ok) {
+            const t = await payRes.text();
+            throw new Error(t || `HTTP ${payRes.status}`);
+        }
+        await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
+            method: 'PUT', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+            body: JSON.stringify({ last_payment_date: date, next_payment_date: nextIso })
         });
-    } else {
-        select.innerHTML = '<option value="">Ноды для биллинга не найдены</option>';
+        showToastSafe(`Оплата ${amount.toFixed(2)} ₽ для ${node ? node.name : 'ноды'}`, 'success');
+        closeNodePayModal();
+        loadBillingData();
+        loadUnlinkedPayments();
+    } catch (err) {
+        console.error('submitNodePayment', err);
+        showToastSafe('Ошибка оплаты: ' + err.message, 'error');
     }
 }
 
-function addProvider() {
-    const modal = document.getElementById('provider-modal');
-    if (!modal) {
-        console.error('Provider modal not found');
+/* ==================== НЕРАСПРЕДЕЛЁННЫЕ ПЛАТЕЖИ ==================== */
+
+window._unlinkedPaymentsCache = {};
+
+async function loadUnlinkedPayments() {
+    const tbody = document.getElementById('unlinked-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center">Загрузка...</td></tr>';
+    try {
+        const res = await fetch(API_PAYMENTS, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        const all = (text ? JSON.parse(text) : { payments: [] }).payments || [];
+        const unlinked = all.filter(p => p.node_id == null);
+        window._unlinkedPaymentsCache = {};
+        unlinked.forEach(p => { window._unlinkedPaymentsCache[p.id] = p; });
+
+        const badge = document.getElementById('unlinked-count');
+        if (badge) {
+            badge.textContent = unlinked.length;
+            badge.style.display = unlinked.length > 0 ? 'inline-block' : 'none';
+        }
+        if (unlinked.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color:var(--text-tertiary)">Все платежи привязаны к нодам</td></tr>';
+            return;
+        }
+        unlinked.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+        tbody.innerHTML = unlinked.map(p => {
+            const d = new Date(p.payment_date).toLocaleDateString('ru-RU');
+            const amt = parseFloat(p.amount || 0).toFixed(2);
+            const ext = p.external_id || p.number || '—';
+            const desc = String(p.description || p.comment || '—');
+            return `<tr>
+                <td>${d}</td>
+                <td>${amt} ₽</td>
+                <td>${esc(String(ext))}</td>
+                <td title="${escHtmlAttr(desc)}">${esc(desc.substring(0, 60))}${desc.length > 60 ? '...' : ''}</td>
+                <td><button class="primary" onclick="openLinkPaymentModal(${p.id})"><i data-lucide="link"></i> Привязать</button></td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error('loadUnlinkedPayments', e);
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color:var(--danger)">Ошибка загрузки</td></tr>';
+    }
+}
+
+function openLinkPaymentModal(paymentId) {
+    const p = window._unlinkedPaymentsCache[paymentId];
+    if (!p) return;
+    document.getElementById('link-payment-id').value = paymentId;
+    const desc = String(p.description || p.comment || '—');
+    document.getElementById('link-payment-desc').textContent =
+        new Date(p.payment_date).toLocaleDateString('ru-RU') + ' · ' +
+        parseFloat(p.amount || 0).toFixed(2) + ' ₽ · ' + desc;
+
+    const sel = document.getElementById('link-payment-node');
+    sel.innerHTML = '<option value="">Выберите ноду</option>';
+    (window.billingNodesData || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = n.name + (n.provider_name ? ' (' + n.provider_name + ')' : '');
+        sel.appendChild(opt);
+    });
+
+    const m = document.getElementById('link-payment-modal');
+    if (!m) return;
+    m.classList.remove('hidden');
+    m.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeLinkPaymentModal() {
+    const m = document.getElementById('link-payment-modal');
+    if (m) { m.classList.remove('active'); setTimeout(() => m.classList.add('hidden'), 200); }
+}
+
+async function submitLinkPayment(e) {
+    e.preventDefault();
+    const paymentId = parseInt(document.getElementById('link-payment-id').value, 10);
+    const nodeId = parseInt(document.getElementById('link-payment-node').value, 10);
+    if (!paymentId || !nodeId) { showToastSafe('Выберите ноду', 'error'); return; }
+    try {
+        const res = await fetch(API_PAYMENT_LINK, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ payment_id: paymentId, node_id: nodeId })
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        showToastSafe('Платёж привязан', 'success');
+        closeLinkPaymentModal();
+        loadBillingData();
+        loadUnlinkedPayments();
+    } catch (err) {
+        console.error('submitLinkPayment', err);
+        showToastSafe('Ошибка: ' + err.message, 'error');
+    }
+}
+
+/* ==================== ИСТОРИЯ ПЛАТЕЖЕЙ ==================== */
+
+function renderPayments(payments) {
+    const tbody = document.getElementById('payments-history-tbody') || document.getElementById('payments-tbody');
+    if (!tbody) return;
+    if (!payments || payments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center">Нет платежей</td></tr>';
         return;
     }
-    const form = document.getElementById('provider-form');
-    if (form) {
-        form.reset();
-        document.getElementById('provider-edit-id').value = '';
-        form.querySelector('button[type="submit"]').textContent = 'Создать';
-    }
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
+    payments.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+    tbody.innerHTML = payments.slice(0, 200).map(p => {
+        const d = new Date(p.payment_date).toLocaleDateString('ru-RU');
+        const node = (window.billingNodesData || []).find(n => n.id == p.node_id);
+        const label = node
+            ? (node.provider_name ? node.provider_name + ' · ' + node.name : node.name)
+            : (p.node_name || '<span style="color:var(--text-tertiary)">не привязан</span>');
+        return `<tr>
+            <td>${label}</td>
+            <td>${d}</td>
+            <td>${parseFloat(p.amount || 0).toFixed(2)} ₽</td>
+        </tr>`;
+    }).join('');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
-function closeProviderModal() {
-    const modal = document.getElementById('provider-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.classList.add('hidden'), 200);
-    }
+async function loadPaymentsHistory() {
+    try {
+        const res = await fetch(API_PAYMENTS, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : { payments: [] };
+        renderPayments(data.payments || []);
+    } catch (e) { console.error('loadPaymentsHistory', e); }
 }
 
-function refreshProviders() {
-    loadProviders();
-}
+/* ==================== ПРОВАЙДЕРЫ ==================== */
 
 async function loadProviders() {
     try {
-        if (window.toggleTableLoader) {
-            window.toggleTableLoader('providers-tbody', true);
-        }
-        const res = await fetch(API_PROVIDERS, {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-        });
-        
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const text = await res.text();
+        const res = await fetch(API_PROVIDERS, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
         const data = text ? JSON.parse(text) : { providers: [] };
-        
-            providersList = data.providers || [];
-            renderProviders(providersList);
-            populateProviderSelects();
-            populatePaymentProviders();
-    } catch (error) {
-            console.error('Ошибка загрузки провайдеров:', error);
-            providersList = [];
-            renderProviders(providersList);
-            populateProviderSelects();
-            populatePaymentProviders();
-    } finally {
-        if (window.toggleTableLoader) {
-            window.toggleTableLoader('providers-tbody', false);
-        }
-    }
-}
-
-function renderProviders(providers) {
-    const tbody = document.getElementById('providers-tbody');
-    if (!tbody) return;
-    
-    if (providers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Нет провайдеров</td></tr>';
-        document.getElementById('providers-pagination').style.display = 'none';
-        return;
-    }
-    
-    // Подсчитываем общую сумму и количество серверов для каждого провайдера
-    const providersWithStats = providers.map(provider => {
-        const nodes = window.billingNodesData?.filter(n => n.provider_id === provider.id) || [];
-        const total = nodes.reduce((sum, n) => sum + parseFloat(n.billing_amount || 0), 0);
-        return { ...provider, total, servers: nodes };
-    });
-    
-    // Пагинация
-    const totalPages = Math.ceil(providersWithStats.length / providersPerPage);
-    const startIndex = (providersCurrentPage - 1) * providersPerPage;
-    const endIndex = startIndex + providersPerPage;
-    const paginatedProviders = providersWithStats.slice(startIndex, endIndex);
-    
-    tbody.innerHTML = paginatedProviders.map(provider => {
-        const servers = provider.servers && provider.servers.length > 0 
-            ? provider.servers.map(n => {
-                const flag = getCountryFlag(n.country);
-                return `<span class="node-tag">${flag} ${esc(n.name)}</span>`;
-            }).join('')
-            : '<span class="text-muted">Нет серверов</span>';
-        
-        return `
-            <tr>
-                <td>
-                    <div class="table-cell-with-icon">
-                        ${getProviderIcon(provider.favicon_url, provider.name, provider.url)}
-                        <span>${esc(provider.name)}</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="link"></i>
-                        ${provider.url ? `<a href="${escHtmlAttr(provider.url)}" target="_blank" onclick="event.stopPropagation();">${esc(provider.url)}</a><i data-lucide="external-link" class="external-link-icon"></i>` : '<span>-</span>'}
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="dollar-sign"></i>
-                        <span class="provider-total">${provider.total.toFixed(2)} ₽</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-cell-with-icon">
-                        <i data-lucide="server"></i>
-                        <div class="provider-servers">${servers}</div>
-                    </div>
-                </td>
-                <td>
-                    <div class="table-actions">
-                        <button class="icon-btn" onclick="editProvider(${provider.id})" title="Редактировать">
-                            <i data-lucide="edit"></i>
-                        </button>
-                        <button class="icon-btn danger" onclick="deleteProvider(${provider.id})" title="Удалить">
-                            <i data-lucide="trash-2"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-    
-    // Обновление пагинации
-    const pagination = document.getElementById('providers-pagination');
-    const pageInfo = document.getElementById('providers-page-info');
-    const prevBtn = document.getElementById('providers-prev');
-    const nextBtn = document.getElementById('providers-next');
-    
-    if (totalPages > 1) {
-        pagination.style.display = 'flex';
-        pageInfo.textContent = `Страница ${providersCurrentPage} из ${totalPages}`;
-        prevBtn.disabled = providersCurrentPage === 1;
-        nextBtn.disabled = providersCurrentPage === totalPages;
-    } else {
-        pagination.style.display = 'none';
-    }
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-function changeProvidersPage(direction) {
-    const totalPages = Math.ceil(providersList.length / providersPerPage);
-    const newPage = providersCurrentPage + direction;
-    if (newPage >= 1 && newPage <= totalPages) {
-        providersCurrentPage = newPage;
+        providersList = data.providers || [];
+        renderProviders(providersList);
+    } catch (e) {
+        console.error('loadProviders', e);
+        providersList = [];
         renderProviders(providersList);
     }
 }
 
-window.changeProvidersPage = changeProvidersPage;
+function getFilteredProviders() {
+    const q = (document.getElementById('providers-search')?.value || '').toLowerCase().trim();
+    if (!q) return providersList;
+    return providersList.filter(p =>
+        (p.name || '').toLowerCase().includes(q) || (p.url || '').toLowerCase().includes(q));
+}
+
+function updateProviderStats(providers) {
+    const totalEl = document.getElementById('providers-total');
+    const costEl = document.getElementById('providers-cost');
+    const serversEl = document.getElementById('providers-servers');
+    const allNodes = Array.isArray(window.billingNodesData) ? window.billingNodesData : [];
+    const names = new Set(providers.map(p => (p.name || '').toLowerCase()).filter(Boolean));
+    const linked = allNodes.filter(n => n.provider_name && names.has(n.provider_name.toLowerCase()));
+    const total = linked.reduce((s, n) => s + parseFloat(n.billing_amount || 0), 0);
+    if (totalEl) totalEl.textContent = providers.length;
+    if (costEl) costEl.textContent = total.toFixed(2) + ' ₽';
+    if (serversEl) serversEl.textContent = linked.length;
+}
+
+function renderProviderCard(p) {
+    const icon = getProviderIcon(p.favicon_url, p.name, p.url);
+    const safeUrl = p.url && /^https?:\/\//i.test(p.url) ? p.url : null;
+    const allNodes = Array.isArray(window.billingNodesData) ? window.billingNodesData : [];
+    const nodes = allNodes.filter(n => n.provider_name && p.name && n.provider_name.toLowerCase() === p.name.toLowerCase());
+    const total = nodes.reduce((s, n) => s + parseFloat(n.billing_amount || 0), 0);
+    const count = nodes.length;
+    const word = count === 1 ? 'сервер' : (count >= 2 && count <= 4 ? 'сервера' : 'серверов');
+    const costHtml = total > 0
+        ? `<span class="provider-card-metric-value">${total.toFixed(2)} ₽</span><span class="provider-card-metric-sub">/мес</span>`
+        : '<span class="provider-card-metric-empty">— не указано —</span>';
+    const serversHtml = count > 0
+        ? nodes.slice(0, 5).map(n => `<span class="node-tag" title="${escHtmlAttr(n.name)}">${getCountryFlag(n.country)} ${esc(n.name)}</span>`).join('') +
+          (count > 5 ? `<span class="node-tag node-tag-more">+${count - 5}</span>` : '')
+        : '<span class="provider-card-metric-empty">Нет привязанных серверов</span>';
+    return `<div class="provider-card">
+        <div class="provider-card-header">
+            <div class="provider-card-favicon">${icon}</div>
+            <div class="provider-card-info">
+                <div class="provider-card-name" title="${escHtmlAttr(p.name)}">${esc(p.name)}</div>
+                ${safeUrl ? `<a class="provider-card-url" href="${escHtmlAttr(safeUrl)}" target="_blank" rel="noopener">${esc(p.url)}</a>` : '<div class="provider-card-url provider-card-url-empty">URL не указан</div>'}
+            </div>
+            <div class="provider-card-actions">
+                <button class="icon-btn" onclick="editProvider(${p.id})" title="Редактировать"><i data-lucide="pencil"></i></button>
+                <button class="icon-btn danger" onclick="deleteProvider(${p.id})" title="Удалить"><i data-lucide="trash-2"></i></button>
+            </div>
+        </div>
+        <div class="provider-card-metrics">
+            <div class="provider-card-metric"><i data-lucide="wallet"></i>${costHtml}</div>
+            <div class="provider-card-metric"><i data-lucide="server"></i><span class="provider-card-metric-value">${count}</span><span class="provider-card-metric-sub">${word}</span></div>
+        </div>
+        <div class="provider-card-servers">${serversHtml}</div>
+    </div>`;
+}
+
+function renderProviders(providers) {
+    const container = document.getElementById('providers-list');
+    if (!container) return;
+    updateProviderStats(providers);
+    const filtered = getFilteredProviders();
+    const q = (document.getElementById('providers-search')?.value || '').trim();
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="providers-empty">
+            <i data-lucide="building-2"></i>
+            <h3>${q ? 'Ничего не найдено' : 'Провайдеров пока нет'}</h3>
+            <p>${q ? 'Попробуйте изменить поисковый запрос' : 'Добавьте первого провайдера'}</p>
+            ${!q ? '<button class="primary" onclick="addProvider()" style="margin-top:16px;"><i data-lucide="plus"></i> Добавить</button>' : ''}
+        </div>`;
+        const pag = document.getElementById('providers-pagination');
+        if (pag) pag.style.display = 'none';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        return;
+    }
+    const totalPages = Math.ceil(filtered.length / providersPerPage);
+    if (providersCurrentPage > totalPages) providersCurrentPage = totalPages;
+    if (providersCurrentPage < 1) providersCurrentPage = 1;
+    const start = (providersCurrentPage - 1) * providersPerPage;
+    container.innerHTML = filtered.slice(start, start + providersPerPage).map(renderProviderCard).join('');
+
+    const pag = document.getElementById('providers-pagination');
+    const info = document.getElementById('providers-page-info');
+    const prev = document.getElementById('providers-prev');
+    const next = document.getElementById('providers-next');
+    if (totalPages > 1) {
+        if (pag) pag.style.display = 'flex';
+        if (info) info.textContent = `Страница ${providersCurrentPage} из ${totalPages}`;
+        if (prev) prev.disabled = providersCurrentPage === 1;
+        if (next) next.disabled = providersCurrentPage === totalPages;
+    } else if (pag) pag.style.display = 'none';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function filterProviders() { providersCurrentPage = 1; renderProviders(providersList); }
+
+function changeProvidersPage(direction) {
+    const filtered = getFilteredProviders();
+    const totalPages = Math.ceil(filtered.length / providersPerPage);
+    const np = providersCurrentPage + direction;
+    if (np >= 1 && np <= totalPages) { providersCurrentPage = np; renderProviders(providersList); }
+}
+
+function addProvider() {
+    const m = document.getElementById('provider-modal');
+    if (!m) return;
+    document.getElementById('provider-form').reset();
+    document.getElementById('provider-edit-id').value = '';
+    m.querySelector('button[type="submit"]').textContent = 'Создать';
+    m.classList.remove('hidden'); m.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeProviderModal() {
+    const m = document.getElementById('provider-modal');
+    if (m) { m.classList.remove('active'); setTimeout(() => m.classList.add('hidden'), 200); }
+}
 
 function editProvider(id) {
-    const provider = providersList.find(p => p.id == id);
-    if (!provider) return;
-    
-    const modal = document.getElementById('provider-modal');
-    const form = document.getElementById('provider-form');
-    if (!modal || !form) return;
-    
-    document.getElementById('provider-edit-id').value = provider.id;
-    document.getElementById('provider-name').value = provider.name || '';
-    document.getElementById('provider-favicon').value = provider.favicon_url || '';
-    document.getElementById('provider-url').value = provider.url || '';
-    form.querySelector('button[type="submit"]').textContent = 'Сохранить';
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
+    const p = providersList.find(x => x.id == id);
+    if (!p) return;
+    const m = document.getElementById('provider-modal');
+    if (!m) return;
+    document.getElementById('provider-edit-id').value = p.id;
+    document.getElementById('provider-name').value = p.name || '';
+    document.getElementById('provider-favicon').value = p.favicon_url || '';
+    document.getElementById('provider-url').value = p.url || '';
+    m.querySelector('button[type="submit"]').textContent = 'Сохранить';
+    m.classList.remove('hidden'); m.classList.add('active');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 async function deleteProvider(id) {
-    const confirmed = await window.showConfirm('Вы уверены, что хотите удалить этого провайдера? Это действие нельзя отменить.', 'Удаление провайдера', 'danger');
-    if (!confirmed) return;
-    fetch(`${API_PROVIDERS}?id=${id}`, { 
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-    })
-        .then(async res => {
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const text = await res.text();
-            return text ? JSON.parse(text) : {};
-        })
-        .then(data => {
-            if (data.success) {
-                showToast('Провайдер удален', 'success');
-                loadProviders();
-            } else {
-                throw new Error(data.error || 'Ошибка удаления');
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка удаления провайдера:', error);
-            showToast(error.message || 'Ошибка удаления', 'error');
+    let ok;
+    if (typeof window.showConfirm === 'function') {
+        ok = await window.showConfirm('Удалить провайдера? Действие нельзя отменить.', 'Удаление провайдера', 'danger');
+    } else {
+        ok = confirm('Удалить провайдера?');
+    }
+    if (!ok) return;
+    try {
+        const res = await fetch(`${API_PROVIDERS}?id=${id}`, {
+            method: 'DELETE', credentials: 'include',
+            headers: { 'X-CSRF-Token': getCsrfToken() }
         });
-}
-
-const showToast = (message, type = 'info') => {
-    if (typeof window.showToast === 'function') window.showToast(message, type);
-};
-
-function refreshBilling() {
-    loadBillingData();
-}
-
-function refreshPayments() {
-    loadBillingData();
-}
-
-// Закрытие основного модального окна биллинга ноды
-function closeBillingModal() {
-    const modal = document.getElementById('billing-modal'); // находим модалку
-    if (modal) { // если есть в DOM
-        modal.classList.remove('active'); // убираем класс активного состояния
-        setTimeout(() => modal.classList.add('hidden'), 200); // прячем после короткой анимации
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        showToastSafe('Провайдер удалён', 'success');
+        loadProviders();
+    } catch (e) {
+        console.error(e);
+        showToastSafe(e.message, 'error');
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    loadProviders();
-    loadBillingData();
-    populatePaymentProviders();
-    setInterval(() => loadBillingData(true), 60000); // Обновление каждую минуту без анимации
-    
-    // Обработчики клика вне модальных окон
-    const billingModal = document.getElementById('billing-modal');
-    const paymentModal = document.getElementById('payment-modal');
-    const providerModal = document.getElementById('provider-modal');
-    const updateDateModal = document.getElementById('update-payment-date-modal');
-    
-    if (billingModal) {
-        billingModal.addEventListener('click', (e) => {
-            if (e.target === billingModal) closeBillingModal();
-        });
-    }
-    
-    if (paymentModal) {
-        paymentModal.addEventListener('click', (e) => {
-            if (e.target === paymentModal) closePaymentModal();
-        });
-    }
-    
-    if (providerModal) {
-        providerModal.addEventListener('click', (e) => {
-            if (e.target === providerModal) closeProviderModal();
-        });
-    }
-    
-    if (updateDateModal) {
-        updateDateModal.addEventListener('click', (e) => {
-            if (e.target === updateDateModal) closeUpdatePaymentDateModal();
-        });
-    }
-    
-    // Инициализация чекбокса "Выбрать все"
-    const selectAll = document.getElementById('select-all-billing-nodes');
-    if (selectAll) {
-        selectAll.addEventListener('change', (e) => {
-            const checkboxes = document.querySelectorAll('.billing-node-checkbox');
-            checkboxes.forEach(cb => cb.checked = e.target.checked);
-            updateBillingSelection();
-        });
-    }
-    
-    // Обработчик формы обновления даты
-    const updateDateForm = document.getElementById('update-payment-date-form');
-    if (updateDateForm) {
-        updateDateForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const nodeId = formData.get('node_id');
-            const newDate = formData.get('new_date');
-            
-            try {
-                const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
-                    method: 'PUT',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ next_payment_date: newDate })
-                });
-                
-                if (res.ok) {
-                    showToast('Дата обновлена', 'success');
-                    closeUpdatePaymentDateModal();
-                    loadBillingData();
-                } else {
-                    throw new Error('Ошибка обновления');
-                }
-            } catch (error) {
-                console.error('Ошибка обновления даты:', error);
-                showToast(error.message || 'Ошибка обновления', 'error');
-            }
-        });
-    }
-    
-    // Обработчик формы биллинга
-    const billingForm = document.getElementById('billing-form');
-    if (billingForm) {
-        billingForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(billingForm);
-            const nodeId = formData.get('node_id') || formData.get('node_id_select');
-            if (!nodeId) {
-                showToast('Выберите ноду', 'error');
-                return;
-            }
-            const nextPayment = formData.get('next_payment_date');
-            const dateOnly = nextPayment ? nextPayment.split('T')[0] : null;
-            
-            try {
-                const providerName = formData.get('provider_name');
-                const billingAmount = parseFloat(formData.get('billing_amount')) || null;
-                const provider = providersList.find(p => p.name === providerName);
-                
-                const res = await fetch(`${API_NODES}?id=${encodeURIComponent(nodeId)}`, {
-                    method: 'PUT',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        provider_name: providerName,
-                        provider_url: provider?.url || null,
-                        billing_amount: billingAmount,
-                        next_payment_date: dateOnly,
-                    })
-                });
-                
-                if (res.ok) {
-                    const text = await res.text();
-                    const data = text ? JSON.parse(text) : {};
-                    if (data.error) {
-                        throw new Error(data.error);
-                    }
-                    showToast('Биллинг сохранен', 'success');
-                    closeBillingModal();
-                    loadBillingData();
-                } else {
-                    const text = await res.text();
-                    let errorMsg = 'Ошибка сохранения';
-                    try {
-                        const data = text ? JSON.parse(text) : {};
-                        errorMsg = data.error || errorMsg;
-                    } catch {}
-                    throw new Error(errorMsg);
-                }
-            } catch (error) {
-                console.error('Ошибка сохранения биллинга:', error);
-                showToast(error.message || 'Ошибка сохранения', 'error');
-            }
-        });
-    }
-    
-    // Обработчик формы платежа
-    const paymentForm = document.getElementById('payment-form');
-    if (paymentForm) {
-        paymentForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const paymentDate = formData.get('payment_date') || '';
-            const dateOnly = paymentDate.split('T')[0] || paymentDate;
-            
-            try {
-                // Находим ноду по провайдеру
-                const providerId = parseInt(formData.get('provider_id'));
-                const provider = providersList.find(p => p.id == providerId);
-                if (!provider) {
-                    throw new Error('Провайдер не найден');
-                }
-                
-                const nodes = window.billingNodesData?.filter(n => n.provider_id === provider.id) || [];
-                if (nodes.length === 0) {
-                    throw new Error('Ноды для этого провайдера не найдены');
-                }
-                
-                // Создаем платеж для всех нод провайдера
-                const amount = parseFloat(formData.get('amount'));
-                const promises = nodes.map(node => {
-                    const nodeAmount = amount / nodes.length;
-                    return fetch(API_PAYMENTS, {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            node_id: node.id,
-                            amount: nodeAmount,
-                            payment_date: dateOnly
-                        })
-                    });
-                });
-                
-                const results = await Promise.all(promises);
-                
-                if (results.every(r => r.ok)) {
-                    showToast(`Платежи добавлены для ${nodes.length} нод`, 'success');
-                    closePaymentModal();
-                    loadBillingData();
-                } else {
-                    const failed = results.filter(r => !r.ok).length;
-                    throw new Error(`Ошибка добавления платежа для ${failed} нод`);
-                }
-            } catch (error) {
-                console.error('Ошибка добавления платежа:', error);
-                showToast(error.message || 'Ошибка добавления платежа', 'error');
-            }
-        });
-    }
-    
-    // Автоматическая генерация favicon_url из URL
-    const providerUrlInput = document.getElementById('provider-url');
-    const providerFaviconInput = document.getElementById('provider-favicon');
-    if (providerUrlInput && providerFaviconInput) {
-        let autoGenerated = false;
-        
-        const generateFavicon = () => {
-            const url = providerUrlInput.value.trim();
-            if (url) {
-                // Генерируем favicon_url из URL только если поле favicon пустое или было автоматически сгенерировано
-                if (!providerFaviconInput.value.trim() || autoGenerated) {
-                    const faviconUrl = buildFaviconUrl(null, url);
-                    if (faviconUrl) {
-                        providerFaviconInput.value = faviconUrl;
-                        autoGenerated = true;
-                        providerFaviconInput.style.color = 'var(--text-muted)';
-                        providerFaviconInput.title = 'Автоматически сгенерировано из ссылки для входа';
-                    }
-                }
-            } else {
-                autoGenerated = false;
-                providerFaviconInput.style.color = '';
-                providerFaviconInput.title = '';
-            }
-        };
-        
-        // Генерируем при потере фокуса
-        providerUrlInput.addEventListener('blur', generateFavicon);
-        
-        // Генерируем при вводе (с небольшой задержкой)
-        let timeout;
-        providerUrlInput.addEventListener('input', () => {
-            clearTimeout(timeout);
-            timeout = setTimeout(generateFavicon, 500);
-        });
-        
-        // Сбрасываем флаг автоматической генерации при ручном редактировании favicon
-        providerFaviconInput.addEventListener('input', () => {
-            autoGenerated = false;
-            providerFaviconInput.style.color = '';
-            providerFaviconInput.title = '';
-        });
-    }
-    
-    // Обработчик формы провайдера
-    const providerForm = document.getElementById('provider-form');
-    if (providerForm) {
-        providerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const providerId = document.getElementById('provider-edit-id').value;
-            const isEdit = providerId && providerId !== '';
-            
-            // Если favicon_url пустой, но есть url, сервер сам сгенерирует его
-            const faviconUrl = providerFaviconInput?.value.trim() || null;
-            const providerUrl = providerUrlInput?.value.trim() || null;
-            
-            try {
-                const url = `${API_PROVIDERS}${isEdit ? `?id=${providerId}` : ''}`;
-                const res = await fetch(url, {
-                    method: isEdit ? 'PUT' : 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: document.getElementById('provider-name').value,
-                        favicon_url: faviconUrl,
-                        url: providerUrl
-                    })
-                });
-                
-                if (res.ok) {
-                    const text = await res.text();
-                    const data = text ? JSON.parse(text) : {};
-                    if (data.error) {
-                        throw new Error(data.error);
-                    }
-                    showToast(isEdit ? 'Провайдер обновлен' : 'Провайдер добавлен', 'success');
-                    closeProviderModal();
-                    loadProviders();
-                    loadBillingData();
-                } else {
-                    const text = await res.text();
-                    const data = text ? JSON.parse(text) : {};
-                    throw new Error(data.error || 'Ошибка сохранения');
-                }
-            } catch (error) {
-                console.error('Ошибка сохранения провайдера:', error);
-                showToast(error.message || 'Ошибка сохранения', 'error');
-            }
-        });
-    }
-    
-    // Обработчик изменения даты последней оплаты
-    const lastPaymentInput = document.getElementById('billing-last-payment');
-    const periodInput = document.getElementById('billing-period');
-    if (lastPaymentInput && periodInput) {
-        lastPaymentInput.addEventListener('change', () => {
-            if (lastPaymentInput.value && periodInput.value) {
-                const date = new Date(lastPaymentInput.value);
-                date.setDate(date.getDate() + parseInt(periodInput.value));
-                if (datePickers['billing-next-payment']) {
-                    datePickers['billing-next-payment'].setDate(date);
-                }
-            }
-        });
-        periodInput.addEventListener('change', () => {
-            if (lastPaymentInput.value && periodInput.value) {
-                const date = new Date(lastPaymentInput.value);
-                date.setDate(date.getDate() + parseInt(periodInput.value));
-                if (datePickers['billing-next-payment']) {
-                    datePickers['billing-next-payment'].setDate(date);
-                }
-            }
-        });
-    }
-
-    // Инициализация наших календарей
-    initDatePicker('billing-next-payment');
-    initDatePicker('payment-date');
-    initDatePicker('update-payment-new-date');
-    // значения по умолчанию
-    if (datePickers['payment-date']) datePickers['payment-date'].setDate(new Date());
-});
-
-function populateProviderSelects() {
-    const selects = document.querySelectorAll('[data-provider-select="name"]');
-    selects.forEach(select => {
-        const currentValue = select.value;
-        select.innerHTML = '<option value="">Выбрать провайдера...</option>';
-        providersList.forEach(provider => {
-            const option = document.createElement('option');
-            option.value = provider.name;
-            option.textContent = provider.name;
-            if (currentValue === provider.name) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
-    });
-}
-
-window.populateProviderSelects = populateProviderSelects;
-
-function switchBillingTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tab);
-    });
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.toggle('active', content.id === `${tab}-tab`);
-    });
-    
-    if (tab === 'stats') {
-        loadBillingStats();
-    }
-    
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
+/* ==================== СТАТИСТИКА ==================== */
 
 async function loadBillingStats() {
+    if (typeof Chart === 'undefined') {
+        console.warn('[billing] Chart.js не загружен — графики пропущены');
+        return;
+    }
     try {
-        const [paymentsRes, providersRes, nodesRes] = await Promise.all([
+        const [paymentsRes, providersRes] = await Promise.all([
             fetch(API_PAYMENTS, { credentials: 'include' }),
-            fetch(API_PROVIDERS, { credentials: 'include' }),
-            fetch(API_NODES, { credentials: 'include' })
+            fetch(API_PROVIDERS, { credentials: 'include' })
         ]);
-        
         if (!paymentsRes.ok || !providersRes.ok) throw new Error('HTTP error');
-        
-        const paymentsText = await paymentsRes.text();
-        const providersText = await providersRes.text();
-        const paymentsData = paymentsText ? JSON.parse(paymentsText) : { payments: [] };
-        const providersData = providersText ? JSON.parse(providersText) : { providers: [] };
-        
-        const payments = paymentsData.payments || [];
-        const providers = providersData.providers || [];
-        
-        // Загружаем ноды для графика предстоящих платежей
-        let nodes = [];
-        if (nodesRes && nodesRes.ok) {
-            const nodesText = await nodesRes.text();
-            const nodesData = nodesText ? JSON.parse(nodesText) : {};
-            nodes = nodesData?.nodes ?? nodesData?.data ?? [];
-        }
-        
+        const pt = await paymentsRes.text();
+        const rt = await providersRes.text();
+        const payments = (pt ? JSON.parse(pt) : {}).payments || [];
+        const providers = (rt ? JSON.parse(rt) : {}).providers || [];
         renderMonthlyChart(payments);
         renderProviderChart(payments, providers);
-        renderDailyChart(payments);
-        renderUpcomingChart(nodes, payments);
-        renderPaymentsTimelineChart(payments);
-    } catch (error) {
-        console.error('Ошибка загрузки статистики:', error);
-    }
+    } catch (e) { console.error('loadBillingStats', e); }
 }
 
 function renderMonthlyChart(payments) {
-    const ctx = document.getElementById('monthly-chart');
+    const ctx = document.getElementById('paymentsChart');
     if (!ctx) return;
-    
-    // Группируем по месяцам
-    const monthlyData = {};
+    const monthly = {};
     payments.forEach(p => {
-        const date = new Date(p.payment_date);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        if (!monthlyData[monthKey]) {
-            monthlyData[monthKey] = 0;
-        }
-        monthlyData[monthKey] += parseFloat(p.amount || 0);
+        const d = new Date(p.payment_date);
+        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthly[k] = (monthly[k] || 0) + parseFloat(p.amount || 0);
     });
-    
-    const months = Object.keys(monthlyData).sort();
-    const amounts = months.map(m => monthlyData[m]);
-    
-    if (monthlyChart) {
-        monthlyChart.destroy();
-    }
-    
+    const months = Object.keys(monthly).sort();
+    if (monthlyChart) monthlyChart.destroy();
     monthlyChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: months.map(m => {
-                const [year, month] = m.split('-');
-                return new Date(year, month - 1).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
-            }),
+            labels: months.map(m => { const [y, mo] = m.split('-'); return new Date(y, mo - 1).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' }); }),
             datasets: [{
                 label: 'Расходы, ₽',
-                data: amounts,
-                borderColor: 'rgb(59, 130, 246)',
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                tension: 0.4,
-                fill: true
+                data: months.map(m => monthly[m]),
+                borderColor: 'rgb(59,130,246)',
+                backgroundColor: 'rgba(59,130,246,0.1)',
+                tension: 0.4, fill: true
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return value + ' ₽';
-                        }
-                    }
-                }
-            }
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { callback: v => v + ' ₽' } } }
         }
     });
 }
 
 function renderProviderChart(payments, providers) {
-    const ctx = document.getElementById('provider-chart');
+    const ctx = document.getElementById('providersChart');
     if (!ctx) return;
-    
-    // Группируем по провайдерам
-    const providerData = {};
+    const data = {};
     payments.forEach(p => {
-        const providerName = p.provider_name || 'Неизвестно';
-        if (!providerData[providerName]) {
-            providerData[providerName] = 0;
-        }
-        providerData[providerName] += parseFloat(p.amount || 0);
+        const name = p.provider_name || 'Неизвестно';
+        data[name] = (data[name] || 0) + parseFloat(p.amount || 0);
     });
-    
-    const labels = Object.keys(providerData);
-    const data = Object.values(providerData);
-    const colors = [
-        'rgba(59, 130, 246, 0.8)',
-        'rgba(16, 185, 129, 0.8)',
-        'rgba(245, 158, 11, 0.8)',
-        'rgba(239, 68, 68, 0.8)',
-        'rgba(139, 92, 246, 0.8)',
-        'rgba(236, 72, 153, 0.8)'
-    ];
-    
-    if (providerChart) {
-        providerChart.destroy();
-    }
-    
+    const labels = Object.keys(data);
+    if (providerChart) providerChart.destroy();
     providerChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: labels,
-            datasets: [{
-                data: data,
-                backgroundColor: colors.slice(0, labels.length),
-                borderWidth: 2,
-                borderColor: 'var(--bg-primary)'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom'
-                }
-            }
-        }
-    });
-}
-
-function renderDailyChart(payments) {
-    const ctx = document.getElementById('daily-chart');
-    if (!ctx) return;
-    
-    const now = new Date();
-    const start = new Date(now);
-    start.setDate(start.getDate() - 29); // последние 30 дней
-    
-    const days = [];
-    const dayTotals = {};
-    for (let i = 0; i < 30; i++) {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
-        const key = d.toISOString().split('T')[0];
-        days.push(key);
-        dayTotals[key] = 0;
-    }
-    
-    payments.forEach(p => {
-        const d = new Date(p.payment_date);
-        const key = d.toISOString().split('T')[0];
-        if (dayTotals[key] !== undefined) {
-            dayTotals[key] += parseFloat(p.amount || 0);
-        }
-    });
-    
-    const labels = days.map(d => {
-        const [y, m, day] = d.split('-');
-        return `${day}.${m}`;
-    });
-    const data = days.map(d => dayTotals[d]);
-    
-    if (window.dailyChart) window.dailyChart.destroy();
-    window.dailyChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
             labels,
             datasets: [{
-                label: 'Платежи за день, ₽',
-                data,
-                backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                data: Object.values(data),
+                backgroundColor: ['rgba(59,130,246,.8)','rgba(16,185,129,.8)','rgba(245,158,11,.8)','rgba(239,68,68,.8)','rgba(139,92,246,.8)','rgba(236,72,153,.8)'],
+                borderWidth: 2, borderColor: 'var(--bg-primary)'
             }]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: v => v + ' ₽'
-                    }
-                }
-            }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
     });
 }
 
-function renderUpcomingChart(nodes, payments) {
-    const ctx = document.getElementById('upcoming-chart');
-    if (!ctx) return;
-    
-    // строим по полю next_payment_date из нод
-    const now = new Date();
-    const end = new Date(now);
-    end.setDate(end.getDate() + 30); // 30 дней вперёд
-    
-    const dayCounts = {};
-    nodes.forEach(n => {
-        if (!n.next_payment_date) return;
-        const d = new Date(n.next_payment_date);
-        if (d >= now && d <= end) {
-            const key = d.toISOString().split('T')[0];
-            if (!dayCounts[key]) dayCounts[key] = 0;
-            dayCounts[key] += 1;
+/* ==================== РАСХОДЫ / ДОМЕНЫ / ИМПОРТ ==================== */
+
+async function loadBillingExpenses() {
+    try {
+        const res = await fetch(`${API_IMPORT}?type=expenses`, { credentials: 'include' });
+        const data = await res.json();
+        const tbody = document.getElementById('billing-expenses-tbody');
+        if (!tbody) return;
+        const list = data.expenses || [];
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
         }
-    });
-    
-    const sortedKeys = Object.keys(dayCounts).sort();
-    const labels = sortedKeys.map(d => {
-        const [y, m, day] = d.split('-');
-        return `${day}.${m}`;
-    });
-    const data = sortedKeys.map(d => dayCounts[d]);
-    
-    if (window.upcomingChart) window.upcomingChart.destroy();
-    window.upcomingChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Кол-во нод с оплатой',
-                data,
-                borderColor: 'rgba(239, 68, 68, 0.9)',
-                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                tension: 0.3,
-                fill: true,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        stepSize: 1
-                    }
-                }
-            }
-        }
-    });
+        tbody.innerHTML = list.map(e => {
+            const matched = e.matched_node_id
+                ? `VPS: ${esc(e.node_name || '')}`
+                : e.matched_domain_id
+                    ? `Домен: ${esc(e.domain_name || '')}`
+                    : '<span style="color:var(--text-tertiary)">не сопоставлено</span>';
+            const d = e.expense_date ? new Date(e.expense_date).toLocaleDateString('ru-RU') : '—';
+            const desc = String(e.description || '');
+            return `<tr>
+                <td>${d}</td>
+                <td title="${escHtmlAttr(desc)}">${esc(desc.substring(0, 80))}${desc.length > 80 ? '...' : ''}</td>
+                <td>${esc(e.account_ref || '—')}</td>
+                <td>${parseFloat(e.amount || 0).toFixed(2)} ₽</td>
+                <td>${matched}</td>
+                <td><button class="icon-btn" onclick="openExpenseMatch(${e.id})" title="Сопоставить"><i data-lucide="link"></i></button></td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) { console.error('loadBillingExpenses', e); }
 }
 
-function renderPaymentsTimelineChart(payments) {
-    const ctx = document.getElementById('payments-timeline-chart');
-    if (!ctx) return;
-    
-    // Сортируем по дате
-    const sortedPayments = [...payments].sort((a, b) => 
-        new Date(a.payment_date) - new Date(b.payment_date)
-    );
-    
-    const dates = sortedPayments.map(p => {
-        const d = new Date(p.payment_date);
-        return d.toLocaleDateString('ru-RU');
-    });
-    const amounts = sortedPayments.map(p => parseFloat(p.amount || 0));
-    
-    if (paymentsTimelineChart) {
-        paymentsTimelineChart.destroy();
-    }
-    
-    paymentsTimelineChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'Сумма платежа, ₽',
-                data: amounts,
-                backgroundColor: 'rgba(59, 130, 246, 0.6)',
-                borderColor: 'rgb(59, 130, 246)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return value + ' ₽';
-                        }
-                    }
-                }
-            }
+async function loadBillingDomains() {
+    try {
+        const res = await fetch(`${API_IMPORT}?type=domains`, { credentials: 'include' });
+        const data = await res.json();
+        const tbody = document.getElementById('billing-domains-tbody');
+        if (!tbody) return;
+        const list = data.domains || [];
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
         }
-    });
-}
-
-window.switchBillingTab = switchBillingTab;
-
-function openProviderModal() {
-    const name = prompt('Введите имя провайдера:');
-    if (name) {
-        const url = prompt('Введите URL провайдера (опционально):');
-        providersList.push({ id: providersList.length + 1, name, url: url || '' });
-        populateProviderSelects();
+        tbody.innerHTML = list.map(d => {
+            const exp = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : '—';
+            const price = d.price ? parseFloat(d.price).toFixed(2) + ' ₽' : '—';
+            return `<tr>
+                <td><strong>${esc(d.domain_name || '—')}</strong></td>
+                <td>${esc(d.tld || '—')}</td>
+                <td>${esc(d.contact || '—')}</td>
+                <td>${exp}</td>
+                <td>${price}</td>
+                <td>${esc(d.status || '—')}</td>
+            </tr>`;
+        }).join('');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    } catch (e) {
+        console.error('loadBillingDomains', e);
+        const tbody = document.getElementById('billing-domains-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--danger)">Ошибка загрузки</td></tr>';
     }
 }
 
-
-// Импорт и расходы
-window.openExpenseImport = function() { switchBillingTab('imports'); document.getElementById('billing-import-type').value='expenses'; };
-window.openDomainImport = function() { switchBillingTab('imports'); document.getElementById('billing-import-type').value='domains'; };
+async function loadBillingImports() {
+    try {
+        const res = await fetch(`${API_IMPORT}?type=imports`, { credentials: 'include' });
+        const data = await res.json();
+        const tbody = document.getElementById('billing-imports-tbody');
+        if (!tbody) return;
+        const list = data.imports || [];
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            return;
+        }
+        tbody.innerHTML = list.map(im => `<tr>
+            <td>${im.id}</td>
+            <td>${esc(im.type)}</td>
+            <td>${esc(im.filename || '—')}</td>
+            <td>${im.imported_rows || 0}</td>
+            <td>${im.matched_rows || 0}</td>
+            <td>${esc(im.status)}</td>
+        </tr>`).join('');
+    } catch (e) { console.error('loadBillingImports', e); }
+}
 
 async function startBillingImport() {
     const type = document.getElementById('billing-import-type').value;
@@ -1602,9 +938,9 @@ async function startBillingImport() {
     formData.append('file', fileInput.files[0]);
     resDiv.textContent = 'Загрузка...';
     try {
-        const resp = await fetch(`${API_BASE}/billing_import.php`, {
-            method: 'POST',
-            credentials: 'include',
+        const resp = await fetch(API_IMPORT, {
+            method: 'POST', credentials: 'include',
+            headers: { 'X-CSRF-Token': getCsrfToken() },
             body: formData
         });
         const data = await resp.json();
@@ -1613,197 +949,222 @@ async function startBillingImport() {
             loadBillingImports();
             if (type === 'expenses') loadBillingExpenses();
             if (type === 'domains') loadBillingDomains();
+            if (type === 'payments') { loadBillingData(); loadUnlinkedPayments(); }
         } else {
-            resDiv.textContent = data.error || 'Ошибка импорта';
+            resDiv.textContent = 'Ошибка: ' + (data.error || 'неизвестно') + (data.debug ? ' — ' + data.debug : '');
         }
     } catch (e) {
         console.error(e);
         resDiv.textContent = 'Ошибка импорта';
     }
 }
-window.startBillingImport = startBillingImport;
 
-async function loadBillingImports() {
-    try {
-        const resp = await fetch(`${API_BASE}/billing_import.php?type=imports`, { credentials: 'include' });
-        const data = await resp.json();
-        const tbody = document.getElementById('billing-imports-tbody');
-        if (!tbody) return;
-        const imports = data.imports || [];
-        if (imports.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
-            return;
-        }
-        tbody.innerHTML = imports.map(im => `
-            <tr>
-                <td>${im.id}</td>
-                <td>${esc(im.type)}</td>
-                <td>${esc(im.filename || '-')}</td>
-                <td>${im.imported_rows || 0}</td>
-                <td>${im.matched_rows || 0}</td>
-                <td>${esc(im.status)}</td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        console.error(e);
-    }
-}
-window.loadBillingImports = loadBillingImports;
+/* ==================== СОПОСТАВЛЕНИЕ РАСХОДА ==================== */
 
-async function loadBillingExpenses() {
-    try {
-        const resp = await fetch(`${API_BASE}/billing_import.php?type=expenses`, { credentials: 'include' });
-        const data = await resp.json();
-        const tbody = document.getElementById('billing-expenses-tbody');
-        if (!tbody) return;
-        const expenses = data.expenses || [];
-        if (expenses.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
-            return;
-        }
-        tbody.innerHTML = expenses.map(e => {
-            const matched = e.matched_node_id ? `VPS: ${esc(e.node_name||'')}` : (e.matched_domain_id ? `Домен: ${esc(e.domain_name||'')}` : '<span style="color: var(--text-tertiary);">не сопоставлено</span>');
-            const d = e.expense_date ? new Date(e.expense_date).toLocaleDateString('ru-RU') : '-';
-            return `<tr>
-                <td>${d}</td>
-                <td title="${esc(e.description||'')}">${esc((e.description||'').substring(0,80))}${(e.description||'').length>80?'...':''}</td>
-                <td>${esc(e.account_ref||'-')}</td>
-                <td>${parseFloat(e.amount||0).toFixed(2)} ₽</td>
-                <td>${matched}</td>
-                <td><button class="icon-btn" onclick='openExpenseMatch(${e.id}, ${JSON.stringify(e.description||'')})'><i data-lucide="link"></i></button></td>
-            </tr>`;
-        }).join('');
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-    } catch (e) {
-        console.error(e);
-    }
-}
-window.loadBillingExpenses = loadBillingExpenses;
-
-async function loadBillingDomains() {
-    try {
-        const resp = await fetch(`${API_BASE}/billing_import.php?type=domains`, { credentials: 'include' });
-        const data = await resp.json();
-        const tbody = document.getElementById('billing-domains-tbody');
-        if (!tbody) return;
-        const domains = data.domains || [];
-        if (domains.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
-            return;
-        }
-        tbody.innerHTML = domains.map(d => {
-            const exp = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : '-';
-            const price = d.price_per_year ? parseFloat(d.price_per_year).toFixed(2) + ' ₽' : '-';
-            return `<tr>
-                <td><strong>${esc(d.name)}</strong></td>
-                <td>${esc(d.zone||'-')}</td>
-                <td>${esc(d.project||'-')}</td>
-                <td>${exp}</td>
-                <td>${price}</td>
-                <td>${esc(d.status)}</td>
-            </tr>`;
-        }).join('');
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-    } catch (e) {
-        console.error(e);
-    }
-}
-window.loadBillingDomains = loadBillingDomains;
-
-let _expenseMatchData = {id:null};
-window.openExpenseMatch = function(id, desc) {
-    _expenseMatchData.id = id;
+function openExpenseMatch(id) {
     document.getElementById('expense-match-id').value = id;
-    document.getElementById('expense-match-desc').textContent = desc || '';
-    // fill nodes
     const nodeSel = document.getElementById('expense-match-node');
     nodeSel.innerHTML = '<option value="">Не сопоставлять</option>';
-    if (window.billingNodesData) {
-        window.billingNodesData.forEach(n => {
-            const opt = document.createElement('option');
-            opt.value = n.id;
-            opt.textContent = n.name + (n.provider_name ? ' ('+n.provider_name+')' : '');
-            nodeSel.appendChild(opt);
-        });
-    }
-    // domains
+    (window.billingNodesData || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = n.name + (n.provider_name ? ' (' + n.provider_name + ')' : '');
+        nodeSel.appendChild(opt);
+    });
     const domSel = document.getElementById('expense-match-domain');
     domSel.innerHTML = '<option value="">Не сопоставлять</option>';
-    fetch(`${API_BASE}/billing_import.php?type=domains`, {credentials:'include'}).then(r=>r.json()).then(data=>{
-        (data.domains||[]).forEach(d=>{
+    fetch(`${API_IMPORT}?type=domains`, { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => (data.domains || []).forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.id;
-            opt.textContent = d.name;
+            opt.textContent = d.domain_name;
             domSel.appendChild(opt);
-        });
-    }).catch(()=>{});
-    const modal = document.getElementById('expense-match-modal');
-    modal.classList.remove('hidden');
-    modal.classList.add('active');
+        }))
+        .catch(() => {});
+
+    // Попытка вытащить описание из кэша (если открыто из таблицы расходов)
+    const descEl = document.getElementById('expense-match-desc');
+    if (descEl) descEl.textContent = '';
+
+    const m = document.getElementById('expense-match-modal');
+    if (!m) return;
+    m.classList.remove('hidden');
+    m.classList.add('active');
     if (typeof lucide !== 'undefined') lucide.createIcons();
-};
-window.closeExpenseMatchModal = function() {
-    const modal = document.getElementById('expense-match-modal');
-    if (modal) { modal.classList.remove('active'); setTimeout(()=>modal.classList.add('hidden'),200); }
-};
-window.saveExpenseMatch = async function(e) {
+}
+
+function closeExpenseMatchModal() {
+    const m = document.getElementById('expense-match-modal');
+    if (m) { m.classList.remove('active'); setTimeout(() => m.classList.add('hidden'), 200); }
+}
+
+async function saveExpenseMatch(e) {
     e.preventDefault();
     const id = document.getElementById('expense-match-id').value;
     const nodeId = document.getElementById('expense-match-node').value;
     const domainId = document.getElementById('expense-match-domain').value;
     try {
-        const resp = await fetch(`${API_BASE}/billing_expense_match.php`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({expense_id:id, node_id:nodeId||null, domain_id:domainId||null})
+        const res = await fetch(API_EXPENSE_MATCH, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ expense_id: id, node_id: nodeId || null, domain_id: domainId || null })
         });
-        const data = await resp.json();
+        const data = await res.json();
         if (data.success) {
-            showToast('Сопоставлено', 'success');
+            showToastSafe('Сопоставлено', 'success');
             closeExpenseMatchModal();
             loadBillingExpenses();
-            loadBillingData();
         } else {
-            showToast(data.error||'Ошибка', 'error');
+            showToastSafe(data.error || 'Ошибка', 'error');
         }
-    } catch (ex) {
-        console.error(ex);
-        showToast('Ошибка', 'error');
-    }
-};
-
-const _origSwitch = window.switchBillingTab;
-window.switchBillingTab = function(tab) {
-    if (typeof _origSwitch === 'function') _origSwitch(tab);
-    if (tab === 'expenses') loadBillingExpenses();
-    if (tab === 'domains') loadBillingDomains();
-    if (tab === 'imports') loadBillingImports();
-};
-
-window.switchBillingUnifiedTab = function(tab) {
-    document.querySelectorAll('.tabs .tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
-    });
-    document.querySelectorAll('.tab-content').forEach(tc => {
-        tc.classList.toggle('active', tc.id === tab + '-tab');
-    });
-    if (tab === 'expenses') loadBillingExpenses();
-    if (tab === 'domains') loadBillingDomains();
-    if (tab === 'imports') loadBillingImports();
-    if (tab === 'stats') {
-        loadBillingData();
-        loadPaymentsHistory();
-    }
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-};
-
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        if (typeof loadBillingData === 'function') loadBillingData();
-        if (typeof loadPaymentsHistory === 'function') loadPaymentsHistory();
-        if (typeof populateProviderSelects === 'function') populateProviderSelects();
     } catch (e) {
-        console.error('billing init error', e);
+        console.error('saveExpenseMatch', e);
+        showToastSafe('Ошибка', 'error');
     }
+}
+
+/* ==================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ==================== */
+
+function switchBillingUnifiedTab(tab) {
+    document.querySelectorAll('.tabs .tab-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tab));
+    document.querySelectorAll('.tab-content').forEach(tc =>
+        tc.classList.toggle('active', tc.id === tab + '-tab'));
+
+    if (tab === 'billing')   { loadBillingData(); loadUnlinkedPayments(); }
+    if (tab === 'expenses')  loadBillingExpenses();
+    if (tab === 'domains')   loadBillingDomains();
+    if (tab === 'imports')   loadBillingImports();
+    if (tab === 'providers') loadProviders();
+    if (tab === 'stats')     { loadBillingData(); loadBillingStats(); }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+/* ==================== ЭКСПОРТ В WINDOW (для inline onclick) ==================== */
+window.loadBillingData        = loadBillingData;
+window.loadPaymentsHistory    = loadPaymentsHistory;
+window.loadUnlinkedPayments   = loadUnlinkedPayments;
+window.loadProviders          = loadProviders;
+window.loadBillingStats       = loadBillingStats;
+window.loadBillingExpenses    = loadBillingExpenses;
+window.loadBillingDomains     = loadBillingDomains;
+window.loadBillingImports     = loadBillingImports;
+window.startBillingImport     = startBillingImport;
+
+window.payForNode             = payForNode;
+window.closeNodePayModal      = closeNodePayModal;
+window.submitNodePayment      = submitNodePayment;
+window.openLinkPaymentModal   = openLinkPaymentModal;
+window.closeLinkPaymentModal  = closeLinkPaymentModal;
+window.submitLinkPayment      = submitLinkPayment;
+
+window.addProvider            = addProvider;
+window.editProvider           = editProvider;
+window.deleteProvider         = deleteProvider;
+window.closeProviderModal     = closeProviderModal;
+window.filterProviders        = filterProviders;
+window.changeProvidersPage    = changeProvidersPage;
+
+window.clearBillingSelection       = clearBillingSelection;
+window.selectAllBillingNodes       = selectAllBillingNodes;
+window.updateBillingSelection      = updateBillingSelection;
+window.updateSelectedPaymentDates  = updateSelectedPaymentDates;
+window.deleteSelectedBillingNodes  = deleteSelectedBillingNodes;
+
+window.openExpenseMatch        = openExpenseMatch;
+window.closeExpenseMatchModal  = closeExpenseMatchModal;
+window.saveExpenseMatch        = saveExpenseMatch;
+
+window.switchBillingUnifiedTab = switchBillingUnifiedTab;
+
+/* ==================== ИНИЦИАЛИЗАЦИЯ ==================== */
+document.addEventListener('DOMContentLoaded', function () {
+    loadProviders();
+    loadBillingData();
+    loadUnlinkedPayments();
+
+    // Select-all
+    const selAll = document.getElementById('select-all-billing-nodes');
+    if (selAll) {
+        selAll.addEventListener('change', e => {
+            document.querySelectorAll('.billing-node-checkbox').forEach(cb => cb.checked = e.target.checked);
+            updateBillingSelection();
+        });
+    }
+
+    // Клик на фон модалок — закрыть
+    const modalClosers = {
+        'node-pay-modal': closeNodePayModal,
+        'link-payment-modal': closeLinkPaymentModal,
+        'provider-modal': closeProviderModal,
+        'expense-match-modal': closeExpenseMatchModal
+    };
+    Object.keys(modalClosers).forEach(id => {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.addEventListener('click', e => { if (e.target === m) modalClosers[id](); });
+    });
+
+    // Форма провайдера
+    const providerForm = document.getElementById('provider-form');
+    if (providerForm) {
+        providerForm.addEventListener('submit', async e => {
+            e.preventDefault();
+            const id = document.getElementById('provider-edit-id').value;
+            const isEdit = id && id !== '';
+            const name = document.getElementById('provider-name').value.trim();
+            const url = document.getElementById('provider-url').value.trim();
+            const favicon = document.getElementById('provider-favicon').value.trim();
+            if (!name) { showToastSafe('Введите название', 'error'); return; }
+            try {
+                const res = await fetch(`${API_PROVIDERS}${isEdit ? '?id=' + id : ''}`, {
+                    method: isEdit ? 'PUT' : 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                    body: JSON.stringify({ name, url: url || null, favicon_url: favicon || null })
+                });
+                const text = await res.text();
+                const data = text ? JSON.parse(text) : {};
+                if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+                showToastSafe(isEdit ? 'Провайдер обновлён' : 'Провайдер добавлен', 'success');
+                closeProviderModal();
+                loadProviders();
+                loadBillingData();
+            } catch (err) {
+                console.error('providerForm', err);
+                showToastSafe(err.message, 'error');
+            }
+        });
+    }
+
+    // Автогенерация favicon из URL
+    const pUrl = document.getElementById('provider-url');
+    const pFav = document.getElementById('provider-favicon');
+    if (pUrl && pFav) {
+        let autoGenerated = false;
+        const generate = () => {
+            const url = pUrl.value.trim();
+            if (url && (!pFav.value.trim() || autoGenerated)) {
+                const gen = buildFaviconUrl(null, url);
+                if (gen) {
+                    pFav.value = gen;
+                    autoGenerated = true;
+                    pFav.style.color = 'var(--text-muted)';
+                    pFav.title = 'Автоматически сгенерировано из URL';
+                }
+            } else if (!url) {
+                autoGenerated = false;
+                pFav.style.color = '';
+                pFav.title = '';
+            }
+        };
+        pUrl.addEventListener('blur', generate);
+        let t;
+        pUrl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(generate, 500); });
+        pFav.addEventListener('input', () => { autoGenerated = false; pFav.style.color = ''; pFav.title = ''; });
+    }
+
+    // Авто-обновление раз в минуту (без анимации)
+    setInterval(() => loadBillingData(true), 60000);
 });
