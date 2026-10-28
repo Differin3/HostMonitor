@@ -403,9 +403,11 @@ class LogsMixin:
 
         # Ни journald, ни syslog не дали ни одной строки (обычно контейнер без /run/log/journal
         # и /var/log). Одна запись в час с причиной: пустая вкладка «Логи» ничего не объясняет.
+        # Диагностика идёт мимо курсора: протухший system_fp иначе молча съест единственную строку.
         never_had_data = not parsed
         last_diag = getattr(self, "_system_logs_diag_at", None)
         diag_due = last_diag is None or (datetime.now() - last_diag).total_seconds() >= 3600
+        diag = None
         if never_had_data and diag_due:
             self._system_logs_diag_at = datetime.now()
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -414,15 +416,15 @@ class LogsMixin:
                 f"syslog-файлы: {'найдены, но пустые' if syslog_found else 'отсутствуют'}. "
                 "Агент работает без доступа к журналу хоста (контейнер?)"
             )
-            parsed.append({
+            diag = {
                 "type": "system",
                 "level": "warning",
                 "source": "monitoring-agent",
                 "message": message,
                 "timestamp": ts,
-                "_fp": f"{ts}|{message[:160]}",
-            })
-        return self._only_new_logs("system_fp", parsed)
+            }
+        new_rows = self._only_new_logs("system_fp", parsed)
+        return new_rows + ([diag] if diag else [])
 
     @staticmethod
     def _is_journal_noise(line):
