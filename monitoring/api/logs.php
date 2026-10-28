@@ -6,6 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../includes/database.php';
 require_once __DIR__ . '/../includes/retention.php';
 require_once __DIR__ . '/../includes/helpers.php';
+require_once __DIR__ . '/../includes/agent_auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
 $pdo = getDbConnection();
@@ -14,12 +15,6 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 logs_ensure_ssh_schema($pdo);
 logs_ensure_system_schema($pdo);
 
-function validateNodeToken($pdo, $token) {
-    if (!$token) return null;
-    $stmt = $pdo->prepare("SELECT id, name FROM nodes WHERE node_token = ?");
-    $stmt->execute([$token]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
 
 $isAuthorized = false;
 $nodeInfo = null;
@@ -27,10 +22,11 @@ $nodeInfo = null;
 if (isset($_SESSION['user_id'])) {
     $isAuthorized = true;
 } else {
-    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('/Bearer\s+(.+)/i', $authHeader, $matches)) {
-        $nodeInfo = validateNodeToken($pdo, $matches[1]);
-        $isAuthorized = (bool)$nodeInfo;
+    $agent = authenticate_agent($pdo);
+    if ($agent !== null) {
+        require_scope($agent, 'logs:write');
+        $nodeInfo = ['id' => (int)$agent['node_id'], 'name' => (string)($agent['name'] ?? '')];
+        $isAuthorized = true;
     }
 }
 
@@ -491,7 +487,7 @@ try {
     }
 
     if ($method === 'POST') {
-        $raw = file_get_contents('php://input');
+        $raw = agent_request_body();
         $data = $raw !== '' ? json_decode($raw, true) : null;
         if ($data === null && $raw !== '') {
             http_response_code(400);
