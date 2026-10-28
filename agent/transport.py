@@ -5,6 +5,7 @@ import re  # разбор SSH-логов
 import requests  # HTTP-запросы
 import shutil  # утилиты для проверки бинарей
 import subprocess  # внешние команды
+import sys  # перезапуск процесса
 import time  # таймеры
 from threading import Thread
 from datetime import datetime  # время
@@ -185,9 +186,15 @@ class TransportMixin:
                 '' if success else (getattr(self, '_command_error', '') or 'команда не выполнена'),
             )
             if getattr(self, '_exit_after_command', False):
-                _log('Exiting after agent update so systemd Restart=always picks up new code')
+                _log('Restarting agent in-place to load updated code')
                 time.sleep(1)
-                os._exit(0)
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0]), *sys.argv[1:]])
+                except Exception as e:
+                    _log(f'execv restart failed: {e}; exiting for supervisor restart', level='warning')
+                    os._exit(0)
         except Exception as e:
             _log(f"ERROR executing command: {e}", level="error")
             import traceback
