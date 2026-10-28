@@ -300,6 +300,21 @@ class LogsMixin:
 
     def _only_new_logs(self, key: str, items: list):
         last = self._log_cursors.get(key)
+        # Курсор может уехать вперёд хвоста источника: SBC без RTC до NTP-синхры,
+        # перезапуск journald, смена TZ. Тогда fp <= last отбрасывает ВСЁ навсегда
+        # и вкладка молча пустая. Если курсор опережает данные больше чем на сутки —
+        # сбрасываем его и принимаем строки.
+        if last and items:
+            newest = max((str(item.get("_fp") or "") for item in items), default="")
+            if newest and self._cursor_ahead(last, newest, 86400):
+                _log(
+                    f"log cursor {key}={last!r} is ahead of newest row {newest!r}; resetting",
+                    level="warning",
+                )
+                self._log_cursors.pop(key, None)
+                if key == "system_fp":
+                    self._log_cursors.pop("system_since", None)
+                last = None
         out = []
         newest = last
         for item in items:
@@ -315,6 +330,16 @@ class LogsMixin:
         for item in out:
             item.pop("_fp", None)
         return out
+
+    @staticmethod
+    def _cursor_ahead(cursor_fp: str, newest_fp: str, seconds: int) -> bool:
+        """True, если курсор опережает самую свежую строку больше чем на seconds."""
+        try:
+            cur = datetime.strptime(str(cursor_fp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+            new = datetime.strptime(str(newest_fp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return False
+        return (cur - new).total_seconds() > seconds
 
     def collect_system_logs(self, limit=150):
         # Хвост syslog/journald только новыми строками, тип system — иначе вкладка «Системные» пустая.
@@ -424,6 +449,24 @@ class LogsMixin:
                 "timestamp": ts,
             }
         new_rows = self._only_new_logs("system_fp", parsed)
+        if parsed and not new_rows:
+            # journalctl отдал строки, но дедуп счёл их отправленными: типичный признак
+            # курсора впереди источника. Без этой записи вкладка пустая и без объяснений.
+            last_diag = getattr(self, "_system_logs_diag_at", None)
+            if last_diag is None or (datetime.now() - last_diag).total_seconds() >= 3600:
+                self._system_logs_diag_at = datetime.now()
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor = self._log_cursors.get("system_fp") or "-"
+                new_rows.append({
+                    "type": "system",
+                    "level": "warning",
+                    "source": "monitoring-agent",
+                    "message": (
+                        f"Системные логи не отправляются: journalctl вернул {len(parsed)} строк, "
+                        f"все отброшены как уже отправленные (курсор {cursor})."
+                    ),
+                    "timestamp": ts,
+                })
         return new_rows + ([diag] if diag else [])
 
     @staticmethod
