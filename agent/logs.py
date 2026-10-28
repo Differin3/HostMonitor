@@ -319,17 +319,21 @@ class LogsMixin:
     def collect_system_logs(self, limit=150):
         # Хвост syslog/journald только новыми строками, тип system — иначе вкладка «Системные» пустая.
         parsed = []
-        journal_ok = False
         since = self._log_cursors.get("system_since")
+        journal_detail = "journalctl не запускался"
         try:
             cmd = ["journalctl", "-p", "info", "--no-pager", "-n", str(limit), "--output=short-iso"]
             if since:
                 cmd.extend(["--since", since])
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
-                journal_ok = True
+                lines = [
+                    line for line in result.stdout.splitlines()
+                    if line.strip() and not self._is_journal_noise(line)
+                ]
+                journal_detail = f"journalctl rc=0, пригодных строк {len(lines)}"
                 last_iso = since
-                for line in result.stdout.splitlines():
+                for line in lines:
                     entry = self._system_entry_from_journal(line)
                     if not entry:
                         continue
@@ -337,9 +341,14 @@ class LogsMixin:
                     last_iso = entry["_fp"].split("|", 1)[0]
                 if last_iso:
                     self._log_cursors["system_since"] = last_iso.replace("T", " ")[:19]
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+            else:
+                journal_detail = f"journalctl rc={result.returncode}: {(result.stderr or '').strip()[:120]}"
+        except FileNotFoundError:
+            journal_detail = "journalctl не найден"
+        except subprocess.TimeoutExpired:
+            journal_detail = "journalctl не ответил за 8 с"
         except Exception as e:
+            journal_detail = f"journalctl ошибка: {e}"
             _log(f"journalctl system logs failed: {e}", level="warning")
 
         syslog_found = False
@@ -392,15 +401,18 @@ class LogsMixin:
                     })
                 break
 
-        # Нет ни journald, ни syslog (контейнер без проброса /run/log/journal и /var/log).
-        # Одна диагностическая запись за запуск: пустая вкладка «Логи» не объясняет причину, а спам не нужен.
-        if not journal_ok and not syslog_found and not getattr(self, "_system_logs_unavailable_reported", False):
-            self._system_logs_unavailable_reported = True
+        # Ни journald, ни syslog ни разу не дали записей (обычно контейнер без /run/log/journal
+        # и /var/log). Одна запись в час с причиной: пустая вкладка «Логи» ничего не объясняет.
+        never_had_data = not parsed and not self._log_cursors.get("system_since") and not syslog_found
+        last_diag = getattr(self, "_system_logs_diag_at", None)
+        diag_due = last_diag is None or (datetime.now() - last_diag).total_seconds() >= 3600
+        if never_had_data and diag_due:
+            self._system_logs_diag_at = datetime.now()
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             message = (
-                "Сбор системных логов недоступен: journalctl не найден, "
+                f"Системные логи не собираются: {journal_detail}; "
                 "/var/log/syslog и /var/log/messages отсутствуют. "
-                "Агент, вероятно, запущен в контейнере без доступа к journald хоста."
+                "Агент работает без доступа к журналу хоста (контейнер?)"
             )
             parsed.append({
                 "type": "system",
