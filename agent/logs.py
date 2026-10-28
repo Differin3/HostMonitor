@@ -347,9 +347,11 @@ class LogsMixin:
         since = self._log_cursors.get("system_since")
         journal_detail = "journalctl не запускался"
         try:
+            # ВАЖНО: не добавлять --since. journalctl с --since отдаёт ПЕРВЫЕ -n записей
+            # диапазона, а не последние: агент получал один и тот же старый хвост, дедуп
+            # его отбрасывал, курсор не двигался — вкладка «Системные» навсегда пустая.
+            # Берём настоящий хвост журнала, новизну определяет дедуп по _fp.
             cmd = ["journalctl", "-p", "info", "--no-pager", "-n", str(limit), "--output=short-iso"]
-            if since:
-                cmd.extend(["--since", since])
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
                 lines = [
