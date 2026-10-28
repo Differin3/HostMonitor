@@ -403,7 +403,7 @@ class LogsMixin:
 
         # Ни journald, ни syslog ни разу не дали записей (обычно контейнер без /run/log/journal
         # и /var/log). Одна запись в час с причиной: пустая вкладка «Логи» ничего не объясняет.
-        never_had_data = not parsed and not self._log_cursors.get("system_since") and not syslog_found
+        never_had_data = not parsed and not self._log_cursors.get("system_since")
         last_diag = getattr(self, "_system_logs_diag_at", None)
         diag_due = last_diag is None or (datetime.now() - last_diag).total_seconds() >= 3600
         if never_had_data and diag_due:
@@ -411,7 +411,7 @@ class LogsMixin:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             message = (
                 f"Системные логи не собираются: {journal_detail}; "
-                "/var/log/syslog и /var/log/messages отсутствуют. "
+                f"syslog-файлы: {'найдены, но пустые' if syslog_found else 'отсутствуют'}. "
                 "Агент работает без доступа к журналу хоста (контейнер?)"
             )
             parsed.append({
