@@ -319,6 +319,7 @@ class LogsMixin:
     def collect_system_logs(self, limit=150):
         # Хвост syslog/journald только новыми строками, тип system — иначе вкладка «Системные» пустая.
         parsed = []
+        journal_ok = False
         since = self._log_cursors.get("system_since")
         try:
             cmd = ["journalctl", "-p", "info", "--no-pager", "-n", str(limit), "--output=short-iso"]
@@ -326,6 +327,7 @@ class LogsMixin:
                 cmd.extend(["--since", since])
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if result.returncode == 0:
+                journal_ok = True
                 last_iso = since
                 for line in result.stdout.splitlines():
                     entry = self._system_entry_from_journal(line)
@@ -340,10 +342,12 @@ class LogsMixin:
         except Exception as e:
             _log(f"journalctl system logs failed: {e}", level="warning")
 
+        syslog_found = False
         if not parsed:
             for log_file in ("/var/log/syslog", "/var/log/messages"):
                 if not os.path.exists(log_file):
                     continue
+                syslog_found = True
                 try:
                     result = subprocess.run(
                         ["tail", "-n", str(limit), log_file],
@@ -387,6 +391,25 @@ class LogsMixin:
                         "_fp": f"{timestamp_str}|{message[:160]}",
                     })
                 break
+
+        # Нет ни journald, ни syslog (контейнер без проброса /run/log/journal и /var/log).
+        # Одна диагностическая запись за запуск: пустая вкладка «Логи» не объясняет причину, а спам не нужен.
+        if not journal_ok and not syslog_found and not getattr(self, "_system_logs_unavailable_reported", False):
+            self._system_logs_unavailable_reported = True
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = (
+                "Сбор системных логов недоступен: journalctl не найден, "
+                "/var/log/syslog и /var/log/messages отсутствуют. "
+                "Агент, вероятно, запущен в контейнере без доступа к journald хоста."
+            )
+            parsed.append({
+                "type": "system",
+                "level": "warning",
+                "source": "monitoring-agent",
+                "message": message,
+                "timestamp": ts,
+                "_fp": f"{ts}|{message[:160]}",
+            })
         return self._only_new_logs("system_fp", parsed)
 
     @staticmethod
