@@ -321,7 +321,6 @@ class LogsMixin:
         parsed = []
         since = self._log_cursors.get("system_since")
         journal_detail = "journalctl не запускался"
-        journal_failed = False
         try:
             cmd = ["journalctl", "-p", "info", "--no-pager", "-n", str(limit), "--output=short-iso"]
             if since:
@@ -343,16 +342,12 @@ class LogsMixin:
                 if last_iso:
                     self._log_cursors["system_since"] = last_iso.replace("T", " ")[:19]
             else:
-                journal_failed = True
                 journal_detail = f"journalctl rc={result.returncode}: {(result.stderr or '').strip()[:120]}"
         except FileNotFoundError:
-            journal_failed = True
             journal_detail = "journalctl не найден"
         except subprocess.TimeoutExpired:
-            journal_failed = True
             journal_detail = "journalctl не ответил за 8 с"
         except Exception as e:
-            journal_failed = True
             journal_detail = f"journalctl ошибка: {e}"
             _log(f"journalctl system logs failed: {e}", level="warning")
 
@@ -406,9 +401,9 @@ class LogsMixin:
                     })
                 break
 
-        # Ни journald, ни syslog ни разу не дали записей (обычно контейнер без /run/log/journal
+        # Ни journald, ни syslog не дали ни одной строки (обычно контейнер без /run/log/journal
         # и /var/log). Одна запись в час с причиной: пустая вкладка «Логи» ничего не объясняет.
-        never_had_data = not parsed and (journal_failed or not since)
+        never_had_data = not parsed
         last_diag = getattr(self, "_system_logs_diag_at", None)
         diag_due = last_diag is None or (datetime.now() - last_diag).total_seconds() >= 3600
         if never_had_data and diag_due:
