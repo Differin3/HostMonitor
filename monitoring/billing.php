@@ -171,7 +171,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
             </div>
         </div>
         <div class="table-container compact-table" style="overflow-x: auto;">
-            <table><thead><tr><th>Дата</th><th>Описание</th><th>На счёт</th><th>Сумма</th><th>Сопоставлено</th><th>Действия</th></tr></thead><tbody id="billing-expenses-tbody"><tr><td colspan="6" class="text-center">Нет данных</td></tr></tbody></table>
+            <table><thead><tr><th>Дата</th><th>Описание</th><th>Провайдер</th><th>На счёт</th><th>Сумма</th><th>Сопоставлено</th><th>Действия</th></tr></thead><tbody id="billing-expenses-tbody"><tr><td colspan="7" class="text-center">Нет данных</td></tr></tbody></table>
         </div>
     </div>
 </div>
@@ -187,7 +187,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
             </div>
         </div>
         <div class="table-container compact-table" style="overflow-x: auto;">
-            <table><thead><tr><th>Домен</th><th>TLD</th><th>Контакт</th><th>Действует до</th><th>Цена</th><th>Статус</th></tr></thead><tbody id="billing-domains-tbody"><tr><td colspan="6" class="text-center">Нет данных</td></tr></tbody></table>
+            <table><thead><tr><th>Домен</th><th>TLD</th><th>Провайдер</th><th>Контакт</th><th>Действует до</th><th>Цена</th><th>Статус</th></tr></thead><tbody id="billing-domains-tbody"><tr><td colspan="7" class="text-center">Нет данных</td></tr></tbody></table>
         </div>
     </div>
 </div>
@@ -249,6 +249,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
                 </div>
                 <div class="form-field"><label class="form-label">Файл CSV (.csv/.txt)</label><input type="file" id="billing-import-file" accept=".csv,.txt,text/csv"></div>
                 <button class="primary" onclick="startBillingImport()"><i data-lucide="upload"></i> Импортировать</button>
+                <button class="secondary" onclick="recomputeBillingLinks()" title="Заполнить провайдеров расходов, связать расходы с платежами и домены с провайдерами"><i data-lucide="link-2"></i> Пересчитать связи</button>
                 <div id="billing-import-result" style="margin-top: 12px; color: var(--text-secondary);"></div>
             </div>
         </div>
@@ -397,6 +398,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
             <div class="form-field"><label class="form-label">Расход</label><div id="expense-match-desc" style="color: var(--text-secondary); font-size: 13px;"></div></div>
             <div class="form-field"><label class="form-label">Сопоставить с нодой</label><select id="expense-match-node" class="provider-select"><option value="">Не сопоставлять</option></select></div>
             <div class="form-field"><label class="form-label">Сопоставить с доменом</label><select id="expense-match-domain" class="provider-select"><option value="">Не сопоставлять</option></select></div>
+            <div class="form-field"><label class="form-label">Платёж (списание за счёт этого платежа)</label><select id="expense-match-payment" class="provider-select"><option value="">Не привязывать</option></select></div>
             <div class="modal-actions"><button type="button" class="secondary" onclick="closeExpenseMatchModal()">Отмена</button><button type="submit" class="primary">Сохранить</button></div>
         </form>
     </div>

@@ -18,6 +18,13 @@
  *  5) Второй проход: group-match по account_ref — все услуги одного
  *     платежа FBRUS-NNNN привязываются к той же ноде, что уже
  *     привязанная услуга с этим же FBRUS.
+ *
+ * Пост-обработка после любого импорта:
+ *  - provider_name расхода: по account_ref (та же группа списаний),
+ *    иначе по описанию (домен провайдера в тексте);
+ *  - matched_payment_id: последний платёж ноды с payment_date <= даты
+ *    расхода, иначе ближайший следующий;
+ *  - domains.provider_id: провайдер того расхода, что сопоставлен домену.
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -168,6 +175,222 @@ function guessProvider(PDO $pdo, string $domainName): array {
     return [$name, $url];
 }
 
+/**
+ * Токены провайдера для сравнения с текстом расхода.
+ * Имя без зоны и хост URL без зоны: "firstbyte.ru" / "https://billing.firstbyte.ru"
+ * → ['firstbyte'].
+ */
+function providerTokens(?string $name, ?string $url): array {
+    $skip = ['www', 'com', 'net', 'org', 'club', 'billing', 'panel', 'ru', 'su', 'io', 'de', 'nl', 'us', 'sg', 'info', 'biz'];
+    $tokens = [];
+    if ($name !== null && $name !== '') {
+        foreach (preg_split('/[\s\.\/\-_,]+/u', mb_strtolower(trim($name))) as $p) {
+            if (mb_strlen($p) >= 4 && !in_array($p, $skip, true)) $tokens[$p] = true;
+        }
+    }
+    if ($url !== null && $url !== '') {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!$host) $host = preg_replace('~^https?://~i', '', $url);
+        $host = preg_replace('~[/?#].*$~', '', (string)$host);
+        foreach (explode('.', mb_strtolower($host)) as $p) {
+            if (mb_strlen($p) >= 4 && !in_array($p, $skip, true)) $tokens[$p] = true;
+        }
+    }
+    return array_keys($tokens);
+}
+
+/**
+ * Провайдер по произвольному тексту (описание расхода): самое длинное
+ * совпадение токена имени/хоста провайдера.
+ *
+ * @return array{id:int,name:string,url:?string}|null
+ */
+function findProviderByText(PDO $pdo, string $text): ?array {
+    $lower = mb_strtolower(trim($text));
+    if ($lower === '') return null;
+
+    static $providers = null;
+    if ($providers === null) {
+        $providers = $pdo->query("SELECT id, name, url FROM providers")->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    $best = null; $bestLen = 0;
+    foreach ($providers as $p) {
+        foreach (providerTokens((string)$p['name'], $p['url'] !== null ? (string)$p['url'] : null) as $t) {
+            if (mb_strpos($lower, $t) !== false && mb_strlen($t) > $bestLen) {
+                $best = ['id' => (int)$p['id'], 'name' => (string)$p['name'], 'url' => $p['url']];
+                $bestLen = mb_strlen($t);
+            }
+        }
+    }
+    return $best;
+}
+
+/**
+ * Провайдер расхода: сначала по уже известному account_ref (та же группа
+ * списаний — тот же провайдер), затем по описанию.
+ * Внутри одного импорта результат кэшируется, чтобы не бить БД 600 раз.
+ */
+function resolveExpenseProvider(PDO $pdo, string $desc, ?string $account): ?string {
+    static $cache = [];
+    $key = ($account ?? '') . '|' . $desc;
+    if (array_key_exists($key, $cache)) return $cache[$key];
+
+    $name = null;
+    if ($account !== null && $account !== '') {
+        foreach (explode(',', $account) as $ref) {
+            $ref = trim($ref);
+            if ($ref === '') continue;
+            $stmt = $pdo->prepare("SELECT provider_name FROM billing_expenses
+                WHERE account_ref LIKE ? AND provider_name IS NOT NULL AND provider_name <> ''
+                GROUP BY provider_name ORDER BY COUNT(*) DESC LIMIT 1");
+            $stmt->execute(['%' . $ref . '%']);
+            $found = $stmt->fetchColumn();
+            if ($found) { $name = (string)$found; break; }
+        }
+    }
+    if ($name === null) {
+        $p = findProviderByText($pdo, $desc);
+        if ($p) $name = $p['name'];
+    }
+
+    $cache[$key] = $name;
+    return $name;
+}
+
+/**
+ * Заполняет billing_expenses.provider_name там, где пусто.
+ * Проход 1 — по описанию (в нём обычно есть домен провайдера),
+ * проход 2 — по account_ref (когда описание без провайдера),
+ * проход 3 — по префиксу account_ref (FBRUS-NNNN → FBRUS): номер счёта
+ *            бывает уникальным, но префикс общий для всех услуг провайдера.
+ *
+ * @return int количество обновлённых строк
+ */
+function applyExpenseProviderBackfill(PDO $pdo): int {
+    $updated = 0;
+    $upd = $pdo->prepare("UPDATE billing_expenses SET provider_name = ?, updated_at = NOW() WHERE id = ?");
+
+    $rows = $pdo->query("SELECT id, description FROM billing_expenses
+        WHERE provider_name IS NULL OR provider_name = ''")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $p = findProviderByText($pdo, (string)$r['description']);
+        if ($p) {
+            $upd->execute([$p['name'], $r['id']]);
+            $updated++;
+        }
+    }
+
+    $resolved = $pdo->query("SELECT account_ref, provider_name FROM billing_expenses
+        WHERE provider_name IS NOT NULL AND provider_name <> ''
+          AND account_ref IS NOT NULL AND account_ref <> ''")->fetchAll(PDO::FETCH_ASSOC);
+
+    $byAccount = []; $byPrefix = [];
+    foreach ($resolved as $r) {
+        foreach (explode(',', (string)$r['account_ref']) as $ref) {
+            $ref = trim($ref);
+            if ($ref === '') continue;
+            if (!isset($byAccount[$ref])) $byAccount[$ref] = (string)$r['provider_name'];
+
+            $dash = strpos($ref, '-');
+            $prefix = $dash === false ? '' : substr($ref, 0, $dash);
+            if ($prefix !== '' && mb_strlen($prefix) >= 4 && !ctype_digit($prefix) && !isset($byPrefix[$prefix])) {
+                $byPrefix[$prefix] = (string)$r['provider_name'];
+            }
+        }
+    }
+
+    if ($byAccount || $byPrefix) {
+        $still = $pdo->query("SELECT id, account_ref FROM billing_expenses
+            WHERE (provider_name IS NULL OR provider_name = '')
+              AND account_ref IS NOT NULL AND account_ref <> ''")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($still as $r) {
+            $found = null;
+            $refs = array_filter(array_map('trim', explode(',', (string)$r['account_ref'])), 'strlen');
+
+            foreach ($refs as $ref) {
+                if (isset($byAccount[$ref])) { $found = $byAccount[$ref]; break; }
+            }
+            if ($found === null) {
+                foreach ($refs as $ref) {
+                    $dash = strpos($ref, '-');
+                    $prefix = $dash === false ? '' : substr($ref, 0, $dash);
+                    if ($prefix !== '' && isset($byPrefix[$prefix])) { $found = $byPrefix[$prefix]; break; }
+                }
+            }
+            if ($found !== null) {
+                $upd->execute([$found, $r['id']]);
+                $updated++;
+            }
+        }
+    }
+    return $updated;
+}
+
+/**
+ * Связка расход ↔ платёж той же ноды.
+ * Берём последний платёж с payment_date <= даты расхода — это предоплата,
+ * которая покрывала списание. Если платежей до расхода нет — ближайший
+ * следующий (оплата задним числом).
+ *
+ * @return int количество обновлённых строк
+ */
+function applyExpensePaymentMatching(PDO $pdo): int {
+    $prev = $pdo->prepare("SELECT id FROM payments WHERE node_id = ? AND payment_date <= ?
+        ORDER BY payment_date DESC, id DESC LIMIT 1");
+    $next = $pdo->prepare("SELECT id FROM payments WHERE node_id = ? AND payment_date >= ?
+        ORDER BY payment_date ASC, id ASC LIMIT 1");
+    $upd = $pdo->prepare("UPDATE billing_expenses SET matched_payment_id = ?, updated_at = NOW() WHERE id = ?");
+
+    $updated = 0;
+    $rows = $pdo->query("SELECT id, matched_node_id, expense_date FROM billing_expenses
+        WHERE matched_payment_id IS NULL AND matched_node_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $prev->execute([$r['matched_node_id'], $r['expense_date']]);
+        $pid = $prev->fetchColumn();
+        if (!$pid) {
+            $next->execute([$r['matched_node_id'], $r['expense_date']]);
+            $pid = $next->fetchColumn();
+        }
+        if ($pid) {
+            $upd->execute([(int)$pid, $r['id']]);
+            $updated++;
+        }
+    }
+    return $updated;
+}
+
+/**
+ * Привязка домена к провайдеру по его расходам: если расходы, сопоставленные
+ * с доменом, принадлежат провайдеру X, то и домен обслуживается у X.
+ *
+ * @return int количество обновлённых строк
+ */
+function applyDomainProviderMatching(PDO $pdo): int {
+    $updated = 0;
+    $domains = $pdo->query("SELECT id FROM domains WHERE provider_id IS NULL")->fetchAll(PDO::FETCH_ASSOC);
+    if (!$domains) return 0;
+
+    $byExpense = $pdo->prepare("SELECT provider_name FROM billing_expenses
+        WHERE matched_domain_id = ? AND provider_name IS NOT NULL AND provider_name <> ''
+        GROUP BY provider_name ORDER BY COUNT(*) DESC LIMIT 1");
+    $byName = $pdo->prepare("SELECT id FROM providers WHERE LOWER(name) = LOWER(?) LIMIT 1");
+    $upd = $pdo->prepare("UPDATE domains SET provider_id = ? WHERE id = ?");
+
+    foreach ($domains as $d) {
+        $byExpense->execute([$d['id']]);
+        $pname = $byExpense->fetchColumn();
+        if (!$pname) continue;
+        $byName->execute([$pname]);
+        $pid = $byName->fetchColumn();
+        if ($pid) {
+            $upd->execute([(int)$pid, $d['id']]);
+            $updated++;
+        }
+    }
+    return $updated;
+}
+
 /* ================================================================
  * Helpers: матчинг к нодам
  * ================================================================ */
@@ -309,6 +532,21 @@ function applyPaymentGroupMatching(PDO $pdo): int {
  * ================================================================ */
 
 function handleImport($pdo) {
+    // Пересчёт связей без загрузки файла: провайдеры расходов,
+    // расход ↔ платёж, домен ↔ провайдер.
+    if (($_POST['action'] ?? '') === 'recompute') {
+        $providersFilled = applyExpenseProviderBackfill($pdo);
+        $paymentsLinked  = applyExpensePaymentMatching($pdo);
+        $domainsLinked   = applyDomainProviderMatching($pdo);
+        echo json_encode([
+            'success'          => true,
+            'providers_filled' => $providersFilled,
+            'payments_linked'  => $paymentsLinked,
+            'domains_linked'   => $domainsLinked,
+        ]);
+        return;
+    }
+
     $type = $_POST['type'] ?? null;
     if (!in_array($type, ['payments','expenses','domains','vds'], true)) {
         http_response_code(400);
@@ -488,6 +726,9 @@ function handleImport($pdo) {
                 $matchType = 'none';
                 $descStr = (string)$desc;
 
+                // Провайдер расхода: по account_ref (та же группа списаний), иначе по описанию
+                $providerName = resolveExpenseProvider($pdo, $descStr, $account !== null ? (string)$account : null);
+
                 // 1) #NNN → nodes.external_id (самый надёжный для VDS)
                 if (!$matchedNodeId) {
                     $bySid = findNodeByServiceId($pdo, $descStr);
@@ -517,13 +758,13 @@ function handleImport($pdo) {
                 // Ищем существующий расход
                 $existing = null;
                 if ($externalId !== null && $externalId !== '') {
-                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type
+                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type, provider_name
                         FROM billing_expenses WHERE external_id = ? LIMIT 1");
                     $chk->execute([$externalId]);
                     $existing = $chk->fetch(PDO::FETCH_ASSOC) ?: null;
                 }
                 if (!$existing) {
-                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type
+                    $chk = $pdo->prepare("SELECT id, matched_node_id, matched_domain_id, match_type, provider_name
                         FROM billing_expenses WHERE description = ? AND expense_date = ? AND amount = ? LIMIT 1");
                     $chk->execute([$desc, $edate, $amount]);
                     $existing = $chk->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -543,9 +784,12 @@ function handleImport($pdo) {
                     if ($existing['match_type'] === 'none' && $matchType !== 'none') {
                         $sets[] = "match_type = ?"; $params[] = $matchType;
                     }
+                    if (($existing['provider_name'] === null || $existing['provider_name'] === '') && $providerName !== null) {
+                        $sets[] = "provider_name = ?"; $params[] = $providerName;
+                    }
                     if ($sets) {
                         $params[] = $existing['id'];
-                        $upd = $pdo->prepare("UPDATE billing_expenses SET " . implode(', ', $sets) . " WHERE id = ?");
+                        $upd = $pdo->prepare("UPDATE billing_expenses SET " . implode(', ', $sets) . ", updated_at = NOW() WHERE id = ?");
                         $upd->execute($params);
                         $updated++;
                     } else {
@@ -558,11 +802,11 @@ function handleImport($pdo) {
                 $rawJson = safeJson($data);
                 $ins = $pdo->prepare("INSERT INTO billing_expenses
                     (external_id, description, expense_date, amount, amount_without_discount,
-                     account_ref, matched_node_id, matched_domain_id, match_type, raw_data)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)");
+                     account_ref, provider_name, matched_node_id, matched_domain_id, match_type, raw_data)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)");
                 $ins->execute([
                     $externalId ?: null, $desc, $edate, $amount, $amountWo,
-                    $account, $matchedNodeId, $matchedDomainId, $matchType, $rawJson,
+                    $account, $providerName, $matchedNodeId, $matchedDomainId, $matchType, $rawJson,
                 ]);
                 $imported++;
             }
@@ -740,6 +984,15 @@ function handleImport($pdo) {
             }
             $pdo->commit();
         }
+
+        // Пост-обработка связей: провайдеры расходов, расход ↔ платёж, домен ↔ провайдер.
+        // Запускается после любого из импортов: порядок файлов не важен.
+        $providersFilled = 0; $paymentsLinked = 0; $domainsLinked = 0;
+        if (in_array($type, ['payments', 'expenses', 'domains'], true)) {
+            $providersFilled = applyExpenseProviderBackfill($pdo);
+            $paymentsLinked  = applyExpensePaymentMatching($pdo);
+            $domainsLinked   = applyDomainProviderMatching($pdo);
+        }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
@@ -750,6 +1003,9 @@ function handleImport($pdo) {
         'matched'  => $matched,
         'skipped'  => $skipped,
         'updated'  => $updated,
+        'providers_filled' => $providersFilled,
+        'payments_linked'  => $paymentsLinked,
+        'domains_linked'   => $domainsLinked,
     ]);
     $upd = $pdo->prepare("UPDATE billing_imports SET imported_rows=?, matched_rows=?, status='done', report=? WHERE id=?");
     $upd->execute([$imported, $matched, $reportJson, $importId]);
@@ -760,6 +1016,9 @@ function handleImport($pdo) {
         'matched'    => $matched,
         'skipped'    => $skipped,
         'updated'    => $updated,
+        'providers_filled' => $providersFilled,
+        'payments_linked'  => $paymentsLinked,
+        'domains_linked'   => $domainsLinked,
         'import_id'  => $importId,
         'delimiter'  => $delimiter,
         'header_row' => $headerIdx,
@@ -773,16 +1032,21 @@ function handleImport($pdo) {
 function handleList($pdo) {
     $type = $_GET['type'] ?? null;
     if ($type === 'expenses') {
-        $stmt = $pdo->query("SELECT e.*, n.name AS node_name, d.domain_name AS domain_name
+        $stmt = $pdo->query("SELECT e.*, n.name AS node_name, d.domain_name AS domain_name,
+                p.payment_date AS payment_date, p.amount AS payment_amount, p.external_id AS payment_external_id
             FROM billing_expenses e
             LEFT JOIN nodes n ON e.matched_node_id = n.id
             LEFT JOIN domains d ON e.matched_domain_id = d.id
+            LEFT JOIN payments p ON e.matched_payment_id = p.id
             ORDER BY e.expense_date DESC, e.id DESC LIMIT 200");
         echo json_encode(['expenses' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         return;
     }
     if ($type === 'domains') {
-        $stmt = $pdo->query("SELECT * FROM domains ORDER BY expires_at ASC");
+        $stmt = $pdo->query("SELECT d.*, p.name AS provider_name, p.url AS provider_url
+            FROM domains d
+            LEFT JOIN providers p ON d.provider_id = p.id
+            ORDER BY d.expires_at ASC");
         echo json_encode(['domains' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         return;
     }

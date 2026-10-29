@@ -232,6 +232,7 @@ async function loadBillingData(silent) {
         const nodes = (nodesText ? JSON.parse(nodesText) : { nodes: [] }).nodes || [];
         const payments = (paymentsText ? JSON.parse(paymentsText) : { payments: [] }).payments || [];
         window.billingNodesData = nodes;
+        window.billingPaymentsData = payments;
         updateStats(nodes, payments);
         renderBillingNodes(nodes);
         renderPayments(payments);
@@ -847,21 +848,29 @@ async function loadBillingExpenses() {
         const tbody = document.getElementById('billing-expenses-tbody');
         if (!tbody) return;
         const list = data.expenses || [];
+        window.billingExpensesData = list;
         if (list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">Нет данных</td></tr>';
             return;
         }
         tbody.innerHTML = list.map(e => {
-            const matched = e.matched_node_id
-                ? `VPS: ${esc(e.node_name || '')}`
-                : e.matched_domain_id
-                    ? `Домен: ${esc(e.domain_name || '')}`
-                    : '<span style="color:var(--text-tertiary)">не сопоставлено</span>';
+            const parts = [];
+            if (e.matched_node_id) parts.push(`VPS: ${esc(e.node_name || '')}`);
+            else if (e.matched_domain_id) parts.push(`Домен: ${esc(e.domain_name || '')}`);
+            if (e.matched_payment_id && e.payment_date) {
+                const payDate = new Date(e.payment_date).toLocaleDateString('ru-RU');
+                const payAmt = parseFloat(e.payment_amount || 0).toFixed(2);
+                parts.push(`<span title="Платёж ${esc(e.payment_external_id || e.matched_payment_id)}">${payDate} · ${payAmt} ₽</span>`);
+            }
+            const matched = parts.length
+                ? parts.join('<br>')
+                : '<span style="color:var(--text-tertiary)">не сопоставлено</span>';
             const d = e.expense_date ? new Date(e.expense_date).toLocaleDateString('ru-RU') : '—';
             const desc = String(e.description || '');
             return `<tr>
                 <td>${d}</td>
                 <td title="${escHtmlAttr(desc)}">${esc(desc.substring(0, 80))}${desc.length > 80 ? '...' : ''}</td>
+                <td>${esc(e.provider_name || '—')}</td>
                 <td>${esc(e.account_ref || '—')}</td>
                 <td>${parseFloat(e.amount || 0).toFixed(2)} ₽</td>
                 <td>${matched}</td>
@@ -880,7 +889,7 @@ async function loadBillingDomains() {
         if (!tbody) return;
         const list = data.domains || [];
         if (list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет данных</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">Нет данных</td></tr>';
             return;
         }
         tbody.innerHTML = list.map(d => {
@@ -889,6 +898,7 @@ async function loadBillingDomains() {
             return `<tr>
                 <td><strong>${esc(d.domain_name || '—')}</strong></td>
                 <td>${esc(d.tld || '—')}</td>
+                <td>${esc(d.provider_name || '—')}</td>
                 <td>${esc(d.contact || '—')}</td>
                 <td>${exp}</td>
                 <td>${price}</td>
@@ -961,8 +971,26 @@ async function startBillingImport() {
 
 /* ==================== СОПОСТАВЛЕНИЕ РАСХОДА ==================== */
 
+function fillExpensePaymentSelect(nodeId, selectedPaymentId) {
+    const sel = document.getElementById('expense-match-payment');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Не привязывать</option>';
+    (window.billingPaymentsData || [])
+        .filter(p => !nodeId || String(p.node_id) === String(nodeId))
+        .forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            const pdate = p.payment_date ? new Date(p.payment_date).toLocaleDateString('ru-RU') : '—';
+            opt.textContent = `${pdate} · ${parseFloat(p.amount || 0).toFixed(2)} ₽${p.external_id ? ' · #' + p.external_id : ''}`;
+            sel.appendChild(opt);
+        });
+    sel.value = selectedPaymentId ? String(selectedPaymentId) : '';
+}
+
 function openExpenseMatch(id) {
     document.getElementById('expense-match-id').value = id;
+    const exp = (window.billingExpensesData || []).find(x => String(x.id) === String(id)) || null;
+
     const nodeSel = document.getElementById('expense-match-node');
     nodeSel.innerHTML = '<option value="">Не сопоставлять</option>';
     (window.billingNodesData || []).forEach(n => {
@@ -971,21 +999,28 @@ function openExpenseMatch(id) {
         opt.textContent = n.name + (n.provider_name ? ' (' + n.provider_name + ')' : '');
         nodeSel.appendChild(opt);
     });
+    if (exp && exp.matched_node_id) nodeSel.value = String(exp.matched_node_id);
+
     const domSel = document.getElementById('expense-match-domain');
     domSel.innerHTML = '<option value="">Не сопоставлять</option>';
     fetch(`${API_IMPORT}?type=domains`, { credentials: 'include' })
         .then(r => r.json())
-        .then(data => (data.domains || []).forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d.id;
-            opt.textContent = d.domain_name;
-            domSel.appendChild(opt);
-        }))
+        .then(data => {
+            (data.domains || []).forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.domain_name;
+                domSel.appendChild(opt);
+            });
+            if (exp && exp.matched_domain_id) domSel.value = String(exp.matched_domain_id);
+        })
         .catch(() => {});
 
-    // Попытка вытащить описание из кэша (если открыто из таблицы расходов)
+    fillExpensePaymentSelect(exp ? exp.matched_node_id : null, exp ? exp.matched_payment_id : null);
+    nodeSel.onchange = () => fillExpensePaymentSelect(nodeSel.value, null);
+
     const descEl = document.getElementById('expense-match-desc');
-    if (descEl) descEl.textContent = '';
+    if (descEl) descEl.textContent = exp ? String(exp.description || '') : '';
 
     const m = document.getElementById('expense-match-modal');
     if (!m) return;
@@ -1004,11 +1039,12 @@ async function saveExpenseMatch(e) {
     const id = document.getElementById('expense-match-id').value;
     const nodeId = document.getElementById('expense-match-node').value;
     const domainId = document.getElementById('expense-match-domain').value;
+    const paymentId = document.getElementById('expense-match-payment').value;
     try {
         const res = await fetch(API_EXPENSE_MATCH, {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-            body: JSON.stringify({ expense_id: id, node_id: nodeId || null, domain_id: domainId || null })
+            body: JSON.stringify({ expense_id: id, node_id: nodeId || null, domain_id: domainId || null, payment_id: paymentId || null })
         });
         const data = await res.json();
         if (data.success) {
@@ -1024,6 +1060,33 @@ async function saveExpenseMatch(e) {
     }
 }
 
+/* ==================== ПЕРЕСЧЁТ СВЯЗЕЙ ==================== */
+
+async function recomputeBillingLinks() {
+    const resDiv = document.getElementById('billing-import-result');
+    if (resDiv) resDiv.textContent = 'Пересчёт связей...';
+    try {
+        const fd = new FormData();
+        fd.append('action', 'recompute');
+        const resp = await fetch(API_IMPORT, {
+            method: 'POST', credentials: 'include',
+            headers: { 'X-CSRF-Token': getCsrfToken() },
+            body: fd
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || ('HTTP ' + resp.status));
+        const msg = `Провайдеры: +${data.providers_filled}, платежи: +${data.payments_linked}, домены: +${data.domains_linked}`;
+        if (resDiv) resDiv.textContent = msg;
+        showToastSafe(msg, 'success');
+        loadBillingExpenses();
+        loadBillingDomains();
+    } catch (e) {
+        console.error('recomputeBillingLinks', e);
+        if (resDiv) resDiv.textContent = 'Ошибка пересчёта: ' + e.message;
+        showToastSafe('Ошибка пересчёта связей', 'error');
+    }
+}
+
 /* ==================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ==================== */
 
 function switchBillingUnifiedTab(tab) {
@@ -1033,7 +1096,7 @@ function switchBillingUnifiedTab(tab) {
         tc.classList.toggle('active', tc.id === tab + '-tab'));
 
     if (tab === 'billing')   { loadBillingData(); loadUnlinkedPayments(); }
-    if (tab === 'expenses')  loadBillingExpenses();
+    if (tab === 'expenses')  { loadBillingData(true); loadBillingExpenses(); }
     if (tab === 'domains')   loadBillingDomains();
     if (tab === 'imports')   loadBillingImports();
     if (tab === 'providers') loadProviders();
@@ -1051,6 +1114,7 @@ window.loadBillingExpenses    = loadBillingExpenses;
 window.loadBillingDomains     = loadBillingDomains;
 window.loadBillingImports     = loadBillingImports;
 window.startBillingImport     = startBillingImport;
+window.recomputeBillingLinks  = recomputeBillingLinks;
 
 window.payForNode             = payForNode;
 window.closeNodePayModal      = closeNodePayModal;

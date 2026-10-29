@@ -1,4 +1,10 @@
 <?php
+/**
+ * api/billing_expense_match.php
+ *
+ * Ручное сопоставление расхода: нода, домен и/или платёж.
+ * Обновляются только переданные поля — остальные связи не трогаются.
+ */
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -23,22 +29,41 @@ try {
         return;
     }
     $data = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($data)) $data = [];
     $expenseId = (int)($data['expense_id'] ?? 0);
-    $nodeId = isset($data['node_id']) && $data['node_id'] !== '' ? (int)$data['node_id'] : null;
-    $domainId = isset($data['domain_id']) && $data['domain_id'] !== '' ? (int)$data['domain_id'] : null;
     if ($expenseId <= 0) {
         http_response_code(400);
         echo json_encode(['error' => 'expense_id required']);
         return;
     }
-    if (!$nodeId && !$domainId) {
+
+    $toId = function ($v) {
+        if ($v === null || $v === '' || $v === 0 || $v === '0') return null;
+        $n = (int)$v;
+        return $n > 0 ? $n : null;
+    };
+
+    $sets = []; $params = [];
+    $map = ['node_id' => 'matched_node_id', 'domain_id' => 'matched_domain_id', 'payment_id' => 'matched_payment_id'];
+    foreach ($map as $field => $column) {
+        if (array_key_exists($field, $data)) {
+            $sets[] = "$column = ?";
+            $params[] = $toId($data[$field]);
+        }
+    }
+    if (!$sets) {
         http_response_code(400);
-        echo json_encode(['error' => 'node_id or domain_id required']);
+        echo json_encode(['error' => 'node_id, domain_id or payment_id required']);
         return;
     }
-    $stmt = $pdo->prepare("UPDATE billing_expenses SET matched_node_id=?, matched_domain_id=?, match_type='manual', updated_at=NOW() WHERE id=?");
-    $stmt->execute([$nodeId, $domainId, $expenseId]);
-    echo json_encode(['success'=>true]);
+
+    $sets[] = "match_type = 'manual'";
+    $sets[] = "updated_at = NOW()";
+    $params[] = $expenseId;
+
+    $stmt = $pdo->prepare("UPDATE billing_expenses SET " . implode(', ', $sets) . " WHERE id = ?");
+    $stmt->execute($params);
+    echo json_encode(['success' => true]);
 } catch (Exception $e) {
     app_log_error('billing_expense_match.php: ' . $e->getMessage());
     http_response_code(500);
