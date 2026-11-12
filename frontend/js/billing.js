@@ -22,6 +22,13 @@ let providersCurrentPage = 1;
 let providersPerPage = 9;
 let monthlyChart = null;
 let providerChart = null;
+let expensesState = { page: 1, per_page: 50, provider: '', month: '', status: '', q: '' };
+let expensesSearchTimer = null;
+
+function fmtMoney(v) {
+    return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        .format(Number(v) || 0) + ' ₽';
+}
 
 /* ==================== УТИЛИТЫ ==================== */
 (function () {
@@ -237,6 +244,7 @@ async function loadBillingData(silent) {
         renderBillingNodes(nodes);
         renderPayments(payments);
         if (Array.isArray(providersList)) renderProviders(providersList);
+        loadBillingSummary();
     } catch (e) {
         console.error('loadBillingData', e);
         window.billingNodesData = [];
@@ -561,9 +569,10 @@ function renderPayments(payments) {
     const tbody = document.getElementById('payments-history-tbody') || document.getElementById('payments-tbody');
     if (!tbody) return;
     if (!payments || payments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center">Нет платежей</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center">Нет платежей</td></tr>';
         return;
     }
+    const consumedMap = (window.billingSummary && window.billingSummary.payment_consumed) || {};
     payments.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
     tbody.innerHTML = payments.slice(0, 200).map(p => {
         const d = new Date(p.payment_date).toLocaleDateString('ru-RU');
@@ -571,10 +580,26 @@ function renderPayments(payments) {
         const label = node
             ? (node.provider_name ? node.provider_name + ' · ' + node.name : node.name)
             : (p.node_name || '<span style="color:var(--text-tertiary)">не привязан</span>');
+        const amount = parseFloat(p.amount || 0);
+        const consumed = Number(consumedMap[p.id] || consumedMap[String(p.id)] || 0);
+        let consumedCell = '<td>—</td>';
+        if (amount > 0) {
+            const pct = Math.min(100, (consumed / amount) * 100);
+            const over = consumed > amount;
+            const rest = amount - consumed;
+            consumedCell = `<td>
+                <div style="font-size:13px;">${fmtMoney(consumed)} из ${fmtMoney(amount)}</div>
+                <div style="height:6px;border-radius:3px;background:var(--border-color);overflow:hidden;margin-top:4px;">
+                    <div style="height:100%;width:${pct.toFixed(1)}%;background:${over ? 'var(--danger)' : 'var(--success)'};"></div>
+                </div>
+                ${rest > 0 ? `<div style="color:var(--text-tertiary);font-size:11px;margin-top:2px;">остаток ${fmtMoney(rest)}</div>` : ''}
+            </td>`;
+        }
         return `<tr>
             <td>${label}</td>
             <td>${d}</td>
-            <td>${parseFloat(p.amount || 0).toFixed(2)} ₽</td>
+            <td>${fmtMoney(amount)}</td>
+            ${consumedCell}
         </tr>`;
     }).join('');
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -770,46 +795,76 @@ async function loadBillingStats() {
         return;
     }
     try {
-        const [paymentsRes, providersRes] = await Promise.all([
+        const [paymentsRes, providersRes, summaryRes] = await Promise.all([
             fetch(API_PAYMENTS, { credentials: 'include' }),
-            fetch(API_PROVIDERS, { credentials: 'include' })
+            fetch(API_PROVIDERS, { credentials: 'include' }),
+            fetch(`${API_IMPORT}?type=summary`, { credentials: 'include' })
         ]);
         if (!paymentsRes.ok || !providersRes.ok) throw new Error('HTTP error');
         const pt = await paymentsRes.text();
         const rt = await providersRes.text();
         const payments = (pt ? JSON.parse(pt) : {}).payments || [];
         const providers = (rt ? JSON.parse(rt) : {}).providers || [];
-        renderMonthlyChart(payments);
+        if (summaryRes.ok) {
+            window.billingSummary = await summaryRes.json();
+        }
+        renderMonthlyChart(payments, window.billingSummary);
         renderProviderChart(payments, providers);
     } catch (e) { console.error('loadBillingStats', e); }
 }
 
-function renderMonthlyChart(payments) {
+function renderMonthlyChart(payments, summary) {
     const ctx = document.getElementById('paymentsChart');
     if (!ctx) return;
-    const monthly = {};
-    payments.forEach(p => {
-        const d = new Date(p.payment_date);
-        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        monthly[k] = (monthly[k] || 0) + parseFloat(p.amount || 0);
+
+    let months = [];
+    let expensesData = [];
+    let paymentsData = [];
+
+    if (summary && Array.isArray(summary.months) && summary.months.length) {
+        months = summary.months.map(m => m.ym);
+        expensesData = summary.months.map(m => Number(m.expenses || 0));
+        paymentsData = summary.months.map(m => Number(m.payments || 0));
+    } else {
+        const monthly = {};
+        (payments || []).forEach(p => {
+            const d = new Date(p.payment_date);
+            const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            monthly[k] = (monthly[k] || 0) + parseFloat(p.amount || 0);
+        });
+        months = Object.keys(monthly).sort();
+        paymentsData = months.map(m => monthly[m]);
+    }
+
+    const labels = months.map(m => {
+        const [y, mo] = m.split('-');
+        return new Date(y, mo - 1).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
     });
-    const months = Object.keys(monthly).sort();
+
+    const datasets = [{
+        label: 'Платежи, ₽',
+        data: paymentsData,
+        borderColor: 'rgb(59,130,246)',
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        tension: 0.4, fill: true
+    }];
+    if (expensesData.length) {
+        datasets.push({
+            label: 'Расходы, ₽',
+            data: expensesData,
+            borderColor: 'rgb(245,158,11)',
+            backgroundColor: 'rgba(245,158,11,0.1)',
+            tension: 0.4, fill: false, borderDash: [5, 4]
+        });
+    }
+
     if (monthlyChart) monthlyChart.destroy();
     monthlyChart = new Chart(ctx, {
         type: 'line',
-        data: {
-            labels: months.map(m => { const [y, mo] = m.split('-'); return new Date(y, mo - 1).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' }); }),
-            datasets: [{
-                label: 'Расходы, ₽',
-                data: months.map(m => monthly[m]),
-                borderColor: 'rgb(59,130,246)',
-                backgroundColor: 'rgba(59,130,246,0.1)',
-                tension: 0.4, fill: true
-            }]
-        },
+        data: { labels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { display: true, position: 'bottom' } },
             scales: { y: { beginAtZero: true, ticks: { callback: v => v + ' ₽' } } }
         }
     });
@@ -843,12 +898,20 @@ function renderProviderChart(payments, providers) {
 
 async function loadBillingExpenses() {
     try {
-        const res = await fetch(`${API_IMPORT}?type=expenses`, { credentials: 'include' });
+        const params = new URLSearchParams({ type: 'expenses', page: String(expensesState.page), per_page: String(expensesState.per_page) });
+        ['provider', 'month', 'status', 'q'].forEach(k => {
+            if (expensesState[k]) params.set(k, expensesState[k]);
+        });
+        const res = await fetch(`${API_IMPORT}?${params.toString()}`, { credentials: 'include' });
         const data = await res.json();
         const tbody = document.getElementById('billing-expenses-tbody');
         if (!tbody) return;
         const list = data.expenses || [];
         window.billingExpensesData = list;
+        expensesState.page = data.page || expensesState.page;
+
+        if (data.pages) renderExpensesPagination(data.page || 1, data.pages, data.total || list.length);
+
         if (list.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center">Нет данных</td></tr>';
             return;
@@ -879,6 +942,100 @@ async function loadBillingExpenses() {
         }).join('');
         if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) { console.error('loadBillingExpenses', e); }
+}
+
+function renderExpensesPagination(page, pages, total) {
+    const wrap = document.getElementById('expenses-pagination');
+    const info = document.getElementById('expenses-page-info');
+    const prev = document.getElementById('expenses-prev');
+    const next = document.getElementById('expenses-next');
+    if (!wrap) return;
+    if (pages <= 1) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'flex';
+    if (info) info.textContent = `Стр. ${page} из ${pages} · всего ${total}`;
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= pages;
+}
+
+function applyExpenseFilters() {
+    const provider = document.getElementById('expenses-provider');
+    const month = document.getElementById('expenses-month');
+    const status = document.getElementById('expenses-status');
+    expensesState.provider = provider ? provider.value : '';
+    expensesState.month = month ? month.value : '';
+    expensesState.status = status ? status.value : '';
+    expensesState.page = 1;
+    loadBillingExpenses();
+}
+
+function resetExpenseFilters() {
+    ['expenses-search', 'expenses-provider', 'expenses-month', 'expenses-status'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    expensesState.provider = '';
+    expensesState.month = '';
+    expensesState.status = '';
+    expensesState.q = '';
+    expensesState.page = 1;
+    loadBillingExpenses();
+}
+
+function changeExpensesPage(direction) {
+    const page = expensesState.page + (direction || 0);
+    if (page < 1) return;
+    expensesState.page = page;
+    loadBillingExpenses();
+}
+
+function populateExpenseProviderFilter(providers) {
+    const sel = document.getElementById('expenses-provider');
+    if (!sel) return;
+    const current = sel.value || expensesState.provider;
+    const list = Array.isArray(providers) ? providers : [];
+    sel.innerHTML = '<option value="">Все провайдеры</option>' + list.map(function (p) {
+        return `<option value="${escHtmlAttr(p)}">${esc(p)}</option>`;
+    }).join('');
+    if (current && list.indexOf(current) !== -1) sel.value = current;
+}
+
+async function loadBillingSummary() {
+    try {
+        const res = await fetch(`${API_IMPORT}?type=summary`, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        window.billingSummary = await res.json();
+        applyBillingSummary();
+    } catch (e) {
+        console.error('loadBillingSummary', e);
+    }
+}
+
+function applyBillingSummary() {
+    const s = window.billingSummary || {};
+    const monthExpenses = Number(s.expenses_month || 0);
+    const monthPayments = Number(s.payments_month || 0);
+    const balance = monthPayments - monthExpenses;
+
+    const elExp = document.getElementById('month-expenses');
+    if (elExp) elExp.textContent = fmtMoney(monthExpenses);
+
+    const elBal = document.getElementById('month-balance');
+    if (elBal) {
+        elBal.textContent = (balance > 0 ? '+' : '') + fmtMoney(balance);
+        elBal.style.color = balance >= 0 ? 'var(--success)' : 'var(--danger)';
+    }
+
+    const elTotal = document.getElementById('expenses-total');
+    if (elTotal) elTotal.textContent = fmtMoney(s.expenses_total);
+
+    populateExpenseProviderFilter(s.providers);
+
+    if (window.billingPaymentsData && document.getElementById('payments-history-tbody')) {
+        renderPayments(window.billingPaymentsData);
+    }
+    if (monthlyChart && Array.isArray(s.months)) {
+        renderMonthlyChart(window.billingPaymentsData || [], s);
+    }
 }
 
 async function loadBillingDomains() {
@@ -1095,12 +1252,12 @@ function switchBillingUnifiedTab(tab) {
     document.querySelectorAll('.tab-content').forEach(tc =>
         tc.classList.toggle('active', tc.id === tab + '-tab'));
 
-    if (tab === 'billing')   { loadBillingData(); loadUnlinkedPayments(); }
-    if (tab === 'expenses')  { loadBillingData(true); loadBillingExpenses(); }
+    if (tab === 'billing')   { loadBillingData(); loadBillingSummary(); loadUnlinkedPayments(); }
+    if (tab === 'expenses')  { loadBillingData(true); expensesState.page = 1; loadBillingSummary(); loadBillingExpenses(); }
     if (tab === 'domains')   loadBillingDomains();
     if (tab === 'imports')   loadBillingImports();
     if (tab === 'providers') loadProviders();
-    if (tab === 'stats')     { loadBillingData(); loadBillingStats(); }
+    if (tab === 'stats')     { loadBillingData(); loadBillingSummary(); loadBillingStats(); }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -1141,12 +1298,29 @@ window.closeExpenseMatchModal  = closeExpenseMatchModal;
 window.saveExpenseMatch        = saveExpenseMatch;
 
 window.switchBillingUnifiedTab = switchBillingUnifiedTab;
+window.applyExpenseFilters     = applyExpenseFilters;
+window.resetExpenseFilters     = resetExpenseFilters;
+window.changeExpensesPage      = changeExpensesPage;
+window.loadBillingSummary      = loadBillingSummary;
 
 /* ==================== ИНИЦИАЛИЗАЦИЯ ==================== */
 document.addEventListener('DOMContentLoaded', function () {
     loadProviders();
     loadBillingData();
     loadUnlinkedPayments();
+
+    // Поиск по расходам (debounce 300 мс)
+    const expensesSearch = document.getElementById('expenses-search');
+    if (expensesSearch) {
+        expensesSearch.addEventListener('input', function () {
+            clearTimeout(expensesSearchTimer);
+            expensesSearchTimer = setTimeout(function () {
+                expensesState.q = expensesSearch.value.trim();
+                expensesState.page = 1;
+                loadBillingExpenses();
+            }, 300);
+        });
+    }
 
     // Select-all
     const selAll = document.getElementById('select-all-billing-nodes');

@@ -84,6 +84,18 @@ render_layout_start('Биллинг', 'nodes-billing', '');
             <div class="stat-card-icon" style="background: linear-gradient(180deg, #818cf8, #4f46e5);"><i data-lucide="trending-up"></i></div>
             <div class="stat-card-content"><h3>Всего потрачено</h3><div class="stat-value" id="total-spent">0 ₽</div><p class="stat-subtitle">суммарных трат</p></div>
         </div>
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #f87171, #dc2626);"><i data-lucide="receipt"></i></div>
+            <div class="stat-card-content"><h3>Расходы в <?= date('m/Y') ?></h3><div class="stat-value" id="month-expenses">0 ₽</div><p class="stat-subtitle">списания хостинга</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #38bdf8, #0284c7);"><i data-lucide="scale"></i></div>
+            <div class="stat-card-content"><h3>Итог месяца</h3><div class="stat-value" id="month-balance">0 ₽</div><p class="stat-subtitle">платежи − расходы</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon" style="background: linear-gradient(180deg, #fb923c, #ea580c);"><i data-lucide="trending-down"></i></div>
+            <div class="stat-card-content"><h3>Списано всего</h3><div class="stat-value" id="expenses-total">0 ₽</div><p class="stat-subtitle">все расходы</p></div>
+        </div>
     </div>
 
     <div class="card" style="margin-top: 24px;">
@@ -145,8 +157,8 @@ render_layout_start('Биллинг', 'nodes-billing', '');
         </div>
         <div class="table-container compact-table" style="overflow-x: auto;">
             <table>
-                <thead><tr><th>Провайдер / Нода</th><th>Дата</th><th>Сумма</th></tr></thead>
-                <tbody id="payments-history-tbody"><tr><td colspan="3" class="text-center">Загрузка...</td></tr></tbody>
+                <thead><tr><th>Провайдер / Нода</th><th>Дата</th><th>Сумма</th><th>Израсходовано</th></tr></thead>
+                <tbody id="payments-history-tbody"><tr><td colspan="4" class="text-center">Загрузка...</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -155,7 +167,7 @@ render_layout_start('Биллинг', 'nodes-billing', '');
 <!-- ===================== СТАТИСТИКА ===================== -->
 <div id="stats-tab" class="tab-content">
     <div class="grid-2" style="margin-top: 24px;">
-        <div class="card"><div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3"></i><span>Платежи по месяцам</span></div></div><div class="card-body"><canvas id="paymentsChart" height="220"></canvas></div></div>
+        <div class="card"><div class="card-header"><div class="card-title"><i data-lucide="bar-chart-3"></i><span>Платежи и расходы по месяцам</span></div></div><div class="card-body"><canvas id="paymentsChart" height="220"></canvas></div></div>
         <div class="card"><div class="card-header"><div class="card-title"><i data-lucide="pie-chart"></i><span>По провайдерам</span></div></div><div class="card-body"><canvas id="providersChart" height="220"></canvas></div></div>
     </div>
 </div>
@@ -170,8 +182,30 @@ render_layout_start('Биллинг', 'nodes-billing', '');
                 <button onclick="switchBillingUnifiedTab('imports'); document.getElementById('billing-import-type').value='expenses';" class="icon-btn primary" title="Импорт"><i data-lucide="upload"></i></button>
             </div>
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+            <div class="compact-search" style="flex:1 1 220px;">
+                <input type="search" id="expenses-search" placeholder="Поиск по описанию или счёту">
+            </div>
+            <select id="expenses-provider" class="compact-select" style="min-width:170px;max-width:210px;" onchange="applyExpenseFilters()">
+                <option value="">Все провайдеры</option>
+            </select>
+            <input type="month" id="expenses-month" class="compact-select" style="min-width:150px;max-width:180px;background-image:none;padding-right:14px;" onchange="applyExpenseFilters()">
+            <select id="expenses-status" class="compact-select" style="min-width:170px;max-width:210px;" onchange="applyExpenseFilters()">
+                <option value="">Все расходы</option>
+                <option value="node">С нодой</option>
+                <option value="domain">С доменом</option>
+                <option value="unmatched">Без сопоставления</option>
+                <option value="no_payment">Без платежа</option>
+            </select>
+            <button type="button" class="icon-btn" id="expenses-reset" onclick="resetExpenseFilters()" title="Сбросить фильтры"><i data-lucide="x"></i></button>
+        </div>
         <div class="table-container compact-table" style="overflow-x: auto;">
             <table><thead><tr><th>Дата</th><th>Описание</th><th>Провайдер</th><th>На счёт</th><th>Сумма</th><th>Сопоставлено</th><th>Действия</th></tr></thead><tbody id="billing-expenses-tbody"><tr><td colspan="7" class="text-center">Нет данных</td></tr></tbody></table>
+        </div>
+        <div class="pagination" id="expenses-pagination" style="display:none;">
+            <button type="button" class="pagination-btn" id="expenses-prev" onclick="changeExpensesPage(-1)"><i data-lucide="chevron-left"></i></button>
+            <span class="pagination-info" id="expenses-page-info"></span>
+            <button type="button" class="pagination-btn" id="expenses-next" onclick="changeExpensesPage(1)"><i data-lucide="chevron-right"></i></button>
         </div>
     </div>
 </div>

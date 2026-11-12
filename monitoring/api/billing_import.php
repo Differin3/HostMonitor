@@ -1029,17 +1029,168 @@ function handleImport($pdo) {
  * List (GET)
  * ================================================================ */
 
+/**
+ * Расходы с фильтрами и постраничной выдачей.
+ * Параметры GET: page, per_page, provider, month (YYYY-MM), status, q.
+ * status: node | domain | unmatched | no_payment.
+ *
+ * @return array{expenses: array, total: int, page: int, per_page: int, pages: int}
+ */
+function listExpenses(PDO $pdo): array {
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $perPage = (int)($_GET['per_page'] ?? 50);
+    if ($perPage < 10) $perPage = 10;
+    if ($perPage > 200) $perPage = 200;
+
+    $where = [];
+    $params = [];
+
+    $provider = trim((string)($_GET['provider'] ?? ''));
+    if ($provider !== '') {
+        $where[] = 'e.provider_name = ?';
+        $params[] = $provider;
+    }
+
+    $month = trim((string)($_GET['month'] ?? ''));
+    if (preg_match('/^\d{4}-\d{2}$/', $month)) {
+        $monthStart = $month . '-01';
+        $where[] = 'e.expense_date >= ? AND e.expense_date < ?';
+        $params[] = $monthStart;
+        $params[] = date('Y-m-d', strtotime($monthStart . ' +1 month'));
+    }
+
+    $status = (string)($_GET['status'] ?? '');
+    if ($status === 'node') {
+        $where[] = 'e.matched_node_id IS NOT NULL';
+    } elseif ($status === 'domain') {
+        $where[] = 'e.matched_domain_id IS NOT NULL';
+    } elseif ($status === 'unmatched') {
+        $where[] = 'e.matched_node_id IS NULL AND e.matched_domain_id IS NULL';
+    } elseif ($status === 'no_payment') {
+        $where[] = 'e.matched_node_id IS NOT NULL AND e.matched_payment_id IS NULL';
+    }
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    if ($q !== '') {
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
+        $where[] = '(e.description LIKE ? OR e.account_ref LIKE ?)';
+        $params[] = $like;
+        $params[] = $like;
+    }
+
+    $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+    $cnt = $pdo->prepare("SELECT COUNT(*) FROM billing_expenses e $whereSql");
+    $cnt->execute($params);
+    $total = (int)$cnt->fetchColumn();
+
+    $pages = max(1, (int)ceil($total / $perPage));
+    if ($page > $pages) $page = $pages;
+    $offset = ($page - 1) * $perPage;
+
+    $sql = "SELECT e.*, n.name AS node_name, d.domain_name AS domain_name,
+            p.payment_date AS payment_date, p.amount AS payment_amount, p.external_id AS payment_external_id
+        FROM billing_expenses e
+        LEFT JOIN nodes n ON e.matched_node_id = n.id
+        LEFT JOIN domains d ON e.matched_domain_id = d.id
+        LEFT JOIN payments p ON e.matched_payment_id = p.id
+        $whereSql
+        ORDER BY e.expense_date DESC, e.id DESC
+        LIMIT $perPage OFFSET $offset";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return [
+        'expenses' => $stmt->fetchAll(PDO::FETCH_ASSOC),
+        'total'    => $total,
+        'page'     => $page,
+        'per_page' => $perPage,
+        'pages'    => $pages,
+    ];
+}
+
+/**
+ * Сводка для KPI-карточек, графика и колонки «израсходовано» у платежей.
+ *
+ * @return array{months: array, expenses_total: float, expenses_month: float,
+ *               payments_total: float, payments_month: float,
+ *               payment_consumed: array, providers: array}
+ */
+function billingSummary(PDO $pdo): array {
+    $months = [];
+
+    $expRows = $pdo->query("SELECT DATE_FORMAT(expense_date, '%Y-%m') ym, SUM(amount) s
+        FROM billing_expenses
+        WHERE expense_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 11 MONTH), '%Y-%m-01')
+        GROUP BY ym");
+    foreach ($expRows as $r) {
+        $months[$r['ym']]['expenses'] = round((float)$r['s'], 2);
+    }
+
+    $payRows = $pdo->query("SELECT DATE_FORMAT(payment_date, '%Y-%m') ym, SUM(amount) s
+        FROM payments
+        WHERE payment_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 11 MONTH), '%Y-%m-01')
+        GROUP BY ym");
+    foreach ($payRows as $r) {
+        $months[$r['ym']]['payments'] = round((float)$r['s'], 2);
+    }
+    ksort($months);
+
+    $monthList = [];
+    foreach ($months as $ym => $v) {
+        $monthList[] = [
+            'ym'       => $ym,
+            'expenses' => $v['expenses'] ?? 0.0,
+            'payments' => $v['payments'] ?? 0.0,
+        ];
+    }
+
+    $expensesTotal = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM billing_expenses")->fetchColumn();
+    $paymentsTotal = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM payments")->fetchColumn();
+
+    $curMonth = date('Y-m');
+    $expMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM billing_expenses
+        WHERE DATE_FORMAT(expense_date, '%Y-%m') = ?");
+    $expMonthStmt->execute([$curMonth]);
+    $expensesMonth = (float)$expMonthStmt->fetchColumn();
+
+    $payMonthStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM payments
+        WHERE DATE_FORMAT(payment_date, '%Y-%m') = ?");
+    $payMonthStmt->execute([$curMonth]);
+    $paymentsMonth = (float)$payMonthStmt->fetchColumn();
+
+    $consumed = [];
+    $consRows = $pdo->query("SELECT matched_payment_id pid, SUM(amount) s
+        FROM billing_expenses
+        WHERE matched_payment_id IS NOT NULL
+        GROUP BY matched_payment_id");
+    foreach ($consRows as $r) {
+        $consumed[(string)$r['pid']] = round((float)$r['s'], 2);
+    }
+
+    $providers = $pdo->query("SELECT DISTINCT provider_name FROM billing_expenses
+        WHERE provider_name IS NOT NULL AND provider_name <> ''
+        ORDER BY provider_name")->fetchAll(PDO::FETCH_COLUMN);
+
+    return [
+        'months'           => $monthList,
+        'expenses_total'   => round($expensesTotal, 2),
+        'expenses_month'   => round($expensesMonth, 2),
+        'payments_total'   => round($paymentsTotal, 2),
+        'payments_month'   => round($paymentsMonth, 2),
+        'payment_consumed' => $consumed,
+        'providers'        => $providers,
+    ];
+}
+
 function handleList($pdo) {
     $type = $_GET['type'] ?? null;
     if ($type === 'expenses') {
-        $stmt = $pdo->query("SELECT e.*, n.name AS node_name, d.domain_name AS domain_name,
-                p.payment_date AS payment_date, p.amount AS payment_amount, p.external_id AS payment_external_id
-            FROM billing_expenses e
-            LEFT JOIN nodes n ON e.matched_node_id = n.id
-            LEFT JOIN domains d ON e.matched_domain_id = d.id
-            LEFT JOIN payments p ON e.matched_payment_id = p.id
-            ORDER BY e.expense_date DESC, e.id DESC LIMIT 200");
-        echo json_encode(['expenses' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        echo json_encode(listExpenses($pdo));
+        return;
+    }
+    if ($type === 'summary') {
+        echo json_encode(billingSummary($pdo));
         return;
     }
     if ($type === 'domains') {
