@@ -27,6 +27,12 @@
  *  - domains.provider_id: провайдер того расхода, что сопоставлен домену.
  */
 
+// Сервисы, перевыпущенные провайдером под новым номером для той же машины:
+// ключ — старый service-id из описания расхода, значение — текущий nodes.external_id.
+const LEGACY_SERVICE_IDS = [
+    '3547982' => '3630969',
+];
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -328,6 +334,33 @@ function applyExpenseProviderBackfill(PDO $pdo): int {
 }
 
 /**
+ * Привязка расходов со старыми service-id (LEGACY_SERVICE_IDS) к ноде,
+ * которой провайдер выдал новый номер сервиса для той же машины.
+ *
+ * @return int количество обновлённых строк
+ */
+function applyLegacyServiceNodeMatching(PDO $pdo): int {
+    if (!LEGACY_SERVICE_IDS) return 0;
+
+    $resolved = [];
+    $stmt = $pdo->prepare("SELECT id FROM nodes WHERE external_id = ? LIMIT 1");
+    foreach (LEGACY_SERVICE_IDS as $legacyId => $currentId) {
+        $stmt->execute([$currentId]);
+        if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $resolved[$legacyId] = (int)$row['id'];
+    }
+    if (!$resolved) return 0;
+
+    $upd = $pdo->prepare("UPDATE billing_expenses SET matched_node_id = ?, match_type = 'auto', updated_at = NOW()
+        WHERE matched_node_id IS NULL AND description LIKE ?");
+    $updated = 0;
+    foreach ($resolved as $legacyId => $nodeId) {
+        $upd->execute([$nodeId, '%#' . $legacyId . '%']);
+        $updated += $upd->rowCount();
+    }
+    return $updated;
+}
+
+/**
  * Связка расход ↔ платёж той же ноды.
  * Берём последний платёж с payment_date <= даты расхода — это предоплата,
  * которая покрывала списание. Если платежей до расхода нет — ближайший
@@ -434,6 +467,11 @@ function findNodeByServiceId(PDO $pdo, string $haystack): ?int {
     $stmt->execute([$sid]);
     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) return (int)$r['id'];
 
+    if (isset(LEGACY_SERVICE_IDS[$sid])) {
+        $stmt->execute([LEGACY_SERVICE_IDS[$sid]]);
+        if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) return (int)$r['id'];
+    }
+
     $stmt = $pdo->prepare("SELECT id FROM nodes WHERE name LIKE ? LIMIT 1");
     $stmt->execute(['%' . $sid . '%']);
     if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) return (int)$r['id'];
@@ -532,15 +570,17 @@ function applyPaymentGroupMatching(PDO $pdo): int {
  * ================================================================ */
 
 function handleImport($pdo) {
-    // Пересчёт связей без загрузки файла: провайдеры расходов,
-    // расход ↔ платёж, домен ↔ провайдер.
+    // Пересчёт связей без загрузки файла: провайдеры расходов, старые
+    // service-id, расход ↔ платёж, домен ↔ провайдер.
     if (($_POST['action'] ?? '') === 'recompute') {
         $providersFilled = applyExpenseProviderBackfill($pdo);
+        $legacyLinked    = applyLegacyServiceNodeMatching($pdo);
         $paymentsLinked  = applyExpensePaymentMatching($pdo);
         $domainsLinked   = applyDomainProviderMatching($pdo);
         echo json_encode([
             'success'          => true,
             'providers_filled' => $providersFilled,
+            'legacy_linked'    => $legacyLinked,
             'payments_linked'  => $paymentsLinked,
             'domains_linked'   => $domainsLinked,
         ]);
@@ -985,11 +1025,13 @@ function handleImport($pdo) {
             $pdo->commit();
         }
 
-        // Пост-обработка связей: провайдеры расходов, расход ↔ платёж, домен ↔ провайдер.
+        // Пост-обработка связей: провайдеры расходов, старые service-id,
+        // расход ↔ платёж, домен ↔ провайдер.
         // Запускается после любого из импортов: порядок файлов не важен.
-        $providersFilled = 0; $paymentsLinked = 0; $domainsLinked = 0;
+        $providersFilled = 0; $legacyLinked = 0; $paymentsLinked = 0; $domainsLinked = 0;
         if (in_array($type, ['payments', 'expenses', 'domains'], true)) {
             $providersFilled = applyExpenseProviderBackfill($pdo);
+            $legacyLinked    = applyLegacyServiceNodeMatching($pdo);
             $paymentsLinked  = applyExpensePaymentMatching($pdo);
             $domainsLinked   = applyDomainProviderMatching($pdo);
         }
@@ -1004,6 +1046,7 @@ function handleImport($pdo) {
         'skipped'  => $skipped,
         'updated'  => $updated,
         'providers_filled' => $providersFilled,
+        'legacy_linked'    => $legacyLinked,
         'payments_linked'  => $paymentsLinked,
         'domains_linked'   => $domainsLinked,
     ]);
@@ -1017,6 +1060,7 @@ function handleImport($pdo) {
         'skipped'    => $skipped,
         'updated'    => $updated,
         'providers_filled' => $providersFilled,
+        'legacy_linked'    => $legacyLinked,
         'payments_linked'  => $paymentsLinked,
         'domains_linked'   => $domainsLinked,
         'import_id'  => $importId,
