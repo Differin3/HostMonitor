@@ -42,6 +42,7 @@ try:
     from .network import NetworkMixin
     from .topology import TopologyMixin
     from .logs import LogsMixin
+    from .fail2ban import Fail2banMixin
 except ImportError:
     from system import SystemMixin
     from transport import TransportMixin
@@ -51,6 +52,7 @@ except ImportError:
     from network import NetworkMixin
     from topology import TopologyMixin
     from logs import LogsMixin
+    from fail2ban import Fail2banMixin
 
 
 class MonitoringAgent(
@@ -62,6 +64,7 @@ class MonitoringAgent(
     NetworkMixin,
     TopologyMixin,
     LogsMixin,
+    Fail2banMixin,
 ):
     # Инициализация общего состояния и цикл опроса; остальное — в mixin-модулях.
 
@@ -249,7 +252,20 @@ class MonitoringAgent(
             logs = self.collect_logs()
             if logs and not self.send_logs(logs):
                 _log("Error: failed to send logs", level="error")
-            
+
+            # Снимок fail2ban раз в N циклов: 5 джейлов = ~20 запусков клиента,
+            # а историю панель строит диффом между снимками.
+            if os.getenv("FAIL2BAN_ENABLED", "true").lower() == "true":
+                f2b_every = max(1, int(os.getenv("FAIL2BAN_INTERVAL_CYCLES", "5")))
+                if cycle == 1 or cycle % f2b_every == 0:
+                    try:
+                        snapshot = self.collect_fail2ban()
+                        if not self.send_fail2ban(snapshot):
+                            _log("Error: failed to send fail2ban snapshot", level="error")
+                    except Exception as e:
+                        _log(f"fail2ban collection error: {e}", level="warning")
+
+
             _log(f"Cycle {cycle} completed, sleeping {collect_interval}s (heartbeat every {heartbeat_interval}s)...", level="debug")
             # Не sleep(60) целиком: иначе last_seen устаревает и панель мигает offline.
             # Будим каждые heartbeat_interval: heartbeat + проверка pending-команд

@@ -31,6 +31,7 @@ $menuItems = [
     ['slug' => 'smart', 'label' => 'SMART', 'href' => 'smart.php', 'icon' => 'hard-drive'],
     ['slug' => 'logs', 'label' => 'Логи', 'href' => 'logs.php', 'icon' => 'file-text'],
     ['slug' => 'security', 'label' => 'Безопасность', 'href' => 'auth_logs.php', 'icon' => 'shield-check'],
+    ['slug' => 'fail2ban', 'label' => 'Fail2ban', 'href' => 'fail2ban.php', 'icon' => 'shield-alert'],
     ['slug' => 'updates', 'label' => 'Обновления', 'href' => 'updates.php', 'icon' => 'package'],
 ];
 

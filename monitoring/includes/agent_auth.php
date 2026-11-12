@@ -90,6 +90,7 @@ if (!function_exists('agent_default_scopes')) {
         return [
             'metrics:write',
             'logs:write',
+            'fail2ban:write',
             'containers:write',
             'ports:write',
             'processes:write',

@@ -242,6 +242,28 @@ function retention_run(PDO $pdo, bool $applyRowCaps = true): array
         return $deleted;
     });
 
+    // fail2ban: события стареют вместе с логами, а баны без обновления
+    // (нода пропала / джейл удалён) не держим вечно активными.
+    $each('fail2ban_events', static fn(): int => retention_delete_before($pdo, 'fail2ban_events', 'ts', $logCutoff, $batch));
+    $each('fail2ban_bans', static function () use ($pdo, $logCutoff, $batch): int {
+        if (!retention_table_exists($pdo, 'fail2ban_bans')) {
+            return 0;
+        }
+        $deleted = 0;
+        $stmt = $pdo->prepare("DELETE FROM fail2ban_bans WHERE active = 0 AND last_seen < ? LIMIT {$batch}");
+        for ($i = 0; $i < 20; $i++) {
+            $stmt->execute([$logCutoff]);
+            $n = $stmt->rowCount();
+            $deleted += $n;
+            if ($n < $batch) {
+                break;
+            }
+        }
+        $stmt = $pdo->prepare("UPDATE fail2ban_bans SET active = 0 WHERE active = 1 AND last_seen < ? LIMIT {$batch}");
+        $stmt->execute([$logCutoff]);
+        return $deleted;
+    });
+
     if ($applyRowCaps) {
         foreach ($logTables as $table) {
             $each($table . '_cap', static fn(): int => retention_trim_oldest($pdo, $table, $cfg['log_max_rows'], $batch));
