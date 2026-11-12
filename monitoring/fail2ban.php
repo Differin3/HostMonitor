@@ -25,6 +25,20 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
 .f2b-badge-active { color: #34d399; }
 .f2b-badge-expired { color: var(--text-secondary, #999); }
 .f2b-chart-wrap { position: relative; height: 360px; margin-top: 16px; }
+
+.f2b-jails-table { font-size: 13px; }
+.f2b-jails-table th { white-space: nowrap; }
+.f2b-jails-table td { padding-top: 10px; padding-bottom: 10px; vertical-align: middle; }
+.f2b-node-cell { font-weight: 600; white-space: nowrap; border-right: 1px solid var(--border-color, #2a2a2a); }
+.f2b-jail-name { white-space: nowrap; }
+.f2b-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.f2b-count-now { font-weight: 600; }
+.f2b-count-now.is-hot { color: #f87171; }
+.f2b-total { color: var(--text-secondary, #999); font-size: 12px; margin-left: 4px; }
+.f2b-policy { white-space: nowrap; color: var(--text-secondary, #999); }
+.f2b-log { max-width: 280px; }
+.f2b-log-main { display: inline-block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.f2b-pill { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 6px; background: rgba(148, 163, 184, .15); color: var(--text-secondary, #999); vertical-align: bottom; }
 </style>
 
 <div class="tabs">
@@ -62,21 +76,19 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
     <div id="f2b-nodes" class="f2b-nodes"></div>
 
     <div class="table-container" style="margin-top: 16px;">
-        <table>
+        <table class="f2b-jails-table">
             <thead>
                 <tr>
                     <th>Нода</th>
                     <th>Джейл</th>
-                    <th>Failed (сейчас / всего)</th>
-                    <th>Banned (сейчас / всего)</th>
-                    <th>maxretry</th>
-                    <th>findtime</th>
-                    <th>bantime</th>
-                    <th>Источник логов</th>
+                    <th title="Сейчас / всего за всё время">Провалы</th>
+                    <th title="Сейчас / всего за всё время">Баны</th>
+                    <th title="maxretry × findtime → bantime">Политика</th>
+                    <th>Логи</th>
                 </tr>
             </thead>
             <tbody id="f2b-jails-tbody">
-                <tr><td colspan="8" class="text-center">Загрузка…</td></tr>
+                <tr><td colspan="6" class="text-center">Загрузка…</td></tr>
             </tbody>
         </table>
     </div>

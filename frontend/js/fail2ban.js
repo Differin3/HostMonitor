@@ -127,25 +127,72 @@ function loadFail2banSummary() {
     });
 }
 
+function f2bCounts(now, total) {
+    const current = Number(now) || 0;
+    const hot = current > 0 ? ' is-hot' : '';
+    return `<span class="f2b-count-now${hot}">${current}</span><span class="f2b-total">/ ${Number(total) || 0}</span>`;
+}
+
+function f2bPolicy(j) {
+    const retry = j.maxretry === null || j.maxretry === undefined ? '—' : j.maxretry;
+    return `<span title="maxretry × findtime → bantime">${esc(retry)} × ${f2bFmtDuration(j.findtime)} → ${f2bFmtDuration(j.bantime)}</span>`;
+}
+
+function f2bLogCell(j) {
+    const raw = String(j.logpath || '').trim();
+    if (!raw) return '<span class="f2b-total">—</span>';
+    if (String(j.backend || '') === 'systemd' || raw.charAt(0) !== '/') {
+        const unit = raw.match(/_SYSTEMD_UNIT=([^\s+]+)/);
+        const label = unit ? unit[1] : 'journald';
+        return `<span class="f2b-pill" title="${esc(raw)}">journald</span> <span class="f2b-log-main">${esc(label)}</span>`;
+    }
+    const paths = raw.split(/\s+/).filter(Boolean);
+    const first = paths[0];
+    const base = first.substring(first.lastIndexOf('/') + 1) || first;
+    const extra = paths.length > 1
+        ? ` <span class="f2b-pill" title="${esc(paths.slice(1).join('\n'))}">+${paths.length - 1}</span>`
+        : '';
+    return `<span class="f2b-log-main" title="${esc(paths.join('\n'))}">${esc(base)}</span>${extra}`;
+}
+
+function f2bRenderJailRows(jails) {
+    // Джейлы одной ноды группируем в одну ячейку с rowspan — иначе имя ноды
+    // повторяется в каждой строке и таблица превращается в простыню.
+    const rows = [];
+    let i = 0;
+    while (i < jails.length) {
+        const node = jails[i].node_name;
+        let count = 1;
+        while (i + count < jails.length && jails[i + count].node_name === node) {
+            count++;
+        }
+        for (let k = 0; k < count; k++) {
+            const j = jails[i + k];
+            const nodeCell = k === 0 ? `<td class="f2b-node-cell" rowspan="${count}">${esc(node)}</td>` : '';
+            rows.push(`
+                <tr>
+                    ${nodeCell}
+                    <td class="f2b-jail-name"><strong>${esc(j.jail)}</strong></td>
+                    <td class="f2b-count">${f2bCounts(j.currently_failed, j.total_failed)}</td>
+                    <td class="f2b-count">${f2bCounts(j.currently_banned, j.total_banned)}</td>
+                    <td class="f2b-policy">${f2bPolicy(j)}</td>
+                    <td class="f2b-log">${f2bLogCell(j)}</td>
+                </tr>`);
+        }
+        i += count;
+    }
+    return rows.join('');
+}
+
 function loadFail2banJails() {
     return f2bFetch({ action: 'jails' }).then((data) => {
         f2bJails = data.items || [];
         const tbody = document.getElementById('f2b-jails-tbody');
         if (tbody) {
             if (!f2bJails.length) {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center">Данных пока нет — агент ещё не присылал снимок</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">Данных пока нет — агент ещё не присылал снимок</td></tr>';
             } else {
-                tbody.innerHTML = f2bJails.map((j) => `
-                    <tr>
-                        <td>${esc(j.node_name)}</td>
-                        <td><strong>${esc(j.jail)}</strong></td>
-                        <td>${Number(j.currently_failed) || 0} / ${Number(j.total_failed) || 0}</td>
-                        <td>${Number(j.currently_banned) || 0} / ${Number(j.total_banned) || 0}</td>
-                        <td>${j.maxretry === null ? '—' : esc(j.maxretry)}</td>
-                        <td>${f2bFmtDuration(j.findtime)}</td>
-                        <td>${f2bFmtDuration(j.bantime)}</td>
-                        <td class="f2b-mono" title="${esc(j.logpath || '')}">${esc(j.logpath || '—')}</td>
-                    </tr>`).join('');
+                tbody.innerHTML = f2bRenderJailRows(f2bJails);
             }
         }
         const jails = [...new Set(f2bJails.map((j) => j.jail))].sort();
