@@ -10,6 +10,7 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
 .f2b-node-card[data-status="active"] { border-color: rgba(52, 211, 153, .45); }
 .f2b-node-card[data-status="error"] { border-color: rgba(248, 113, 113, .45); }
 .f2b-node-card[data-status="off"] { opacity: .7; }
+.f2b-node-card[data-status="unknown"] { opacity: .55; border-style: dashed; }
 .f2b-node-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .f2b-dot { width: 9px; height: 9px; border-radius: 50%; background: #6b7280; flex-shrink: 0; }
 .f2b-node-card[data-status="active"] .f2b-dot { background: #34d399; box-shadow: 0 0 8px rgba(52, 211, 153, .7); }

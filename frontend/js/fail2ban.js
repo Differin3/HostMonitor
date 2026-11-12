@@ -52,6 +52,9 @@ function f2bFmtDuration(sec) {
 }
 
 function f2bNodeState(node) {
+    // Отсутствие снимка != «fail2ban не установлен»: так выглядят ноды
+    // со старым агентом, который ещё не умеет собирать fail2ban.
+    if (!node.collected_at) return 'unknown';
     if (!node.installed) return 'off';
     if (node.active) return 'active';
     return 'error';
@@ -67,9 +70,11 @@ function f2bRenderNodes(nodes) {
     wrap.innerHTML = nodes.map((n) => {
         const state = f2bNodeState(n);
         const version = n.version ? `v${esc(n.version)}` : '—';
-        const meta = n.installed
-            ? `${n.jail_count} джейл(ов) · ${n.active_bans} бан(ов)`
-            : 'fail2ban не установлен';
+        const meta = !n.collected_at
+            ? 'нет снимка — обновите агент'
+            : (n.installed
+                ? `${n.jail_count} джейл(ов) · ${n.active_bans} бан(ов)`
+                : 'fail2ban не установлен');
         const error = n.error ? `<div class="f2b-node-error" title="${esc(n.error)}">${esc(n.error)}</div>` : '';
         const subtitle = n.collected_at ? `снимок: ${f2bFmtDate(n.collected_at)}` : 'снимка ещё не было';
         return `
