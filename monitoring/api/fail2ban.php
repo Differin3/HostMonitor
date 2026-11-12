@@ -11,6 +11,7 @@ header('Content-Type: application/json; charset=utf-8');
 $pdo = getDbConnection();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+$isAuthorized = false;
 $nodeInfo = null;
 if (isset($_SESSION['user_id'])) {
     $isAuthorized = true;
