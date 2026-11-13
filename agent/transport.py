@@ -228,6 +228,10 @@ class TransportMixin:
             return False
 
         try:
+            # Фаза 2 fail2ban: write-операции идут через тот же канал команд,
+            # но с собственной валидацией jail/IP/параметров в Fail2banMixin.
+            if command.startswith('fail2ban-'):
+                return self.execute_fail2ban_command(command)
             if command in ('check-agent-update', 'check-agent-updates'):
                 result = self.check_agent_update()
                 self.report_agent_update(result)

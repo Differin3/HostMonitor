@@ -45,6 +45,10 @@ if (!function_exists('command_registry')) {
             'update-agent'        => ['dangerous' => false, 'max_ttl' => 1800, 'label' => 'Обновить агента'],
             'update-agent-force'  => ['dangerous' => false, 'max_ttl' => 1800, 'label' => 'Обновить агента (принудительно)'],
             'upgrade-agent'       => ['dangerous' => false, 'max_ttl' => 1800, 'label' => 'Обновить агента'],
+            // Фаза 2 fail2ban: параметры передаются в legacy-строке
+            // (`fail2ban-unban jail ip`), поэтому action=pull их не теряет.
+            'fail2ban-unban'      => ['dangerous' => false, 'max_ttl' => 120,  'label' => 'Fail2ban: разбан IP'],
+            'fail2ban-set'        => ['dangerous' => false, 'max_ttl' => 120,  'label' => 'Fail2ban: параметры джейла'],
         ];
     }
 }
@@ -120,7 +124,7 @@ if (!function_exists('command_issue')) {
      *
      * @return array [http_status, payload]
      */
-    function command_issue(PDO $pdo, array $auth, int $nodeId, string $command, ?string $args, $ttlSeconds = null, ?string $totpCode = null): array
+    function command_issue(PDO $pdo, array $auth, int $nodeId, string $command, ?string $args, $ttlSeconds = null, ?string $totpCode = null, ?string $legacyCommand = null): array
     {
         $meta = command_known($command);
         if ($meta === null) {
@@ -167,11 +171,14 @@ if (!function_exists('command_issue')) {
             return [500, ['error' => 'Failed to store command']];
         }
 
-        // legacy-канал: старые агенты читают nodes.last_command через get-command
+        // legacy-канал: старые агенты читают nodes.last_command через get-command.
+        // Параметры в legacy-строке передаются отдельно (legacyCommand), иначе
+        // они теряются: get-command отдаёт только last_command без args.
+        $legacy = $legacyCommand !== null ? $legacyCommand : $command;
         $upd = $pdo->prepare(
             "UPDATE nodes SET last_command = ?, command_status = 'pending', command_timestamp = NOW() WHERE id = ?"
         );
-        $upd->execute([$command, $nodeId]);
+        $upd->execute([$legacy, $nodeId]);
 
         try {
             $aud = $pdo->prepare(

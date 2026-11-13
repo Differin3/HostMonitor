@@ -7,6 +7,28 @@
 
 const F2B_API = `${typeof API_BASE !== 'undefined' ? API_BASE : '/api'}/fail2ban.php`;
 
+function f2bCanManage() {
+    return window.F2B_CAN_MANAGE === true;
+}
+
+function f2bPost(data) {
+    return fetch(F2B_API, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    }).then((r) => r.json().then((body) => {
+        if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+        return body;
+    }));
+}
+
+function f2bToast(message, type) {
+    if (typeof window.showToast === 'function') {
+        window.showToast(message, type || 'info');
+    }
+}
+
 let f2bBansPage = 1;
 let f2bBansPages = 1;
 let f2bBansTimer = null;
@@ -169,6 +191,9 @@ function f2bRenderJailRows(jails) {
         for (let k = 0; k < count; k++) {
             const j = jails[i + k];
             const nodeCell = k === 0 ? `<td class="f2b-node-cell" rowspan="${count}">${esc(node)}</td>` : '';
+            const editBtn = f2bCanManage()
+                ? `<button class="secondary f2b-action-btn" onclick="f2bEditJail(${Number(j.node_id)}, '${esc(j.jail)}')">Изменить</button>`
+                : '';
             rows.push(`
                 <tr>
                     ${nodeCell}
@@ -177,6 +202,7 @@ function f2bRenderJailRows(jails) {
                     <td class="f2b-count">${f2bCounts(j.currently_banned, j.total_banned)}</td>
                     <td class="f2b-policy">${f2bPolicy(j)}</td>
                     <td class="f2b-log">${f2bLogCell(j)}</td>
+                    <td class="f2b-actions">${editBtn}</td>
                 </tr>`);
         }
         i += count;
@@ -190,7 +216,7 @@ function loadFail2banJails() {
         const tbody = document.getElementById('f2b-jails-tbody');
         if (tbody) {
             if (!f2bJails.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">Данных пока нет — агент ещё не присылал снимок</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">Данных пока нет — агент ещё не присылал снимок</td></tr>';
             } else {
                 tbody.innerHTML = f2bRenderJailRows(f2bJails);
             }
@@ -225,10 +251,16 @@ function loadFail2banBans() {
         const items = data.items || [];
         if (tbody) {
             if (!items.length) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center">Банов нет</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center">Банов нет</td></tr>';
             } else {
                 tbody.innerHTML = items.map((b) => {
                     const active = Number(b.active) === 1;
+                    let actions = '';
+                    if (f2bCanManage() && active) {
+                        actions = b.unban_requested_at
+                            ? `<span class="f2b-pending" title="запрошено ${esc(f2bFmtDate(b.unban_requested_at))}">запрошено</span>`
+                            : `<button class="secondary f2b-action-btn" onclick="f2bUnban(${Number(b.id)}, '${esc(b.ip)}', '${esc(b.jail)}')">Разбанить</button>`;
+                    }
                     return `
                         <tr>
                             <td>${esc(b.node_name)}</td>
@@ -238,6 +270,7 @@ function loadFail2banBans() {
                             <td>${f2bFmtDate(b.banned_at)}</td>
                             <td>${f2bFmtDate(b.expires_at)}</td>
                             <td>${f2bFmtDate(b.last_seen)}</td>
+                            <td class="f2b-actions">${actions}</td>
                         </tr>`;
                 }).join('');
             }
@@ -311,6 +344,80 @@ function loadFail2banSeries() {
             },
         });
     });
+}
+
+function f2bUnban(id, ip, jail) {
+    const ask = typeof window.showConfirm === 'function'
+        ? window.showConfirm(`Разбанить ${ip} в джейле ${jail}?`, 'Разбан IP', 'warning')
+        : Promise.resolve(window.confirm(`Разбанить ${ip} в джейле ${jail}?`));
+    ask.then((ok) => {
+        if (!ok) return;
+        return f2bPost({ action: 'unban', id })
+            .then(() => {
+                f2bToast('Команда разбана отправлена', 'success');
+                loadFail2banBans().catch(() => {});
+                setTimeout(reloadFail2ban, 20000);
+            })
+            .catch((e) => f2bToast(`Разбан не удался: ${e.message}`, 'error'));
+    });
+}
+
+let f2bEditState = null;
+
+function f2bEditJail(nodeId, jail) {
+    const row = f2bJails.find((j) => Number(j.node_id) === Number(nodeId) && j.jail === jail);
+    if (!row) return;
+    f2bEditState = {
+        node_id: Number(nodeId),
+        jail,
+        maxretry: row.maxretry === null ? null : Number(row.maxretry),
+        findtime: row.findtime === null ? null : Number(row.findtime),
+        bantime: row.bantime === null ? null : Number(row.bantime),
+    };
+    document.getElementById('f2b-edit-title').textContent = `Параметры · ${jail}`;
+    document.getElementById('f2b-edit-maxretry').value = f2bEditState.maxretry ?? '';
+    document.getElementById('f2b-edit-findtime').value = f2bEditState.findtime ? Math.round(f2bEditState.findtime / 60) : '';
+    const forever = f2bEditState.bantime !== null && f2bEditState.bantime < 0;
+    document.getElementById('f2b-edit-forever').checked = forever;
+    document.getElementById('f2b-edit-bantime').value = forever || !f2bEditState.bantime
+        ? ''
+        : Math.round(f2bEditState.bantime / 60);
+    document.getElementById('f2b-edit-bantime').disabled = forever;
+    document.getElementById('f2b-edit-modal').hidden = false;
+}
+
+function f2bCloseEdit() {
+    document.getElementById('f2b-edit-modal').hidden = true;
+    f2bEditState = null;
+}
+
+function f2bSaveJail() {
+    if (!f2bEditState) return;
+    const int = (id) => {
+        const raw = document.getElementById(id).value.trim();
+        return raw === '' ? null : parseInt(raw, 10);
+    };
+    const retry = int('f2b-edit-maxretry');
+    const findMin = int('f2b-edit-findtime');
+    const forever = document.getElementById('f2b-edit-forever').checked;
+    const banMin = forever ? -1 : int('f2b-edit-bantime');
+
+    const params = {};
+    if (retry !== null && retry !== f2bEditState.maxretry) params.maxretry = retry;
+    if (findMin !== null && findMin * 60 !== f2bEditState.findtime) params.findtime = findMin * 60;
+    if (banMin !== null && banMin !== f2bEditState.bantime) params.bantime = banMin === -1 ? -1 : banMin * 60;
+
+    if (!Object.keys(params).length) {
+        f2bCloseEdit();
+        return;
+    }
+    f2bPost({ action: 'set_param', node_id: f2bEditState.node_id, jail: f2bEditState.jail, params })
+        .then(() => {
+            f2bToast('Команда изменения параметров отправлена', 'success');
+            f2bCloseEdit();
+            setTimeout(reloadFail2ban, 20000);
+        })
+        .catch((e) => f2bToast(`Изменение не удалось: ${e.message}`, 'error'));
 }
 
 function switchFail2banTab(tab) {

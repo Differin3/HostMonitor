@@ -34,6 +34,111 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 
 /**
+ * Разбан IP из панели. Возвращает [http_status, payload].
+ * Команда идёт в общий канал; ban будет снят агентом и подтверждён снимком.
+ */
+function f2b_action_unban(PDO $pdo, int $userId, array $data): array
+{
+    $banId = (int)($data['id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT id, node_id, jail, ip, active FROM fail2ban_bans WHERE id = ?');
+    $stmt->execute([$banId]);
+    $ban = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$ban) {
+        return [404, ['error' => 'Ban not found']];
+    }
+    if ((int)$ban['active'] !== 1) {
+        return [409, ['error' => 'Ban is not active']];
+    }
+    $jail = (string)$ban['jail'];
+    $ip = (string)$ban['ip'];
+    if (!preg_match('/^[A-Za-z0-9_.@-]{1,64}$/', $jail) || !filter_var($ip, FILTER_VALIDATE_IP)) {
+        return [400, ['error' => 'Некорректные данные бана']];
+    }
+    $legacy = "fail2ban-unban {$jail} {$ip}";
+    [$status, $payload] = command_issue(
+        $pdo, ['user' => $userId], (int)$ban['node_id'], 'fail2ban-unban', null, 120, null, $legacy
+    );
+    if ($status >= 400) {
+        return [$status, $payload];
+    }
+    $pdo->prepare('UPDATE fail2ban_bans SET unban_requested_at = ?, unban_requested_by = ? WHERE id = ?')
+        ->execute([date('Y-m-d H:i:s'), $userId, $banId]);
+    return [200, ['ok' => true, 'command_id' => $payload['command_id'] ?? null]];
+}
+
+/**
+ * Изменение параметров джейла. Рантайм применяет агент, персистентность —
+ * запись jail.d/90-hostmonitor.local с проверкой `fail2ban-client -t`.
+ */
+function f2b_action_set_param(PDO $pdo, int $userId, array $data): array
+{
+    $nodeId = (int)($data['node_id'] ?? 0);
+    $jail = trim((string)($data['jail'] ?? ''));
+    $params = $data['params'] ?? null;
+    if ($nodeId <= 0 || !preg_match('/^[A-Za-z0-9_.@-]{1,64}$/', $jail) || !is_array($params) || !$params) {
+        return [400, ['error' => 'Требуются node_id, jail и params']];
+    }
+    $limits = [
+        'maxretry' => [1, 100],
+        'findtime' => [60, 86400],
+        'bantime'  => [-1, 31536000],
+    ];
+    $clean = [];
+    foreach ($params as $key => $value) {
+        $key = strtolower((string)$key);
+        if (!isset($limits[$key])) {
+            return [400, ['error' => "Неподдерживаемый параметр: {$key}"]];
+        }
+        if (!is_numeric($value)) {
+            return [400, ['error' => "{$key}: ожидается число"]];
+        }
+        $int = (int)$value;
+        if ($int < $limits[$key][0] || $int > $limits[$key][1]) {
+            return [400, ['error' => "{$key}: вне допустимого диапазона"]];
+        }
+        $clean[$key] = $int;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT 1 FROM fail2ban_jails j
+           JOIN fail2ban_status s ON s.node_id = j.node_id
+          WHERE j.node_id = ? AND j.jail = ? AND s.installed = 1'
+    );
+    $stmt->execute([$nodeId, $jail]);
+    if ($stmt->fetchColumn() === false) {
+        return [404, ['error' => 'Джейл не найден у этой ноды']];
+    }
+    $pairs = [];
+    foreach ($clean as $key => $value) {
+        $pairs[] = "{$key}={$value}";
+    }
+    $legacy = "fail2ban-set {$jail} " . implode(' ', $pairs);
+    [$status, $payload] = command_issue(
+        $pdo, ['user' => $userId], $nodeId, 'fail2ban-set', implode(' ', $pairs), 120, null, $legacy
+    );
+    if ($status >= 400) {
+        return [$status, $payload];
+    }
+    return [200, ['ok' => true, 'command_id' => $payload['command_id'] ?? null, 'params' => $clean]];
+}
+
+/**
+ * Идемпотентное добавление колонки: миграция применяется руками, а страница
+ * должна работать сразу после деплоя кода.
+ */
+function f2b_ensure_column(PDO $pdo, string $table, string $column, string $definition): void
+{
+    try {
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
+        $stmt->execute([$column]);
+        if ($stmt->fetchColumn() === false) {
+            $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+        }
+    } catch (Throwable $e) {
+        // нет прав на ALTER — колонку добавит миграция
+    }
+}
+
+/**
  * Идемпотентная схема: миграция применяется руками, а страница должна
  * работать сразу после деплоя кода.
  */
@@ -96,6 +201,8 @@ function f2b_ensure_schema(PDO $pdo): void
         KEY idx_ts (ts),
         KEY idx_jail (jail)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    f2b_ensure_column($pdo, 'fail2ban_bans', 'unban_requested_at', 'DATETIME NULL');
+    f2b_ensure_column($pdo, 'fail2ban_bans', 'unban_requested_by', 'INT NULL');
     $done = true;
 }
 
@@ -251,6 +358,15 @@ function f2b_ingest(PDO $pdo, int $nodeId, array $data): array
             $newEvents++;
         }
 
+        // Если ban всё ещё активен спустя 2 минуты после запроса разбана,
+        // команда не сработала — снимаем пометку, чтобы UI не врал.
+        $pdo->prepare(
+            'UPDATE fail2ban_bans
+                SET unban_requested_at = NULL, unban_requested_by = NULL
+              WHERE node_id = ? AND active = 1
+                AND unban_requested_at IS NOT NULL AND unban_requested_at < ?'
+        )->execute([$nodeId, date('Y-m-d H:i:s', time() - 120)]);
+
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -285,9 +401,6 @@ function f2b_fill_series(array $rows, string $fromSql, int $days): array
 f2b_ensure_schema($pdo);
 
 if ($method === 'POST') {
-    if ($nodeInfo === null) {
-        json_error('Agent authentication required', 403);
-    }
     $raw = file_get_contents('php://input');
     if ($raw === false || $raw === '') {
         json_error('Empty payload');
@@ -299,11 +412,33 @@ if ($method === 'POST') {
     if (!is_array($data)) {
         json_error('Invalid JSON');
     }
-    try {
-        echo json_encode(f2b_ingest($pdo, (int)$nodeInfo['id'], $data));
-    } catch (Throwable $e) {
-        json_exception($e);
+
+    // Канал агента: только приём снимка.
+    if ($nodeInfo !== null) {
+        try {
+            echo json_encode(f2b_ingest($pdo, (int)$nodeInfo['id'], $data));
+        } catch (Throwable $e) {
+            json_exception($e);
+        }
+        exit;
     }
+
+    // Действия из UI — только администратор.
+    if (($_SESSION['role'] ?? 'admin') !== 'admin') {
+        json_error('Forbidden: admin required', 403);
+    }
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    $action = (string)($data['action'] ?? '');
+
+    if ($action === 'unban') {
+        [$status, $payload] = f2b_action_unban($pdo, $userId, $data);
+    } elseif ($action === 'set_param') {
+        [$status, $payload] = f2b_action_set_param($pdo, $userId, $data);
+    } else {
+        [$status, $payload] = [404, ['error' => 'Unknown action']];
+    }
+    http_response_code($status);
+    echo json_encode($payload);
     exit;
 }
 
@@ -410,7 +545,8 @@ try {
         $offset = ($page - 1) * $perPage;
 
         $sql = "SELECT b.id, b.node_id, n.name AS node_name, b.jail, b.ip, b.active,
-                       b.banned_at, b.expires_at, b.first_seen, b.last_seen
+                       b.banned_at, b.expires_at, b.first_seen, b.last_seen,
+                       b.unban_requested_at, b.unban_requested_by
                   FROM fail2ban_bans b
                   JOIN nodes n ON n.id = b.node_id
                   $whereSql

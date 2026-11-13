@@ -39,6 +39,19 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
 .f2b-log { max-width: 280px; }
 .f2b-log-main { display: inline-block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .f2b-pill { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 6px; background: rgba(148, 163, 184, .15); color: var(--text-secondary, #999); vertical-align: bottom; }
+.f2b-actions { white-space: nowrap; text-align: right; }
+.f2b-action-btn { font-size: 12px; padding: 4px 10px; }
+.f2b-pending { font-size: 12px; color: #fbbf24; white-space: nowrap; }
+
+.f2b-modal { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; }
+.f2b-modal[hidden] { display: none; }
+.f2b-modal-box { background: var(--bg-card, #141414); border: 1px solid var(--border-color, #2a2a2a); border-radius: 12px; padding: 18px 20px; width: min(420px, calc(100vw - 32px)); }
+.f2b-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; font-weight: 600; }
+.f2b-edit-grid { display: grid; gap: 10px; }
+.f2b-edit-grid label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-secondary, #999); }
+.f2b-edit-grid input[type="number"] { width: 120px; }
+.f2b-edit-check { justify-content: flex-start !important; }
+.f2b-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 </style>
 
 <div class="tabs">
@@ -85,6 +98,7 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
                     <th title="Сейчас / всего за всё время">Баны</th>
                     <th title="maxretry × findtime → bantime">Политика</th>
                     <th>Логи</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody id="f2b-jails-tbody">
@@ -129,6 +143,7 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
                     <th>Забанен</th>
                     <th>Истекает</th>
                     <th>Последний раз виден</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody id="f2b-bans-tbody">
@@ -163,4 +178,24 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
     </div>
 </div>
 
+<div id="f2b-edit-modal" class="f2b-modal" hidden>
+    <div class="f2b-modal-box">
+        <div class="f2b-modal-head">
+            <span id="f2b-edit-title">Параметры джейла</span>
+            <button class="secondary" onclick="f2bCloseEdit()">&times;</button>
+        </div>
+        <div class="f2b-edit-grid">
+            <label>maxretry <input id="f2b-edit-maxretry" type="number" min="1" max="100"></label>
+            <label>findtime, мин <input id="f2b-edit-findtime" type="number" min="1" max="1440"></label>
+            <label>bantime, мин <input id="f2b-edit-bantime" type="number" min="1" max="525600"></label>
+            <label class="f2b-edit-check"><input id="f2b-edit-forever" type="checkbox" onchange="document.getElementById('f2b-edit-bantime').disabled = this.checked"> бан навсегда</label>
+        </div>
+        <div class="f2b-modal-foot">
+            <button class="secondary" onclick="f2bCloseEdit()">Отмена</button>
+            <button class="primary" onclick="f2bSaveJail()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<script>window.F2B_CAN_MANAGE = <?= (($_SESSION['role'] ?? 'admin') === 'admin') ? 'true' : 'false' ?>;</script>
 <?php render_layout_end(['/frontend/js/chart.min.js', '/frontend/js/fail2ban.js']); ?>

@@ -5,6 +5,7 @@
 # потому что sqlite fail2ban хранит баны только сутки (dbpurgeage=1d).
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -20,6 +21,16 @@ except ImportError:
 
 # Значение параметра, когда fail2ban вернул не число, а "1h"/"10m".
 _DURATION_UNITS = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800}
+
+# Параметры, которые панели разрешено менять, и границы значений.
+# bantime=-1 — «навсегда», это штатное значение fail2ban.
+FAIL2BAN_PARAM_LIMITS = {
+    'maxretry': (1, 100),
+    'findtime': (60, 86400),
+    'bantime': (-1, 31536000),
+}
+FAIL2BAN_JAIL_RE = re.compile(r'^[A-Za-z0-9_.@-]{1,64}$')
+FAIL2BAN_MANAGED_PATH = '/etc/fail2ban/jail.d/90-hostmonitor.local'
 
 
 def _parse_duration(raw: str) -> Optional[int]:
@@ -210,3 +221,161 @@ class Fail2banMixin:
                 level='error',
             )
         return ok
+
+    # ------------------------------------------------------------------
+    # Фаза 2: write-операции по командам панели.
+    # ------------------------------------------------------------------
+
+    def _f2b_fail(self, message: str) -> bool:
+        self._command_error = message
+        _log(f"fail2ban command failed: {message}", level='error')
+        return False
+
+    def _f2b_managed_read(self, path: str):
+        """Прочитать наш jail.d/*.local: секции и порядок их объявления."""
+        sections: Dict[str, Dict[str, str]] = {}
+        order: List[str] = []
+        current: Optional[str] = None
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                for line in fh:
+                    text = line.strip()
+                    if text.startswith('[') and text.endswith(']'):
+                        current = text[1:-1].strip()
+                        if current and current not in sections:
+                            sections[current] = {}
+                            order.append(current)
+                    elif current and '=' in text and not text.startswith(('#', ';')):
+                        key, value = text.split('=', 1)
+                        key = key.strip()
+                        if key:
+                            sections[current][key] = value.strip()
+        except FileNotFoundError:
+            pass
+        return sections, order
+
+    def _f2b_managed_write(self, path: str, sections: Dict[str, Dict[str, str]], order: List[str]) -> None:
+        lines = [
+            '# Managed by HostMonitor. Файл перезаписывается панелью,',
+            '# ручные правки будут потеряны при следующем изменении.',
+            '',
+        ]
+        for name in order:
+            lines.append(f'[{name}]')
+            for key, value in sections[name].items():
+                lines.append(f'{key} = {value}')
+            lines.append('')
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        tmp = f'{path}.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            fh.write('\n'.join(lines))
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+
+    def _f2b_rollback_runtime(self, client: str, jail: str, values: Dict[str, int]) -> None:
+        for key, value in values.items():
+            self._f2b_run(client, ['set', jail, key, str(value)], timeout=10)
+
+    def execute_fail2ban_command(self, command: str) -> bool:
+        """fail2ban-unban <jail> <ip> | fail2ban-set <jail> k=v [k=v ...]."""
+        client = fail2ban_client_path()
+        if not client:
+            return self._f2b_fail('fail2ban-client не найден на ноде')
+
+        parts = (command or '').split()
+        if len(parts) < 2 or not FAIL2BAN_JAIL_RE.match(parts[1]):
+            return self._f2b_fail(f'Некорректная команда fail2ban: {command!r}')
+        action, jail = parts[0], parts[1]
+
+        if action == 'fail2ban-unban':
+            if len(parts) != 3:
+                return self._f2b_fail('fail2ban-unban: нужен ровно один IP')
+            try:
+                ip = str(ipaddress.ip_address(parts[2]))
+            except ValueError:
+                return self._f2b_fail(f'Некорректный IP: {parts[2]}')
+            res = self._f2b_run(client, ['set', jail, 'unbanip', ip], timeout=15)
+            output = ((res.stdout or '') + (res.stderr or '')).strip() if res else 'таймаут'
+            if res is None or res.returncode != 0:
+                return self._f2b_fail(f'unbanip {ip} в {jail}: {output or "ошибка"}')
+            _log(f'fail2ban: unban {ip} in {jail}: {output}')
+            return True
+
+        if action != 'fail2ban-set':
+            return self._f2b_fail(f'Неизвестная команда fail2ban: {action}')
+
+        params: Dict[str, int] = {}
+        for token in parts[2:]:
+            if '=' not in token:
+                return self._f2b_fail(f'Ожидалось key=value, получено: {token}')
+            key, raw = token.split('=', 1)
+            key = key.strip().lower()
+            if key not in FAIL2BAN_PARAM_LIMITS:
+                return self._f2b_fail(f'Параметр {key} не поддерживается')
+            try:
+                value = int(raw)
+            except ValueError:
+                return self._f2b_fail(f'{key}: ожидается целое число')
+            low, high = FAIL2BAN_PARAM_LIMITS[key]
+            if value < low or value > high:
+                return self._f2b_fail(f'{key}: допустимо {low}..{high}, получено {value}')
+            params[key] = value
+        if not params:
+            return self._f2b_fail('fail2ban-set: не переданы параметры')
+
+        path = os.getenv('FAIL2BAN_JAIL_LOCAL', FAIL2BAN_MANAGED_PATH)
+        old_runtime: Dict[str, int] = {}
+        for key in params:
+            current = self._f2b_get_int(client, jail, key, 10)
+            if current is not None:
+                old_runtime[key] = current
+
+        # 1. Рантайм: применяется сразу, без рестарта демона.
+        for key, value in params.items():
+            res = self._f2b_run(client, ['set', jail, key, str(value)], timeout=15)
+            output = ((res.stdout or '') + (res.stderr or '')).strip() if res else 'таймаут'
+            if res is None or res.returncode != 0:
+                self._f2b_rollback_runtime(client, jail, old_runtime)
+                return self._f2b_fail(f'{jail} {key}={value}: {output or "ошибка"}')
+
+        # 2. Персистентность: jail.d/*.local перекрывает jail.local и jail.d/*.conf.
+        sections, order = self._f2b_managed_read(path)
+        if jail not in sections:
+            sections[jail] = {}
+            order.append(jail)
+        sections[jail].update({key: str(value) for key, value in params.items()})
+
+        backup = f'{path}.bak' if os.path.isfile(path) else None
+        if backup:
+            shutil.copy2(path, backup)
+        try:
+            self._f2b_managed_write(path, sections, order)
+        except Exception as e:
+            self._f2b_rollback_runtime(client, jail, old_runtime)
+            return self._f2b_fail(f'не удалось записать {path}: {e}')
+
+        # 3. Проверка конфига: битый файл не должен пережить рестарт демона.
+        test = self._f2b_run(client, ['-t'], timeout=20)
+        test_out = ((test.stdout or '') + (test.stderr or '')).strip() if test else 'таймаут'
+        if test is None or test.returncode != 0:
+            if backup:
+                shutil.copy2(backup, path)
+            else:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            self._f2b_rollback_runtime(client, jail, old_runtime)
+            return self._f2b_fail(f'fail2ban-client -t отклонил конфиг: {test_out}')
+
+        reload_res = self._f2b_run(client, ['reload', jail], timeout=30)
+        if reload_res is None or reload_res.returncode != 0:
+            reload_out = ((reload_res.stdout or '') + (reload_res.stderr or '')).strip() if reload_res else 'таймаут'
+            # Конфиг валиден и рантайм уже применён — это предупреждение, не откат.
+            _log(f'fail2ban reload {jail} failed after successful set: {reload_out}', level='warning')
+
+        summary = ', '.join(f'{key}={value}' for key, value in params.items())
+        _log(f'fail2ban: {jail} updated ({summary}) via {path}')
+        return True
