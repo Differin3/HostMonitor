@@ -527,6 +527,12 @@ try {
         $jailStmt = $pdo->prepare(
             'SELECT jail, maxretry, findtime, bantime FROM fail2ban_jails WHERE node_id = ? ORDER BY jail'
         );
+        // Последняя попытка sync: по ошибке видно, почему файл не применился
+        // (например, джейла нет в конфигах fail2ban и `-t` его отклонил).
+        $cmdStmt = $pdo->prepare(
+            "SELECT command_status, result, error, created_at FROM node_commands
+              WHERE node_id = ? AND command = 'fail2ban-sync' ORDER BY id DESC LIMIT 1"
+        );
         foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $node) {
             $nodeId = (int)$node['id'];
             $settings = f2b_settings_for_node($pdo, $nodeId);
@@ -560,6 +566,9 @@ try {
                 ];
             }
 
+            $cmdStmt->execute([$nodeId]);
+            $lastCommand = $cmdStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
             $desiredText = $desired['text'];
             $fileContent = $state !== null && $state['file_content'] !== null ? (string)$state['file_content'] : '';
             $nodesOut[] = [
@@ -576,11 +585,28 @@ try {
                 'desired_text' => $desiredText,
                 'file_content' => $fileContent,
                 'diff' => f2b_diff_lines($fileContent, $desiredText),
+                'last_command' => $lastCommand === null ? null : [
+                    'status' => $lastCommand['command_status'],
+                    'result' => $lastCommand['result'],
+                    'error' => $lastCommand['error'],
+                    'created_at' => $lastCommand['created_at'],
+                ],
                 'settings' => $settingsOut,
                 'jails' => $jails,
             ];
         }
         echo json_encode(['nodes' => $nodesOut]);
+        exit;
+    }
+
+    if ($action === 'history') {
+        if (($_SESSION['role'] ?? 'admin') !== 'admin') {
+            json_error('Forbidden: admin required', 403);
+        }
+        $nodeId = isset($_GET['node_id']) && $_GET['node_id'] !== '' ? (int)$_GET['node_id'] : null;
+        $jail = isset($_GET['jail']) && $_GET['jail'] !== '' ? (string)$_GET['jail'] : null;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
+        echo json_encode(['items' => f2b_history_list($pdo, $nodeId, $jail, $limit)]);
         exit;
     }
 

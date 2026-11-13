@@ -36,6 +36,20 @@ if (!function_exists('f2b_managed_ensure')) {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
             );
             $pdo->exec(
+                'CREATE TABLE IF NOT EXISTS fail2ban_settings_history (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    node_id INT NOT NULL,
+                    jail VARCHAR(64) NOT NULL,
+                    action ENUM(\'save\',\'delete\') NOT NULL,
+                    old_values TEXT NULL,
+                    new_values TEXT NULL,
+                    user_id INT NULL,
+                    created_at DATETIME NOT NULL,
+                    KEY idx_node_created (node_id, created_at),
+                    KEY idx_jail (jail)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+            );
+            $pdo->exec(
                 'CREATE TABLE IF NOT EXISTS fail2ban_managed_state (
                     node_id INT PRIMARY KEY,
                     file_path VARCHAR(255) NOT NULL DEFAULT \'\',
@@ -246,10 +260,103 @@ if (!function_exists('f2b_state_save')) {
     }
 }
 
+if (!function_exists('f2b_history_add')) {
+    /**
+     * @param array|null $old нормализованные значения до изменения
+     * @param array|null $new значения после (null для удаления)
+     */
+    function f2b_history_add(PDO $pdo, int $nodeId, string $jail, string $action, ?array $old, ?array $new, int $userId): void
+    {
+        f2b_managed_ensure($pdo);
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO fail2ban_settings_history
+                    (node_id, jail, action, old_values, new_values, user_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $nodeId,
+                $jail,
+                $action,
+                $old === null ? null : json_encode($old, JSON_UNESCAPED_UNICODE),
+                $new === null ? null : json_encode($new, JSON_UNESCAPED_UNICODE),
+                $userId > 0 ? $userId : null,
+                date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable $e) {
+            // История — вспомогательная: сбой записи не должен ломать сохранение.
+        }
+    }
+}
+
+if (!function_exists('f2b_history_list')) {
+    function f2b_history_list(PDO $pdo, ?int $nodeId, ?string $jail, int $limit = 100): array
+    {
+        f2b_managed_ensure($pdo);
+        $limit = max(1, min($limit, 500));
+        $sql = 'SELECT h.id, h.node_id, n.name AS node_name, h.jail, h.action,
+                       h.old_values, h.new_values, h.user_id, u.username, h.created_at
+                  FROM fail2ban_settings_history h
+                  LEFT JOIN nodes n ON n.id = h.node_id
+                  LEFT JOIN users u ON u.id = h.user_id';
+        $where = [];
+        $params = [];
+        if ($nodeId !== null && $nodeId > 0) {
+            $where[] = 'h.node_id = ?';
+            $params[] = $nodeId;
+        }
+        if ($jail !== null && $jail !== '') {
+            $where[] = 'h.jail = ?';
+            $params[] = $jail;
+        }
+        if ($where) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $sql .= " ORDER BY h.id DESC LIMIT {$limit}";
+        try {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        foreach ($rows as &$row) {
+            $row['id'] = (int)$row['id'];
+            $row['node_id'] = (int)$row['node_id'];
+            $row['old_values'] = $row['old_values'] !== null ? json_decode((string)$row['old_values'], true) : null;
+            $row['new_values'] = $row['new_values'] !== null ? json_decode((string)$row['new_values'], true) : null;
+        }
+        unset($row);
+        return $rows;
+    }
+}
+
+if (!function_exists('f2b_settings_row')) {
+    /** Текущие значения правила в виде, пригодном для истории. */
+    function f2b_settings_row(PDO $pdo, int $nodeId, string $jail): ?array
+    {
+        f2b_managed_ensure($pdo);
+        $stmt = $pdo->prepare('SELECT * FROM fail2ban_jail_settings WHERE node_id = ? AND jail = ?');
+        $stmt->execute([$nodeId, $jail]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        return [
+            'enabled' => (int)$row['enabled'] === 1,
+            'maxretry' => $row['maxretry'] !== null ? (int)$row['maxretry'] : null,
+            'findtime' => $row['findtime'] !== null ? (int)$row['findtime'] : null,
+            'bantime' => $row['bantime'] !== null ? (int)$row['bantime'] : null,
+            'ignoreip' => (string)($row['ignoreip'] ?? ''),
+        ];
+    }
+}
+
 if (!function_exists('f2b_settings_save')) {
     function f2b_settings_save(PDO $pdo, int $nodeId, string $jail, array $values, int $userId): void
     {
         f2b_managed_ensure($pdo);
+        $oldValues = f2b_settings_row($pdo, $nodeId, $jail);
         $stmt = $pdo->prepare(
             'INSERT INTO fail2ban_jail_settings
                 (node_id, jail, enabled, maxretry, findtime, bantime, ignoreip, updated_by, updated_at)
@@ -269,14 +376,31 @@ if (!function_exists('f2b_settings_save')) {
             $userId > 0 ? $userId : null,
             date('Y-m-d H:i:s'),
         ]);
+        $newValues = [
+            'enabled' => !empty($values['enabled']),
+            'maxretry' => isset($values['maxretry']) && $values['maxretry'] !== '' ? (int)$values['maxretry'] : null,
+            'findtime' => isset($values['findtime']) && $values['findtime'] !== '' ? (int)$values['findtime'] : null,
+            'bantime' => isset($values['bantime']) && $values['bantime'] !== '' ? (int)$values['bantime'] : null,
+            'ignoreip' => (string)($values['ignoreip'] ?? ''),
+        ];
+        // Пишем историю только при реальном изменении значений.
+        if ($oldValues !== $newValues) {
+            f2b_history_add($pdo, $nodeId, $jail, 'save', $oldValues, $newValues, $userId);
+        }
     }
 }
 
 if (!function_exists('f2b_settings_delete')) {
-    function f2b_settings_delete(PDO $pdo, int $nodeId, string $jail): void
+    function f2b_settings_delete(PDO $pdo, int $nodeId, string $jail, int $userId = 0): bool
     {
         f2b_managed_ensure($pdo);
+        $oldValues = f2b_settings_row($pdo, $nodeId, $jail);
         $pdo->prepare('DELETE FROM fail2ban_jail_settings WHERE node_id = ? AND jail = ?')->execute([$nodeId, $jail]);
+        if ($oldValues === null) {
+            return false;
+        }
+        f2b_history_add($pdo, $nodeId, $jail, 'delete', $oldValues, null, $userId);
+        return true;
     }
 }
 

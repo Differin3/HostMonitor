@@ -74,6 +74,11 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
 .f2b-diff-line.is-del { color: #f87171; }
 .f2b-diff-line.is-same { color: #6b7280; }
 .f2b-diff-empty { color: var(--text-secondary, #999); font-size: 13px; }
+.f2b-managed-error { margin-top: 8px; font-size: 12px; color: #f87171; }
+.f2b-history-changes { font-size: 12px; color: var(--text-secondary, #999); }
+.f2b-history-action { font-size: 12px; white-space: nowrap; }
+.f2b-history-action.is-save { color: #34d399; }
+.f2b-history-action.is-delete { color: #f87171; }
 </style>
 
 <div class="tabs">
@@ -212,10 +217,13 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
     <div class="card" style="margin-top: 16px;">
         <div class="card-header">
             <div class="card-title"><i data-lucide="file-cog"></i><span>Управляемый файл</span></div>
-            <div class="sort-control">
-                <select id="f2b-rules-node" class="compact-select" onchange="f2bRenderRules()">
-                    <option value="">Все ноды</option>
-                </select>
+            <div class="f2b-managed-actions">
+                <div class="sort-control">
+                    <select id="f2b-rules-node" class="compact-select" onchange="f2bRenderRules()">
+                        <option value="">Все ноды</option>
+                    </select>
+                </div>
+                <button type="button" class="secondary f2b-action-btn" id="f2b-add-rule-btn" onclick="f2bAddRule()">+ Джейл</button>
             </div>
         </div>
         <div class="card-body">
@@ -235,6 +243,7 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
             <button class="secondary" onclick="f2bCloseEdit()">&times;</button>
         </div>
         <div class="f2b-edit-grid">
+            <label id="f2b-edit-jail-wrap" hidden>джейл <input id="f2b-edit-jail" type="text" placeholder="например apache-auth" autocomplete="off"></label>
             <label>maxretry <input id="f2b-edit-maxretry" type="number" min="1" max="100"></label>
             <label>findtime, мин <input id="f2b-edit-findtime" type="number" min="1" max="1440"></label>
             <label>bantime, мин <input id="f2b-edit-bantime" type="number" min="1" max="525600"></label>
@@ -246,6 +255,43 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
         <div class="f2b-modal-foot">
             <button class="secondary" onclick="f2bCloseEdit()">Отмена</button>
             <button class="primary" onclick="f2bSaveJail()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<div id="f2b-totp-modal" class="f2b-modal" hidden>
+    <div class="f2b-modal-box" style="width: min(380px, calc(100vw - 32px));">
+        <div class="f2b-modal-head">
+            <span id="f2b-totp-title">Подтверждение 2FA</span>
+            <button class="secondary" onclick="f2bTotpCancel()">&times;</button>
+        </div>
+        <div class="f2b-edit-grid">
+            <label>Код из приложения <input id="f2b-totp-code" type="text" inputmode="numeric" maxlength="11" placeholder="6 цифр" autocomplete="one-time-code"></label>
+            <div class="f2b-managed-meta">Перезапись файла стирает ручные правки, поэтому нужно подтвердить действие кодом 2FA.</div>
+        </div>
+        <div class="f2b-modal-foot">
+            <button class="secondary" onclick="f2bTotpCancel()">Отмена</button>
+            <button class="primary" id="f2b-totp-submit">Подтвердить</button>
+        </div>
+    </div>
+</div>
+
+<div id="f2b-history-modal" class="f2b-modal" hidden>
+    <div class="f2b-modal-box" style="width: min(860px, calc(100vw - 32px));">
+        <div class="f2b-modal-head">
+            <span id="f2b-history-title">История правил</span>
+            <button class="secondary" onclick="f2bCloseHistory()">&times;</button>
+        </div>
+        <div class="table-container" style="max-height: 60vh; overflow: auto;">
+            <table class="f2b-jails-table">
+                <thead><tr><th>Когда</th><th>Кто</th><th>Джейл</th><th>Действие</th><th>Изменения</th></tr></thead>
+                <tbody id="f2b-history-tbody">
+                    <tr><td colspan="5" class="text-center">Загрузка…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="f2b-modal-foot">
+            <button class="secondary" onclick="f2bCloseHistory()">Закрыть</button>
         </div>
     </div>
 </div>

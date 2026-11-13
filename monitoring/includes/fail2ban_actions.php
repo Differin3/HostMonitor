@@ -113,15 +113,16 @@ function f2b_action_save_settings(PDO $pdo, int $userId, array $data): array
     if ($nodeId <= 0 || !preg_match('/^[A-Za-z0-9_.@-]{1,64}$/', $jail)) {
         return [400, ['error' => 'Требуются node_id и jail']];
     }
-    $stmt = $pdo->prepare(
-        'SELECT 1 FROM fail2ban_jails j
-           JOIN fail2ban_status s ON s.node_id = j.node_id
-          WHERE j.node_id = ? AND j.jail = ? AND s.installed = 1'
-    );
-    $stmt->execute([$nodeId, $jail]);
-    if ($stmt->fetchColumn() === false) {
-        return [404, ['error' => 'Джейл не найден у этой ноды']];
+    // Новый джейл разрешён: он может быть объявлен в jail.conf, но не включён.
+    // Корректность конфига проверит `fail2ban-client -t` при применении.
+    $stmt = $pdo->prepare('SELECT installed FROM fail2ban_status WHERE node_id = ?');
+    $stmt->execute([$nodeId]);
+    if ((int)$stmt->fetchColumn() !== 1) {
+        return [404, ['error' => 'fail2ban не установлен на этой ноде']];
     }
+    $runtime = $pdo->prepare('SELECT 1 FROM fail2ban_jails WHERE node_id = ? AND jail = ?');
+    $runtime->execute([$nodeId, $jail]);
+    $isNewJail = $runtime->fetchColumn() === false;
 
     $limits = [
         'maxretry' => [1, 100],
@@ -160,6 +161,7 @@ function f2b_action_save_settings(PDO $pdo, int $userId, array $data): array
         'saved' => true,
         'node_id' => $nodeId,
         'jail' => $jail,
+        'new_jail' => $isNewJail,
         'settings' => $values,
         'command_id' => $payload['command_id'] ?? null,
     ];
@@ -178,6 +180,12 @@ function f2b_action_sync(PDO $pdo, int $userId, array $data): array
     $nodeId = (int)($data['node_id'] ?? 0);
     if ($nodeId <= 0) {
         return [400, ['error' => 'Требуется node_id']];
+    }
+    // Перезапись файла стирает ручные правки — подтверждаем кодом 2FA.
+    $totp = isset($data['totp_code']) && is_string($data['totp_code']) ? $data['totp_code'] : null;
+    $approval = command_dangerous_approval($pdo, $userId, $totp);
+    if (!$approval['ok']) {
+        return [$approval['status'], ['error' => $approval['error'], 'totp_required' => true]];
     }
     $stmt = $pdo->prepare('SELECT 1 FROM nodes WHERE id = ?');
     $stmt->execute([$nodeId]);
@@ -205,11 +213,20 @@ function f2b_action_delete_settings(PDO $pdo, int $userId, array $data): array
     if ($nodeId <= 0 || !preg_match('/^[A-Za-z0-9_.@-]{1,64}$/', $jail)) {
         return [400, ['error' => 'Требуются node_id и jail']];
     }
-    f2b_settings_delete($pdo, $nodeId, $jail);
+    $totp = isset($data['totp_code']) && is_string($data['totp_code']) ? $data['totp_code'] : null;
+    $approval = command_dangerous_approval($pdo, $userId, $totp);
+    if (!$approval['ok']) {
+        return [$approval['status'], ['error' => $approval['error'], 'totp_required' => true]];
+    }
+    $existed = f2b_settings_delete($pdo, $nodeId, $jail, $userId);
     [$status, $payload] = command_issue(
         $pdo, ['user' => $userId], $nodeId, 'fail2ban-sync', null, 120, null, 'fail2ban-sync'
     );
-    $out = ['ok' => true, 'deleted' => true, 'command_id' => $payload['command_id'] ?? null];
+    $out = [
+        'ok' => true,
+        'deleted' => $existed,
+        'command_id' => $payload['command_id'] ?? null,
+    ];
     if ($status >= 400) {
         $out['warning'] = $payload['error'] ?? 'не удалось отправить fail2ban-sync';
     }

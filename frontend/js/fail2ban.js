@@ -399,6 +399,9 @@ function f2bEditJail(nodeId, jail) {
         ignoreip: setting && setting.ignoreip ? String(setting.ignoreip) : '',
         enabled: !setting || setting.enabled !== false,
     };
+    f2bEditState.isNew = false;
+    const jailWrap = document.getElementById('f2b-edit-jail-wrap');
+    if (jailWrap) jailWrap.hidden = true;
     document.getElementById('f2b-edit-title').textContent = `Параметры · ${f2bEditState.jail}`
         + (f2bEditState.node_name ? ` · ${f2bEditState.node_name}` : '');
     document.getElementById('f2b-edit-maxretry').value = f2bEditState.maxretry ?? '';
@@ -411,6 +414,43 @@ function f2bEditJail(nodeId, jail) {
     document.getElementById('f2b-edit-bantime').disabled = forever;
     document.getElementById('f2b-edit-enabled').checked = f2bEditState.enabled;
     document.getElementById('f2b-edit-ignoreip').value = f2bEditState.ignoreip;
+    document.getElementById('f2b-edit-modal').hidden = false;
+}
+
+function f2bAddRule() {
+    if (!f2bCanManage()) return;
+    const select = document.getElementById('f2b-rules-node');
+    let nodeId = select && select.value ? Number(select.value) : 0;
+    if (!nodeId && f2bRules.length === 1) nodeId = Number(f2bRules[0].node_id);
+    if (!nodeId) {
+        f2bToast('Сначала выберите ноду в фильтре', 'warning');
+        return;
+    }
+    const node = f2bFindRuleNode(nodeId);
+    if (!node) return;
+    f2bEditState = {
+        node_id: nodeId,
+        node_name: node.node_name,
+        jail: '',
+        isNew: true,
+        maxretry: null,
+        findtime: null,
+        bantime: null,
+        ignoreip: '',
+        enabled: true,
+    };
+    document.getElementById('f2b-edit-title').textContent = `Новый джейл · ${node.node_name}`;
+    const wrap = document.getElementById('f2b-edit-jail-wrap');
+    if (wrap) wrap.hidden = false;
+    const jailInput = document.getElementById('f2b-edit-jail');
+    if (jailInput) jailInput.value = '';
+    document.getElementById('f2b-edit-maxretry').value = '';
+    document.getElementById('f2b-edit-findtime').value = '';
+    document.getElementById('f2b-edit-bantime').value = '';
+    document.getElementById('f2b-edit-bantime').disabled = false;
+    document.getElementById('f2b-edit-forever').checked = false;
+    document.getElementById('f2b-edit-enabled').checked = true;
+    document.getElementById('f2b-edit-ignoreip').value = '';
     document.getElementById('f2b-edit-modal').hidden = false;
 }
 
@@ -431,13 +471,24 @@ function f2bSaveJail() {
     const banMin = forever ? -1 : intOrNull('f2b-edit-bantime');
     const enabled = document.getElementById('f2b-edit-enabled').checked;
     const ignoreip = document.getElementById('f2b-edit-ignoreip').value.trim();
+    const jail = (f2bEditState.isNew
+        ? (document.getElementById('f2b-edit-jail')?.value || '').trim()
+        : f2bEditState.jail);
+    if (!/^[A-Za-z0-9_.@-]{1,64}$/.test(jail)) {
+        f2bToast('Некорректное имя джейла: буквы, цифры, _ . @ -', 'error');
+        return;
+    }
+    if (f2bEditState.isNew && enabled && retry === null && findMin === null && banMin === null && ignoreip === '') {
+        f2bToast('Задайте хотя бы один параметр или выключите джейл', 'warning');
+        return;
+    }
 
     // Панель запоминает полный набор значений: из него детерминированно
-    // рендерится managed-файл, поэтому неchanged поля тоже нужно отправить.
+    // рендерится managed-файл, поэтому неизменённые поля тоже нужно отправить.
     f2bPost({
         action: 'save_settings',
         node_id: f2bEditState.node_id,
-        jail: f2bEditState.jail,
+        jail,
         enabled,
         maxretry: retry,
         findtime: findMin === null ? null : findMin * 60,
@@ -447,6 +498,8 @@ function f2bSaveJail() {
         .then((res) => {
             if (res.warning) {
                 f2bToast(`Сохранено, но применить не вышло: ${res.warning}`, 'warning');
+            } else if (res.new_jail) {
+                f2bToast('Джейл добавлен, конфиг применяется', 'success');
             } else {
                 f2bToast('Правило сохранено, файл применяется', 'success');
             }
@@ -509,6 +562,7 @@ function f2bRenderRules() {
     wrap.innerHTML = nodes.map((n) => {
         const status = f2bRuleStatus(n);
         const settings = n.settings || [];
+        const runtimeJails = new Set((n.jails || []).map((j) => j.jail));
         const seen = new Set();
         const rows = [];
         (n.jails || []).forEach((j) => {
@@ -525,13 +579,14 @@ function f2bRenderRules() {
             const state = !st
                 ? ['is-inherit', 'наследует']
                 : (st.enabled ? ['is-managed', 'управляется'] : ['is-off', 'выключен']);
+            const isNew = st && !runtimeJails.has(st.jail);
             const actions = canManage
                 ? `<button class="secondary f2b-action-btn" onclick="f2bEditJail(${Number(n.node_id)}, '${esc(r.jail)}')">Изменить</button>`
                     + (st ? ` <button class="secondary f2b-action-btn" onclick="f2bDeleteRule(${Number(n.node_id)}, '${esc(r.jail)}')">Снять</button>` : '')
                 : '';
             return `<tr>
                     <td class="f2b-jail-name"><strong>${esc(r.jail)}</strong></td>
-                    <td class="f2b-rule-state ${state[0]}">${state[1]}</td>
+                    <td class="f2b-rule-state ${state[0]}">${state[1]}${isNew ? ' <span class="f2b-pill">новый</span>' : ''}</td>
                     <td class="f2b-mono">${st && st.maxretry !== null ? esc(st.maxretry) : '—'}</td>
                     <td class="f2b-mono">${st ? f2bFmtDuration(st.findtime) : '—'}</td>
                     <td class="f2b-mono">${st ? f2bFmtDuration(st.bantime) : '—'}</td>
@@ -541,8 +596,13 @@ function f2bRenderRules() {
                 </tr>`;
         }).join('') : '<tr><td colspan="8" class="text-center">Джейлов нет</td></tr>';
 
+        const lastCmd = n.last_command;
+        const lastError = lastCmd && lastCmd.status === 'failed'
+            ? `<div class="f2b-managed-error">Последняя синхронизация не удалась: ${esc(lastCmd.error || 'без описания')}</div>`
+            : '';
         const actions = canManage
-            ? `<button class="secondary f2b-action-btn" onclick="f2bPreviewRules(${Number(n.node_id)})">Предпросмотр и diff</button>
+            ? `<button class="secondary f2b-action-btn" onclick="f2bShowHistory(${Number(n.node_id)})">История</button>
+               <button class="secondary f2b-action-btn" onclick="f2bPreviewRules(${Number(n.node_id)})">Предпросмотр и diff</button>
                <button class="primary f2b-action-btn" onclick="f2bApplyRules(${Number(n.node_id)})">Применить</button>`
             : '';
         return `<div class="card f2b-managed-card">
@@ -561,6 +621,7 @@ function f2bRenderRules() {
                         <span title="хеш рендера из настроек">desired: ${n.desired_hash ? esc(n.desired_hash.slice(0, 12)) : '—'}</span>
                         <span title="хеш файла на ноде">файл: ${n.file_hash ? esc(n.file_hash.slice(0, 12)) : '—'}</span>
                     </div>
+                    ${lastError}
                     <div class="table-container f2b-managed-table">
                         <table class="f2b-jails-table">
                             <thead><tr><th>Джейл</th><th>Состояние</th><th>maxretry</th><th>findtime</th><th>bantime</th><th>ignoreip</th><th>Изменено</th><th></th></tr></thead>
@@ -607,6 +668,63 @@ function f2bApplyFromDiff() {
     if (nodeId) f2bApplyRules(nodeId);
 }
 
+let f2bTotpResolve = null;
+
+function f2bTotpCancel() {
+    const modal = document.getElementById('f2b-totp-modal');
+    if (modal) modal.hidden = true;
+    if (f2bTotpResolve) {
+        const resolve = f2bTotpResolve;
+        f2bTotpResolve = null;
+        resolve(null);
+    }
+}
+
+function f2bAskTotp(title) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('f2b-totp-modal');
+        const input = document.getElementById('f2b-totp-code');
+        const label = document.getElementById('f2b-totp-title');
+        const submit = document.getElementById('f2b-totp-submit');
+        if (!modal || !input || !submit) {
+            resolve(null);
+            return;
+        }
+        if (label && title) label.textContent = title;
+        input.value = '';
+        f2bTotpResolve = resolve;
+        submit.onclick = () => {
+            const code = input.value.trim();
+            if (!code) {
+                input.focus();
+                return;
+            }
+            modal.hidden = true;
+            const done = f2bTotpResolve;
+            f2bTotpResolve = null;
+            if (done) done(code);
+        };
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') submit.onclick();
+            if (e.key === 'Escape') f2bTotpCancel();
+        };
+        modal.hidden = false;
+        setTimeout(() => input.focus(), 30);
+    });
+}
+
+// Сервер отвечает 403 с упоминанием TOTP, если действие требует 2FA.
+// Спрашиваем код и повторяем ровно один раз.
+function f2bPostWithTotp(payload, title) {
+    return f2bPost(payload).catch((err) => {
+        if (!/TOTP/i.test(String(err && err.message ? err.message : err))) throw err;
+        return f2bAskTotp(title).then((code) => {
+            if (!code) throw new Error('Действие отменено');
+            return f2bPost(Object.assign({}, payload, { totp_code: code }));
+        });
+    });
+}
+
 function f2bApplyRules(nodeId) {
     const node = f2bFindRuleNode(nodeId);
     if (!node) return;
@@ -619,7 +737,7 @@ function f2bApplyRules(nodeId) {
         : Promise.resolve(window.confirm(`Перезаписать ${node.path}?`));
     ask.then((ok) => {
         if (!ok) return;
-        return f2bPost({ action: 'sync', node_id: Number(nodeId) })
+        return f2bPostWithTotp({ action: 'sync', node_id: Number(nodeId) }, 'Подтверждение перезаписи правил')
             .then(() => {
                 f2bToast('Команда применения отправлена', 'success');
                 setTimeout(() => {
@@ -637,13 +755,78 @@ function f2bDeleteRule(nodeId, jail) {
         : Promise.resolve(window.confirm(`Снять ${jail} с управления?`));
     ask.then((ok) => {
         if (!ok) return;
-        return f2bPost({ action: 'delete_settings', node_id: Number(nodeId), jail })
+        return f2bPostWithTotp({ action: 'delete_settings', node_id: Number(nodeId), jail }, 'Подтверждение снятия правила')
             .then(() => {
                 f2bToast('Джейл снят с управления', 'success');
                 setTimeout(() => loadFail2banRules().catch(() => {}), 15000);
             })
             .catch((e) => f2bToast(`Не удалось снять: ${e.message}`, 'error'));
     });
+}
+
+function f2bHistorySummary(item) {
+    if (item.action === 'delete') return 'правило снято';
+    const oldV = item.old_values || {};
+    const newV = item.new_values || {};
+    const fmt = (key, value) => {
+        if (key === 'enabled') return value ? 'вкл' : 'выкл';
+        if (value === null || value === undefined || value === '') return '—';
+        if (key === 'findtime' || key === 'bantime') return f2bFmtDuration(value);
+        return String(value);
+    };
+    const parts = [];
+    ['enabled', 'maxretry', 'findtime', 'bantime', 'ignoreip'].forEach((key) => {
+        const a = oldV[key] === undefined ? null : oldV[key];
+        const b = newV[key] === undefined ? null : newV[key];
+        if (JSON.stringify(a) !== JSON.stringify(b)) {
+            parts.push(`${key}: ${fmt(key, a)} → ${fmt(key, b)}`);
+        }
+    });
+    return parts.length ? parts.join(', ') : 'без изменений';
+}
+
+function f2bRenderHistory(items) {
+    const tbody = document.getElementById('f2b-history-tbody');
+    if (!tbody) return;
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Истории пока нет</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map((h) => {
+        const action = h.action === 'delete'
+            ? '<span class="f2b-history-action is-delete">снято</span>'
+            : '<span class="f2b-history-action is-save">сохранено</span>';
+        return `<tr>
+                <td class="f2b-mono">${esc(f2bFmtDate(h.created_at))}</td>
+                <td>${esc(h.username || '—')}</td>
+                <td class="f2b-jail-name">${esc(h.jail)}</td>
+                <td>${action}</td>
+                <td class="f2b-history-changes">${esc(f2bHistorySummary(h))}</td>
+            </tr>`;
+    }).join('');
+}
+
+function f2bShowHistory(nodeId) {
+    const node = f2bFindRuleNode(nodeId);
+    if (!node) return;
+    const title = document.getElementById('f2b-history-title');
+    if (title) title.textContent = `История · ${node.node_name}`;
+    const tbody = document.getElementById('f2b-history-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center">Загрузка…</td></tr>';
+    const modal = document.getElementById('f2b-history-modal');
+    if (modal) modal.hidden = false;
+    f2bFetch({ action: 'history', node_id: Number(nodeId), limit: 100 })
+        .then((data) => f2bRenderHistory(data.items || []))
+        .catch((e) => {
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center">Не удалось загрузить: ${esc(e.message)}</td></tr>`;
+            }
+        });
+}
+
+function f2bCloseHistory() {
+    const modal = document.getElementById('f2b-history-modal');
+    if (modal) modal.hidden = true;
 }
 
 function switchFail2banTab(tab) {
