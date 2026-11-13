@@ -289,11 +289,11 @@ if (!function_exists('command_report')) {
         // Обновляем строку node_commands, если это команда оттуда.
         // Legacy-агент возвращает полную строку ("fail2ban-set sshd maxretry=4"),
         // а в node_commands лежит только имя команды — поэтому при промахе
-        // повторяем по первому токену.
+        // повторяем по первому токену. ack не требуем: legacy-агенты его не ставят.
         try {
             $rowCmd = $currentCmd !== '' ? $currentCmd : $command;
             $nc = $pdo->prepare(
-                'UPDATE node_commands SET command_status = ?, result = ?, error = ? WHERE node_id = ? AND command = ? AND acknowledged = 1 ORDER BY id DESC LIMIT 1'
+                'UPDATE node_commands SET command_status = ?, result = ?, error = ? WHERE node_id = ? AND command = ? ORDER BY id DESC LIMIT 1'
             );
             $nc->execute([$status === 'failed' ? 'failed' : 'completed', $result, $result, $nodeId, $rowCmd]);
             if ($nc->rowCount() === 0 && $rowCmd !== '') {
