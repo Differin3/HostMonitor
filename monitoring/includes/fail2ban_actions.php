@@ -14,7 +14,7 @@ declare(strict_types=1);
 function f2b_action_unban(PDO $pdo, int $userId, array $data): array
 {
     $banId = (int)($data['id'] ?? 0);
-    $stmt = $pdo->prepare('SELECT id, node_id, jail, ip, active FROM fail2ban_bans WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, node_id, jail, ip, active, unban_requested_at FROM fail2ban_bans WHERE id = ?');
     $stmt->execute([$banId]);
     $ban = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$ban) {
@@ -22,6 +22,9 @@ function f2b_action_unban(PDO $pdo, int $userId, array $data): array
     }
     if ((int)$ban['active'] !== 1) {
         return [409, ['error' => 'Ban is not active']];
+    }
+    if (!empty($ban['unban_requested_at']) && strtotime((string)$ban['unban_requested_at']) > time() - 120) {
+        return [409, ['error' => 'Разбан уже запрошен — дождитесь выполнения']];
     }
     $jail = (string)$ban['jail'];
     $ip = (string)$ban['ip'];
