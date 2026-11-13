@@ -120,9 +120,9 @@ function f2b_action_save_settings(PDO $pdo, int $userId, array $data): array
     if ((int)$stmt->fetchColumn() !== 1) {
         return [404, ['error' => 'fail2ban не установлен на этой ноде']];
     }
-    $runtime = $pdo->prepare('SELECT 1 FROM fail2ban_jails WHERE node_id = ? AND jail = ?');
-    $runtime->execute([$nodeId, $jail]);
-    $isNewJail = $runtime->fetchColumn() === false;
+    // «Новый» — это первое сохранение правила, а не отсутствие в рантайме:
+    // управляемый джейл может быть выключен или не иметь логов.
+    $isNewJail = f2b_settings_row($pdo, $nodeId, $jail) === null;
 
     $limits = [
         'maxretry' => [1, 100],

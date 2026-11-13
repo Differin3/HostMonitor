@@ -349,6 +349,13 @@ class Fail2banMixin:
         except Exception as e:
             _log(f'fail2ban snapshot after sync failed: {e}', level='warning')
 
+        # Бэкап нужен только для отката при ошибке: после успеха он мусор.
+        if backup:
+            try:
+                os.remove(backup)
+            except OSError:
+                pass
+
         _log(f'fail2ban: managed file applied ({new_hash[:12]})')
         return True
 

@@ -586,7 +586,7 @@ function f2bRenderRules() {
                 : '';
             return `<tr>
                     <td class="f2b-jail-name"><strong>${esc(r.jail)}</strong></td>
-                    <td class="f2b-rule-state ${state[0]}">${state[1]}${isNew ? ' <span class="f2b-pill">новый</span>' : ''}</td>
+                    <td class="f2b-rule-state ${state[0]}">${state[1]}${isNew ? ' <span class="f2b-pill" title="правило есть в панели, но джейл не запущен на ноде">нет в рантайме</span>' : ''}</td>
                     <td class="f2b-mono">${st && st.maxretry !== null ? esc(st.maxretry) : '—'}</td>
                     <td class="f2b-mono">${st ? f2bFmtDuration(st.findtime) : '—'}</td>
                     <td class="f2b-mono">${st ? f2bFmtDuration(st.bantime) : '—'}</td>
