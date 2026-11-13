@@ -246,6 +246,34 @@ if (!function_exists('command_pull')) {
 
 if (!function_exists('command_report')) {
     /**
+     * Отмечает строку node_commands выполненной/проваленной по отчёту агента.
+     *
+     * Legacy-агент возвращает полную строку ("fail2ban-set sshd maxretry=4"),
+     * а в node_commands лежит только имя команды — поэтому при промахе
+     * повторяем по первому токену. ack не требуем: старый канал его не ставит.
+     */
+    function command_close_row(PDO $pdo, int $nodeId, string $rowCmd, string $status, string $result): void
+    {
+        if ($rowCmd === '') {
+            return;
+        }
+        try {
+            $nc = $pdo->prepare(
+                'UPDATE node_commands SET command_status = ?, result = ?, error = ? WHERE node_id = ? AND command = ? ORDER BY id DESC LIMIT 1'
+            );
+            $nc->execute([$status === 'failed' ? 'failed' : 'completed', $result, $result, $nodeId, $rowCmd]);
+            if ($nc->rowCount() === 0) {
+                $first = preg_split('/\s+/', $rowCmd)[0] ?? '';
+                if ($first !== '' && $first !== $rowCmd) {
+                    $nc->execute([$status === 'failed' ? 'failed' : 'completed', $result, $result, $nodeId, $first]);
+                }
+            }
+        } catch (Throwable $e) {
+            // таблицы нет — legacy-путь
+        }
+    }
+
+    /**
      * Отчёт агента о выполнении команды.
      *
      * Обновляет node_commands (статус/результат) и, для совместимости со
@@ -287,24 +315,7 @@ if (!function_exists('command_report')) {
         }
 
         // Обновляем строку node_commands, если это команда оттуда.
-        // Legacy-агент возвращает полную строку ("fail2ban-set sshd maxretry=4"),
-        // а в node_commands лежит только имя команды — поэтому при промахе
-        // повторяем по первому токену. ack не требуем: legacy-агенты его не ставят.
-        try {
-            $rowCmd = $currentCmd !== '' ? $currentCmd : $command;
-            $nc = $pdo->prepare(
-                'UPDATE node_commands SET command_status = ?, result = ?, error = ? WHERE node_id = ? AND command = ? ORDER BY id DESC LIMIT 1'
-            );
-            $nc->execute([$status === 'failed' ? 'failed' : 'completed', $result, $result, $nodeId, $rowCmd]);
-            if ($nc->rowCount() === 0 && $rowCmd !== '') {
-                $first = preg_split('/\s+/', $rowCmd)[0] ?? '';
-                if ($first !== '' && $first !== $rowCmd) {
-                    $nc->execute([$status === 'failed' ? 'failed' : 'completed', $result, $result, $nodeId, $first]);
-                }
-            }
-        } catch (Throwable $e) {
-            // таблицы нет — legacy-путь
-        }
+        command_close_row($pdo, $nodeId, $currentCmd !== '' ? $currentCmd : $command, $status, $result);
 
         try {
             $aud = $pdo->prepare(

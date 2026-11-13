@@ -886,6 +886,10 @@ function handlePost($pdo) {
             app_log("[nodes] command status updated (node={$targetNodeId}, status={$commandStatus})", 'debug');
         }
         
+        // Старый канал отчитывается сюда (а не в /api/nodes/command.php),
+        // поэтому строку node_commands закрываем и здесь.
+        command_close_row($pdo, $targetNodeId, $currentCmd !== '' ? $currentCmd : $command, $commandStatus, $result);
+
         echo json_encode(['status' => 'ok', 'success' => true, 'message' => 'Command status updated', 'command_status' => $commandStatus]);
         return;
     }
