@@ -34,6 +34,8 @@ let f2bBansPages = 1;
 let f2bBansTimer = null;
 let f2bChart = null;
 let f2bJails = [];
+let f2bRules = [];
+let f2bDiffNode = null;
 let f2bCurrentTab = 'overview';
 let f2bRefreshTimer = null;
 
@@ -146,6 +148,18 @@ function loadFail2banSummary() {
         set('f2b-stat-jails', nodes.reduce((sum, n) => sum + (Number(n.jail_count) || 0), 0));
         f2bRenderNodes(nodes);
         f2bFillSelect('f2b-node-filter', nodes.map((n) => ({ value: String(n.id), label: n.name })));
+
+        const banner = document.getElementById('f2b-drift-banner');
+        if (banner) {
+            const drift = Number(t.drift) || 0;
+            banner.hidden = drift === 0;
+            const text = document.getElementById('f2b-drift-text');
+            if (text) {
+                text.textContent = drift
+                    ? `Managed-правила на ${drift} нод(ах) отличаются от настроек панели — файл правили вручную.`
+                    : '';
+            }
+        }
     });
 }
 
@@ -366,15 +380,27 @@ let f2bEditState = null;
 
 function f2bEditJail(nodeId, jail) {
     const row = f2bJails.find((j) => Number(j.node_id) === Number(nodeId) && j.jail === jail);
-    if (!row) return;
+    const rulesNode = f2bFindRuleNode(nodeId);
+    const setting = rulesNode ? (rulesNode.settings || []).find((s) => s.jail === jail) : null;
+    const source = setting || (row ? {
+        maxretry: row.maxretry,
+        findtime: row.findtime,
+        bantime: row.bantime,
+    } : null);
+    if (!source) return;
+    const numOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
     f2bEditState = {
         node_id: Number(nodeId),
         jail,
-        maxretry: row.maxretry === null ? null : Number(row.maxretry),
-        findtime: row.findtime === null ? null : Number(row.findtime),
-        bantime: row.bantime === null ? null : Number(row.bantime),
+        node_name: row ? row.node_name : (rulesNode ? rulesNode.node_name : ''),
+        maxretry: numOrNull(source.maxretry),
+        findtime: numOrNull(source.findtime),
+        bantime: numOrNull(source.bantime),
+        ignoreip: setting && setting.ignoreip ? String(setting.ignoreip) : '',
+        enabled: !setting || setting.enabled !== false,
     };
-    document.getElementById('f2b-edit-title').textContent = `Параметры · ${jail}`;
+    document.getElementById('f2b-edit-title').textContent = `Параметры · ${f2bEditState.jail}`
+        + (f2bEditState.node_name ? ` · ${f2bEditState.node_name}` : '');
     document.getElementById('f2b-edit-maxretry').value = f2bEditState.maxretry ?? '';
     document.getElementById('f2b-edit-findtime').value = f2bEditState.findtime ? Math.round(f2bEditState.findtime / 60) : '';
     const forever = f2bEditState.bantime !== null && f2bEditState.bantime < 0;
@@ -383,6 +409,8 @@ function f2bEditJail(nodeId, jail) {
         ? ''
         : Math.round(f2bEditState.bantime / 60);
     document.getElementById('f2b-edit-bantime').disabled = forever;
+    document.getElementById('f2b-edit-enabled').checked = f2bEditState.enabled;
+    document.getElementById('f2b-edit-ignoreip').value = f2bEditState.ignoreip;
     document.getElementById('f2b-edit-modal').hidden = false;
 }
 
@@ -393,31 +421,229 @@ function f2bCloseEdit() {
 
 function f2bSaveJail() {
     if (!f2bEditState) return;
-    const int = (id) => {
+    const intOrNull = (id) => {
         const raw = document.getElementById(id).value.trim();
         return raw === '' ? null : parseInt(raw, 10);
     };
-    const retry = int('f2b-edit-maxretry');
-    const findMin = int('f2b-edit-findtime');
+    const retry = intOrNull('f2b-edit-maxretry');
+    const findMin = intOrNull('f2b-edit-findtime');
     const forever = document.getElementById('f2b-edit-forever').checked;
-    const banMin = forever ? -1 : int('f2b-edit-bantime');
+    const banMin = forever ? -1 : intOrNull('f2b-edit-bantime');
+    const enabled = document.getElementById('f2b-edit-enabled').checked;
+    const ignoreip = document.getElementById('f2b-edit-ignoreip').value.trim();
 
-    const params = {};
-    if (retry !== null && retry !== f2bEditState.maxretry) params.maxretry = retry;
-    if (findMin !== null && findMin * 60 !== f2bEditState.findtime) params.findtime = findMin * 60;
-    if (banMin !== null && banMin !== f2bEditState.bantime) params.bantime = banMin === -1 ? -1 : banMin * 60;
+    // Панель запоминает полный набор значений: из него детерминированно
+    // рендерится managed-файл, поэтому неchanged поля тоже нужно отправить.
+    f2bPost({
+        action: 'save_settings',
+        node_id: f2bEditState.node_id,
+        jail: f2bEditState.jail,
+        enabled,
+        maxretry: retry,
+        findtime: findMin === null ? null : findMin * 60,
+        bantime: banMin === null ? null : banMin * 60,
+        ignoreip,
+    })
+        .then((res) => {
+            if (res.warning) {
+                f2bToast(`Сохранено, но применить не вышло: ${res.warning}`, 'warning');
+            } else {
+                f2bToast('Правило сохранено, файл применяется', 'success');
+            }
+            f2bCloseEdit();
+            setTimeout(() => {
+                loadFail2banJails().catch(() => {});
+                loadFail2banRules().catch(() => {});
+            }, 15000);
+        })
+        .catch((e) => f2bToast(`Сохранение не удалось: ${e.message}`, 'error'));
+}
 
-    if (!Object.keys(params).length) {
-        f2bCloseEdit();
+function f2bFindRuleNode(nodeId) {
+    return f2bRules.find((n) => Number(n.node_id) === Number(nodeId)) || null;
+}
+
+function loadFail2banRules() {
+    return f2bFetch({ action: 'managed' }).then((data) => {
+        f2bRules = data.nodes || [];
+        const select = document.getElementById('f2b-rules-node');
+        if (select) {
+            const keep = select.value;
+            select.innerHTML = '<option value="">Все ноды</option>';
+            f2bRules.forEach((n) => {
+                const opt = document.createElement('option');
+                opt.value = String(n.node_id);
+                opt.textContent = n.node_name;
+                select.appendChild(opt);
+            });
+            if (keep && f2bRules.some((n) => String(n.node_id) === keep)) select.value = keep;
+        }
+        f2bRenderRules();
+    });
+}
+
+function f2bRuleStatus(node) {
+    if (!node.file_exists) return { cls: 'is-missing', label: 'файла нет' };
+    if (node.drift) return { cls: 'is-drift', label: 'расходится с панелью' };
+    return { cls: 'is-ok', label: 'совпадает с панелью' };
+}
+
+function f2bRenderRules() {
+    const wrap = document.getElementById('f2b-rules-nodes');
+    if (!wrap) return;
+    const filter = document.getElementById('f2b-rules-node')?.value || '';
+    const nodes = f2bRules.filter((n) => !filter || String(n.node_id) === filter);
+    const canManage = f2bCanManage();
+
+    const hint = document.getElementById('f2b-rules-hint');
+    if (hint) {
+        const drift = f2bRules.filter((n) => n.drift).length;
+        hint.hidden = drift === 0;
+        hint.textContent = drift ? `${drift} нод(а) с расхождением — файл правили вручную.` : '';
+    }
+    if (!nodes.length) {
+        wrap.innerHTML = '<div class="card f2b-managed-card"><div class="card-body">Правил пока нет — откройте «Обзор» и нажмите «Изменить» у джейла.</div></div>';
         return;
     }
-    f2bPost({ action: 'set_param', node_id: f2bEditState.node_id, jail: f2bEditState.jail, params })
-        .then(() => {
-            f2bToast('Команда изменения параметров отправлена', 'success');
-            f2bCloseEdit();
-            setTimeout(reloadFail2ban, 20000);
-        })
-        .catch((e) => f2bToast(`Изменение не удалось: ${e.message}`, 'error'));
+
+    wrap.innerHTML = nodes.map((n) => {
+        const status = f2bRuleStatus(n);
+        const settings = n.settings || [];
+        const seen = new Set();
+        const rows = [];
+        (n.jails || []).forEach((j) => {
+            seen.add(j.jail);
+            rows.push({ jail: j.jail, setting: settings.find((s) => s.jail === j.jail) || null });
+        });
+        settings.forEach((s) => {
+            if (!seen.has(s.jail)) {
+                rows.push({ jail: s.jail, setting: s });
+            }
+        });
+        const body = rows.length ? rows.map((r) => {
+            const st = r.setting;
+            const state = !st
+                ? ['is-inherit', 'наследует']
+                : (st.enabled ? ['is-managed', 'управляется'] : ['is-off', 'выключен']);
+            const actions = canManage
+                ? `<button class="secondary f2b-action-btn" onclick="f2bEditJail(${Number(n.node_id)}, '${esc(r.jail)}')">Изменить</button>`
+                    + (st ? ` <button class="secondary f2b-action-btn" onclick="f2bDeleteRule(${Number(n.node_id)}, '${esc(r.jail)}')">Снять</button>` : '')
+                : '';
+            return `<tr>
+                    <td class="f2b-jail-name"><strong>${esc(r.jail)}</strong></td>
+                    <td class="f2b-rule-state ${state[0]}">${state[1]}</td>
+                    <td class="f2b-mono">${st && st.maxretry !== null ? esc(st.maxretry) : '—'}</td>
+                    <td class="f2b-mono">${st ? f2bFmtDuration(st.findtime) : '—'}</td>
+                    <td class="f2b-mono">${st ? f2bFmtDuration(st.bantime) : '—'}</td>
+                    <td class="f2b-mono">${esc(st && st.ignoreip ? st.ignoreip : '—')}</td>
+                    <td class="f2b-mono">${st && st.updated_at ? esc(f2bFmtDate(st.updated_at)) : '—'}</td>
+                    <td class="f2b-actions">${actions}</td>
+                </tr>`;
+        }).join('') : '<tr><td colspan="8" class="text-center">Джейлов нет</td></tr>';
+
+        const actions = canManage
+            ? `<button class="secondary f2b-action-btn" onclick="f2bPreviewRules(${Number(n.node_id)})">Предпросмотр и diff</button>
+               <button class="primary f2b-action-btn" onclick="f2bApplyRules(${Number(n.node_id)})">Применить</button>`
+            : '';
+        return `<div class="card f2b-managed-card">
+                <div class="card-header">
+                    <div class="card-title"><i data-lucide="server"></i><span>${esc(n.node_name)}</span></div>
+                    <div class="f2b-managed-actions">${actions}</div>
+                </div>
+                <div class="card-body">
+                    <div class="f2b-managed-meta">
+                        <span class="f2b-mono">${esc(n.path)}</span>
+                        <span class="f2b-managed-status ${status.cls}">${status.label}</span>
+                        ${n.applied_at ? `<span>применено: ${esc(f2bFmtDate(n.applied_at))}</span>` : ''}
+                        ${n.reported_at ? `<span>снимок: ${esc(f2bFmtDate(n.reported_at))}</span>` : ''}
+                    </div>
+                    <div class="f2b-managed-meta f2b-mono">
+                        <span title="хеш рендера из настроек">desired: ${n.desired_hash ? esc(n.desired_hash.slice(0, 12)) : '—'}</span>
+                        <span title="хеш файла на ноде">файл: ${n.file_hash ? esc(n.file_hash.slice(0, 12)) : '—'}</span>
+                    </div>
+                    <div class="table-container f2b-managed-table">
+                        <table class="f2b-jails-table">
+                            <thead><tr><th>Джейл</th><th>Состояние</th><th>maxretry</th><th>findtime</th><th>bantime</th><th>ignoreip</th><th>Изменено</th><th></th></tr></thead>
+                            <tbody>${body}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function f2bPreviewRules(nodeId) {
+    const node = f2bFindRuleNode(nodeId);
+    if (!node) return;
+    f2bDiffNode = Number(nodeId);
+    const title = document.getElementById('f2b-diff-title');
+    if (title) title.textContent = `Предпросмотр · ${node.node_name}`;
+    const body = document.getElementById('f2b-diff-body');
+    if (body) {
+        const lines = node.diff || [];
+        const changed = lines.some((l) => l.op !== ' ');
+        body.innerHTML = changed
+            ? lines.map((l) => {
+                const cls = l.op === '+' ? 'is-add' : (l.op === '-' ? 'is-del' : 'is-same');
+                return `<div class="f2b-diff-line ${cls}">${esc(l.op)} ${esc(l.text)}</div>`;
+            }).join('')
+            : '<div class="f2b-diff-empty">Файл на ноде совпадает с настройками панели — изменений нет.</div>';
+    }
+    const applyBtn = document.getElementById('f2b-diff-apply');
+    if (applyBtn) applyBtn.disabled = !node.desired_text;
+    const modal = document.getElementById('f2b-diff-modal');
+    if (modal) modal.hidden = false;
+}
+
+function f2bCloseDiff() {
+    const modal = document.getElementById('f2b-diff-modal');
+    if (modal) modal.hidden = true;
+    f2bDiffNode = null;
+}
+
+function f2bApplyFromDiff() {
+    const nodeId = f2bDiffNode;
+    f2bCloseDiff();
+    if (nodeId) f2bApplyRules(nodeId);
+}
+
+function f2bApplyRules(nodeId) {
+    const node = f2bFindRuleNode(nodeId);
+    if (!node) return;
+    if (!node.desired_text) {
+        f2bToast('Нет настроек для применения — сначала добавьте правило', 'warning');
+        return;
+    }
+    const ask = typeof window.showConfirm === 'function'
+        ? window.showConfirm(`Перезаписать ${node.path} на ноде ${node.node_name}?`, 'Применение правил', 'warning')
+        : Promise.resolve(window.confirm(`Перезаписать ${node.path}?`));
+    ask.then((ok) => {
+        if (!ok) return;
+        return f2bPost({ action: 'sync', node_id: Number(nodeId) })
+            .then(() => {
+                f2bToast('Команда применения отправлена', 'success');
+                setTimeout(() => {
+                    loadFail2banRules().catch(() => {});
+                    loadFail2banJails().catch(() => {});
+                }, 15000);
+            })
+            .catch((e) => f2bToast(`Применение не удалось: ${e.message}`, 'error'));
+    });
+}
+
+function f2bDeleteRule(nodeId, jail) {
+    const ask = typeof window.showConfirm === 'function'
+        ? window.showConfirm(`Снять джейл ${jail} с управления панелью? Его параметры вернутся к штатным.`, 'Снять правило', 'warning')
+        : Promise.resolve(window.confirm(`Снять ${jail} с управления?`));
+    ask.then((ok) => {
+        if (!ok) return;
+        return f2bPost({ action: 'delete_settings', node_id: Number(nodeId), jail })
+            .then(() => {
+                f2bToast('Джейл снят с управления', 'success');
+                setTimeout(() => loadFail2banRules().catch(() => {}), 15000);
+            })
+            .catch((e) => f2bToast(`Не удалось снять: ${e.message}`, 'error'));
+    });
 }
 
 function switchFail2banTab(tab) {
@@ -428,8 +654,10 @@ function switchFail2banTab(tab) {
     document.getElementById('f2b-overview-tab')?.classList.toggle('active', tab === 'overview');
     document.getElementById('f2b-bans-tab')?.classList.toggle('active', tab === 'bans');
     document.getElementById('f2b-chart-tab')?.classList.toggle('active', tab === 'chart');
+    document.getElementById('f2b-rules-tab')?.classList.toggle('active', tab === 'rules');
     if (tab === 'bans') loadFail2banBans().catch((e) => console.error(e));
     if (tab === 'chart') loadFail2banSeries().catch((e) => console.error(e));
+    if (tab === 'rules') loadFail2banRules().catch((e) => console.error(e));
 }
 
 function reloadFail2ban() {
@@ -437,6 +665,7 @@ function reloadFail2ban() {
     loadFail2banJails().catch((e) => console.error(e));
     if (f2bCurrentTab === 'bans') loadFail2banBans().catch((e) => console.error(e));
     if (f2bCurrentTab === 'chart') loadFail2banSeries().catch((e) => console.error(e));
+    if (f2bCurrentTab === 'rules') loadFail2banRules().catch((e) => console.error(e));
 }
 
 document.addEventListener('DOMContentLoaded', () => {

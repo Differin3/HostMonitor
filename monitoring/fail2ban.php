@@ -52,6 +52,28 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
 .f2b-edit-grid input[type="number"] { width: 120px; }
 .f2b-edit-check { justify-content: flex-start !important; }
 .f2b-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.f2b-edit-grid input[type="text"] { width: 220px; }
+.f2b-drift-banner { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .08); color: #fbbf24; font-size: 13px; }
+.f2b-drift-banner[hidden] { display: none; }
+.f2b-drift-banner button { margin-left: auto; }
+.f2b-managed-card { margin-top: 16px; }
+.f2b-managed-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary, #999); }
+.f2b-managed-meta + .f2b-managed-meta { margin-top: 6px; }
+.f2b-managed-status { font-size: 11px; border-radius: 6px; padding: 1px 7px; border: 1px solid transparent; }
+.f2b-managed-status.is-ok { color: #34d399; border-color: rgba(52, 211, 153, .45); }
+.f2b-managed-status.is-drift { color: #fbbf24; border-color: rgba(251, 191, 36, .45); }
+.f2b-managed-status.is-missing { color: var(--text-secondary, #999); border-color: var(--border-color, #2a2a2a); }
+.f2b-managed-actions { display: flex; gap: 8px; }
+.f2b-managed-table { margin-top: 12px; }
+.f2b-rule-state { font-size: 12px; white-space: nowrap; }
+.f2b-rule-state.is-managed { color: #34d399; }
+.f2b-rule-state.is-inherit { color: var(--text-secondary, #999); }
+.f2b-rule-state.is-off { color: #fbbf24; }
+.f2b-diff { max-height: 58vh; overflow: auto; background: #0d0d0d; border: 1px solid var(--border-color, #2a2a2a); border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; }
+.f2b-diff-line.is-add { color: #34d399; }
+.f2b-diff-line.is-del { color: #f87171; }
+.f2b-diff-line.is-same { color: #6b7280; }
+.f2b-diff-empty { color: var(--text-secondary, #999); font-size: 13px; }
 </style>
 
 <div class="tabs">
@@ -61,12 +83,20 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
     <button type="button" class="tab-btn" data-tab="bans" onclick="switchFail2banTab('bans')">
         <i data-lucide="ban"></i> Баны
     </button>
+    <button type="button" class="tab-btn" data-tab="rules" onclick="switchFail2banTab('rules')">
+        <i data-lucide="file-cog"></i> Правила
+    </button>
     <button type="button" class="tab-btn" data-tab="chart" onclick="switchFail2banTab('chart')">
         <i data-lucide="activity"></i> График
     </button>
 </div>
 
 <div id="f2b-overview-tab" class="tab-content active">
+    <div id="f2b-drift-banner" class="f2b-drift-banner" hidden>
+        <i data-lucide="alert-triangle"></i>
+        <span id="f2b-drift-text">Файл правил на ноде отличается от настроек панели</span>
+        <button class="secondary f2b-action-btn" onclick="switchFail2banTab('rules')">Открыть правила</button>
+    </div>
     <div class="stats-grid" style="margin-top: 16px;">
         <div class="stat-card">
             <div class="stat-card-icon" style="background: linear-gradient(180deg, #34d399, #059669);"><i data-lucide="shield-check"></i></div>
@@ -178,6 +208,26 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
     </div>
 </div>
 
+<div id="f2b-rules-tab" class="tab-content">
+    <div class="card" style="margin-top: 16px;">
+        <div class="card-header">
+            <div class="card-title"><i data-lucide="file-cog"></i><span>Управляемый файл</span></div>
+            <div class="sort-control">
+                <select id="f2b-rules-node" class="compact-select" onchange="f2bRenderRules()">
+                    <option value="">Все ноды</option>
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="f2b-managed-meta">
+                <span>Панель перезаписывает <span class="f2b-mono">90-hostmonitor.local</span> целиком: незаданные здесь параметры наследуются из штатных конфигов джейла.</span>
+            </div>
+            <div id="f2b-rules-hint" class="f2b-managed-meta" hidden></div>
+        </div>
+    </div>
+    <div id="f2b-rules-nodes"></div>
+</div>
+
 <div id="f2b-edit-modal" class="f2b-modal" hidden>
     <div class="f2b-modal-box">
         <div class="f2b-modal-head">
@@ -189,10 +239,27 @@ render_layout_start('Fail2ban', 'fail2ban', '<button class="secondary" onclick="
             <label>findtime, мин <input id="f2b-edit-findtime" type="number" min="1" max="1440"></label>
             <label>bantime, мин <input id="f2b-edit-bantime" type="number" min="1" max="525600"></label>
             <label class="f2b-edit-check"><input id="f2b-edit-forever" type="checkbox" onchange="document.getElementById('f2b-edit-bantime').disabled = this.checked"> бан навсегда</label>
+            <label class="f2b-edit-check"><input id="f2b-edit-enabled" type="checkbox" checked> джейл включён</label>
+            <label>ignoreip <input id="f2b-edit-ignoreip" type="text" placeholder="127.0.0.1 10.0.0.0/8"></label>
+            <div class="f2b-managed-meta">Файл <span class="f2b-mono">90-hostmonitor.local</span> будет перезаписан целиком — остальные джейлы берут настройки из своих конфигов.</div>
         </div>
         <div class="f2b-modal-foot">
             <button class="secondary" onclick="f2bCloseEdit()">Отмена</button>
             <button class="primary" onclick="f2bSaveJail()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<div id="f2b-diff-modal" class="f2b-modal" hidden>
+    <div class="f2b-modal-box" style="width: min(780px, calc(100vw - 32px));">
+        <div class="f2b-modal-head">
+            <span id="f2b-diff-title">Предпросмотр правил</span>
+            <button class="secondary" onclick="f2bCloseDiff()">&times;</button>
+        </div>
+        <div id="f2b-diff-body" class="f2b-diff"></div>
+        <div class="f2b-modal-foot">
+            <button class="secondary" onclick="f2bCloseDiff()">Закрыть</button>
+            <button class="primary" id="f2b-diff-apply" onclick="f2bApplyFromDiff()">Применить</button>
         </div>
     </div>
 </div>

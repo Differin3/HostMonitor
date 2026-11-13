@@ -5,6 +5,7 @@
 # потому что sqlite fail2ban хранит баны только сутки (dbpurgeage=1d).
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 import re
@@ -198,6 +199,7 @@ class Fail2banMixin:
                 ban_count += 1
 
         payload['jails'] = jail_rows
+        payload['managed'] = self._f2b_managed_snapshot()
         _log(
             f"fail2ban: {len(jail_rows)} jail(s), {len(payload['bans'])} active ban(s), "
             f"version={payload['version']}",
@@ -230,6 +232,125 @@ class Fail2banMixin:
         self._command_error = message
         _log(f"fail2ban command failed: {message}", level='error')
         return False
+
+    def _f2b_managed_snapshot(self) -> Dict[str, Any]:
+        """Хеш и содержимое managed-файла: панель ловит ручные правки."""
+        path = os.getenv('FAIL2BAN_JAIL_LOCAL', FAIL2BAN_MANAGED_PATH)
+        info: Dict[str, Any] = {
+            'path': path, 'exists': False, 'hash': None, 'content': None, 'mtime': None,
+        }
+        try:
+            with open(path, 'rb') as fh:
+                raw = fh.read(65536)
+            info['exists'] = True
+            info['hash'] = hashlib.sha256(raw).hexdigest()
+            info['content'] = raw.decode('utf-8', 'replace')
+            info['mtime'] = int(os.path.getmtime(path))
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            _log(f'fail2ban managed snapshot failed: {e}', level='warning')
+        return info
+
+    def _f2b_jails_in_text(self, text: str):
+        names = set()
+        for m in re.finditer(r'^\[([^\]]+)\]\s*$', text or '', re.M):
+            name = m.group(1).strip()
+            if name and name != 'DEFAULT':
+                names.add(name)
+        return names
+
+    def _f2b_sync(self, extra: List[str]) -> bool:
+        """fail2ban-sync: применить desired state панели целиком."""
+        client = fail2ban_client_path()
+        if not client:
+            return self._f2b_fail('fail2ban-client не найден на ноде')
+        if extra:
+            return self._f2b_fail('fail2ban-sync не принимает параметров')
+        try:
+            resp = _request_with_retry(
+                'GET',
+                f"{self.master_url}/api/fail2ban.php?action=desired",
+                headers=getattr(self, 'signed_headers', self.headers),
+                verify=_get_verify(),
+                timeout=20,
+            )
+        except Exception as e:
+            return self._f2b_fail(f'не удалось запросить правила: {e}')
+        if not resp or resp.status_code != 200:
+            status = resp.status_code if resp else 'нет ответа'
+            return self._f2b_fail(f'панель вернула {status} при запросе правил')
+        try:
+            data = resp.json()
+        except Exception as e:
+            return self._f2b_fail(f'ответ панели не JSON: {e}')
+        text = data.get('file') if isinstance(data, dict) else None
+        if not isinstance(text, str):
+            return self._f2b_fail('в ответе панели нет поля file')
+        for m in re.finditer(r'^\[([^\]]+)\]\s*$', text, re.M):
+            name = m.group(1).strip()
+            if name != 'DEFAULT' and not FAIL2BAN_JAIL_RE.match(name):
+                return self._f2b_fail(f'недопустимое имя джейла в правилах: {name!r}')
+
+        path = os.getenv('FAIL2BAN_JAIL_LOCAL', FAIL2BAN_MANAGED_PATH)
+        new_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                old_text = fh.read()
+        except FileNotFoundError:
+            old_text = ''
+        if old_text == text:
+            _log('fail2ban: managed file already in sync')
+            return True
+
+        backup = f'{path}.bak' if os.path.isfile(path) else None
+        if backup:
+            shutil.copy2(path, backup)
+        try:
+            if text.strip() == '':
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            else:
+                directory = os.path.dirname(path)
+                if directory:
+                    os.makedirs(directory, exist_ok=True)
+                tmp = f'{path}.tmp'
+                with open(tmp, 'w', encoding='utf-8') as fh:
+                    fh.write(text)
+                os.chmod(tmp, 0o644)
+                os.replace(tmp, path)
+        except Exception as e:
+            return self._f2b_fail(f'не удалось записать {path}: {e}')
+
+        test = self._f2b_run(client, ['-t'], timeout=20)
+        test_out = ((test.stdout or '') + (test.stderr or '')).strip() if test else 'таймаут'
+        if test is None or test.returncode != 0:
+            if backup:
+                shutil.copy2(backup, path)
+            else:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            return self._f2b_fail(f'fail2ban-client -t отклонил конфиг: {test_out}')
+
+        for jail in sorted(self._f2b_jails_in_text(old_text) | self._f2b_jails_in_text(text)):
+            res = self._f2b_run(client, ['reload', jail], timeout=30)
+            if res is None or res.returncode != 0:
+                out = ((res.stdout or '') + (res.stderr or '')).strip() if res else 'таймаут'
+                _log(f'fail2ban reload {jail} failed after sync: {out}', level='warning')
+
+        # Панель должна увидеть результат сразу, а не через 5 минут:
+        # отправляем свежий снимок, чтобы drift/applied_at обновились.
+        try:
+            self.send_fail2ban(self.collect_fail2ban())
+        except Exception as e:
+            _log(f'fail2ban snapshot after sync failed: {e}', level='warning')
+
+        _log(f'fail2ban: managed file applied ({new_hash[:12]})')
+        return True
 
     def _f2b_managed_read(self, path: str):
         """Прочитать наш jail.d/*.local: секции и порядок их объявления."""
@@ -285,6 +406,8 @@ class Fail2banMixin:
             return self._f2b_fail('fail2ban-client не найден на ноде')
 
         parts = (command or '').split()
+        if parts and parts[0] == 'fail2ban-sync':
+            return self._f2b_sync(parts[1:])
         if len(parts) < 2 or not FAIL2BAN_JAIL_RE.match(parts[1]):
             return self._f2b_fail(f'Некорректная команда fail2ban: {command!r}')
         action, jail = parts[0], parts[1]

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/agent_auth.php';
 require_once __DIR__ . '/../includes/commands.php';
 require_once __DIR__ . '/../includes/fail2ban_actions.php';
+require_once __DIR__ . '/../includes/fail2ban_managed.php';
 
 header('Content-Type: application/json; charset=utf-8');
 $pdo = getDbConnection();
@@ -287,6 +288,17 @@ function f2b_ingest(PDO $pdo, int $nodeId, array $data): array
         throw $e;
     }
 
+    // Managed-файл: хеш и содержимое с диска сравниваем с рендером из БД.
+    if (isset($data['managed']) && is_array($data['managed'])) {
+        $desired = f2b_managed_desired($pdo, $nodeId);
+        f2b_state_save(
+            $pdo,
+            $nodeId,
+            $data['managed'],
+            $desired['text'] === '' ? '' : $desired['hash']
+        );
+    }
+
     return ['ok' => true, 'active_bans' => count($bansIn), 'events' => $newEvents];
 }
 
@@ -313,6 +325,7 @@ function f2b_fill_series(array $rows, string $fromSql, int $days): array
 }
 
 f2b_ensure_schema($pdo);
+f2b_managed_ensure($pdo);
 
 if ($method === 'POST') {
     $raw = file_get_contents('php://input');
@@ -348,6 +361,12 @@ if ($method === 'POST') {
         [$status, $payload] = f2b_action_unban($pdo, $userId, $data);
     } elseif ($action === 'set_param') {
         [$status, $payload] = f2b_action_set_param($pdo, $userId, $data);
+    } elseif ($action === 'save_settings') {
+        [$status, $payload] = f2b_action_save_settings($pdo, $userId, $data);
+    } elseif ($action === 'sync') {
+        [$status, $payload] = f2b_action_sync($pdo, $userId, $data);
+    } elseif ($action === 'delete_settings') {
+        [$status, $payload] = f2b_action_delete_settings($pdo, $userId, $data);
     } else {
         [$status, $payload] = [404, ['error' => 'Unknown action']];
     }
@@ -375,6 +394,7 @@ try {
             'active' => (int)$pdo->query('SELECT COUNT(*) FROM fail2ban_status WHERE active = 1')->fetchColumn(),
             'active_bans' => (int)$pdo->query('SELECT COUNT(*) FROM fail2ban_bans WHERE active = 1')->fetchColumn(),
             'bans_24h' => (int)$stmt24->fetchColumn(),
+            'drift' => (int)$pdo->query('SELECT COUNT(*) FROM fail2ban_managed_state WHERE drift = 1')->fetchColumn(),
         ];
         $sql = "SELECT n.id, n.name, n.host, n.status,
                        s.installed, s.active, s.version, s.jail_count, s.collected_at, s.error,
@@ -475,6 +495,92 @@ try {
             'pages' => $pages,
             'per_page' => $perPage,
         ]);
+        exit;
+    }
+
+    if ($action === 'desired') {
+        // Канал агента: отдаём полный текст managed-файла для применения.
+        if ($nodeInfo === null) {
+            json_error('Forbidden: agent only', 403);
+        }
+        $desired = f2b_managed_desired($pdo, (int)$nodeInfo['id']);
+        echo json_encode([
+            'ok' => true,
+            'file' => $desired['text'],
+            'hash' => $desired['hash'],
+            'jails' => $desired['jails'],
+        ]);
+        exit;
+    }
+
+    if ($action === 'managed') {
+        if (($_SESSION['role'] ?? 'admin') !== 'admin') {
+            json_error('Forbidden: admin required', 403);
+        }
+        $nodesOut = [];
+        $sql = "SELECT n.id, n.name, s.installed
+                  FROM nodes n
+                  LEFT JOIN fail2ban_status s ON s.node_id = n.id
+                 WHERE s.installed = 1
+                    OR EXISTS (SELECT 1 FROM fail2ban_jail_settings js WHERE js.node_id = n.id)
+              ORDER BY n.name";
+        $jailStmt = $pdo->prepare(
+            'SELECT jail, maxretry, findtime, bantime FROM fail2ban_jails WHERE node_id = ? ORDER BY jail'
+        );
+        foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $node) {
+            $nodeId = (int)$node['id'];
+            $settings = f2b_settings_for_node($pdo, $nodeId);
+            $desired = f2b_managed_desired($pdo, $nodeId);
+            $state = f2b_state_for_node($pdo, $nodeId);
+
+            $jailStmt->execute([$nodeId]);
+            $jails = [];
+            foreach ($jailStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $jail = (string)$row['jail'];
+                $jails[] = [
+                    'jail' => $jail,
+                    'maxretry' => $row['maxretry'] !== null ? (int)$row['maxretry'] : null,
+                    'findtime' => $row['findtime'] !== null ? (int)$row['findtime'] : null,
+                    'bantime' => $row['bantime'] !== null ? (int)$row['bantime'] : null,
+                    'managed' => isset($settings[$jail]),
+                    'enabled' => isset($settings[$jail]) ? (int)$settings[$jail]['enabled'] === 1 : true,
+                ];
+            }
+            $settingsOut = [];
+            foreach ($settings as $jail => $row) {
+                $settingsOut[] = [
+                    'jail' => $jail,
+                    'enabled' => (int)$row['enabled'] === 1,
+                    'maxretry' => $row['maxretry'] !== null ? (int)$row['maxretry'] : null,
+                    'findtime' => $row['findtime'] !== null ? (int)$row['findtime'] : null,
+                    'bantime' => $row['bantime'] !== null ? (int)$row['bantime'] : null,
+                    'ignoreip' => (string)($row['ignoreip'] ?? ''),
+                    'updated_by' => $row['updated_by'] !== null ? (int)$row['updated_by'] : null,
+                    'updated_at' => $row['updated_at'],
+                ];
+            }
+
+            $desiredText = $desired['text'];
+            $fileContent = $state !== null && $state['file_content'] !== null ? (string)$state['file_content'] : '';
+            $nodesOut[] = [
+                'node_id' => $nodeId,
+                'node_name' => $node['name'],
+                'installed' => (int)$node['installed'] === 1,
+                'path' => $state['file_path'] ?? '/etc/fail2ban/jail.d/90-hostmonitor.local',
+                'desired_hash' => $desiredText === '' ? null : $desired['hash'],
+                'file_hash' => $state['file_hash'] ?? null,
+                'file_exists' => $state !== null && $state['file_hash'] !== null,
+                'drift' => $state !== null && (int)$state['drift'] === 1,
+                'reported_at' => $state['reported_at'] ?? null,
+                'applied_at' => $state['applied_at'] ?? null,
+                'desired_text' => $desiredText,
+                'file_content' => $fileContent,
+                'diff' => f2b_diff_lines($fileContent, $desiredText),
+                'settings' => $settingsOut,
+                'jails' => $jails,
+            ];
+        }
+        echo json_encode(['nodes' => $nodesOut]);
         exit;
     }
 

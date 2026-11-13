@@ -29,7 +29,7 @@ ALLOWED_COMMAND_PREFIXES = frozenset({
     'reboot', 'shutdown',
     'firewall',
     'upnp',
-    'fail2ban-unban', 'fail2ban-set',
+    'fail2ban-unban', 'fail2ban-set', 'fail2ban-sync',
 })
 
 

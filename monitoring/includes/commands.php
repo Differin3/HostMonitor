@@ -49,6 +49,7 @@ if (!function_exists('command_registry')) {
             // (`fail2ban-unban jail ip`), поэтому action=pull их не теряет.
             'fail2ban-unban'      => ['dangerous' => false, 'max_ttl' => 120,  'label' => 'Fail2ban: разбан IP'],
             'fail2ban-set'        => ['dangerous' => false, 'max_ttl' => 120,  'label' => 'Fail2ban: параметры джейла'],
+            'fail2ban-sync'       => ['dangerous' => false, 'max_ttl' => 120,  'label' => 'Fail2ban: применить правила'],
         ];
     }
 }
